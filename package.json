@@ -39,6 +39,7 @@
     "@nestjs/terminus": "^12.1.0",
     "@nestjs/throttler": "^6.7.1",
     "@scalar/nestjs-api-reference": "^1.2.31",
+    "cencori": "^1.13.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "reflect-metadata": "^0.2.2",
