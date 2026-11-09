@@ -20,6 +20,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const request = context.getRequest<{
       method?: string;
+      path?: string;
       originalUrl?: string;
       requestId?: string;
       url?: string;
@@ -27,6 +28,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = context.getResponse<unknown>();
     const { statusCode, message, data } = describeException(exception);
     const adapter = this.adapterHost.httpAdapter;
+    const requestPath = request.path ?? request.originalUrl ?? request.url;
+    const path = requestPath?.split('?', 1)[0];
 
     if (!(exception instanceof HttpException)) {
       this.logger.error({
@@ -39,7 +42,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
               }
             : String(exception),
         method: request.method,
-        path: request.originalUrl ?? request.url,
+        path,
         requestId: request.requestId,
       });
     }
@@ -49,7 +52,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     adapter.reply(
       response,
       httpResponse(statusCode, message, data, {
-        path: request.originalUrl ?? request.url,
+        path,
         requestId: request.requestId,
         timestamp: new Date().toISOString(),
       }),
