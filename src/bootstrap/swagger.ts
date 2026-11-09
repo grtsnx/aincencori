@@ -173,6 +173,7 @@ export function configureSwagger(
       darkMode: false,
       hideDarkModeToggle: true,
       pageTitle: `${environment.PLATFORM_NAME} API Reference`,
+      showDeveloperTools: 'never',
       sources: apiVersions.map((version, index) => ({
         default: index === 0,
         slug: `v${version}`,
