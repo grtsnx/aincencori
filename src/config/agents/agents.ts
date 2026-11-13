@@ -398,8 +398,10 @@ export function createBotAgent(
     instructions: ({ context }) =>
       [
         bot.instructions,
-        `The user is ${context.user.name}. Show data as widgets when it helps, ` +
-          'and always finish with a short answer in words.',
+        team
+          ? `The user is ${context.user.name}.`
+          : `The user is ${context.user.name}. Show data as widgets when it ` +
+            'helps, and always finish with a short answer in words.',
         'When the user asks you to remember something, or tells you a lasting ' +
           'fact about themselves or their work, you must call save_memory ' +
           'before you reply. Saying you will remember is not enough.',
@@ -408,7 +410,8 @@ export function createBotAgent(
         team &&
           'You are answering as part of a team of bots. Answer the question ' +
             'you were asked, fully and briefly; your answer goes back to the ' +
-            'bot that asked.',
+            'bot that asked. Put the whole result (the full email, list or ' +
+            'text) in your answer as plain text: the other bot sees nothing else.',
         bot.skills.length > 0 &&
           'Your skills (call use_skill with the name to read the steps):\n' +
             bot.skills
@@ -420,7 +423,8 @@ export function createBotAgent(
     tools,
     inputGuardrails: [noSecretsIn],
     outputGuardrails: [noSecretsOut(settings.secrets)],
-    widgets: true,
+    // Widgets are for the user's screen; inside a group the reader is a bot.
+    widgets: !team,
     mcpServers: bot.mcpServers,
   });
 }

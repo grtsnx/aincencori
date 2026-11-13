@@ -72,6 +72,7 @@ Then open the API docs:
   - **Skills**: playbooks it can run. Stored by us, and sent to Cencori for a safety scan and version history.
   - **Routines**: jobs that run on their own (`/v1/routines` with `botId`).
   - **Integrations**: apps it can use.
+- Groups (`/v1/groups`): 2 to 6 of a user's bots on one chat (`POST /v1/chat` with `groupId`). A built-in lead reads each message and asks the bots that fit; the bots can ask each other too. The history shows what each bot said. Bots are asked at most 8 times per message, which keeps cost in check and stops them talking in circles.
 - A bot can rewrite its own instructions when asked; the user approves the change in the chat first.
 - The orchestrator is the default assistant ("Agentic", in `src/config/agents/agents.ts`). It answers first and hands the chat to its helpers or to one of the user's bots (those with a description).
 - The model for all agents is set in one place: `agentModel` (now `gpt-6-luna`) and `agentThinking` in `src/config/agents/limits.ts`. Older OpenAI models (gpt-4.1, gpt-4o, gpt-5) are being shut down, so don't switch back to them.
@@ -101,7 +102,7 @@ Then open the API docs:
 
 ## API docs
 
-The docs are grouped into Auth, Agent Auth, User, Organization, Chat, Routines, Bots, Integrations, MCP and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
+The docs are grouped into Auth, Agent Auth, User, Organization, Chat, Routines, Bots, Groups, Integrations, MCP and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
 
 There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under `/v1/auth` (v2 gets its own when we start v2).
 
