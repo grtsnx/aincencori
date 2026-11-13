@@ -17,14 +17,20 @@ import { UserService } from './user.service.js';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  @ApiOperation({ summary: 'My profile' })
+  @ApiOperation({
+    summary: 'My profile',
+    description: "Returns the signed-in user's profile.",
+  })
   @ApiOkResponse({ type: UserProfileDto })
   @Get()
   profile(@CurrentSession() auth: AuthSession): UserProfileDto {
     return this.userService.profile(auth);
   }
 
-  @ApiOperation({ summary: 'My sign-in methods' })
+  @ApiOperation({
+    summary: 'My sign-in methods',
+    description: "Lists the user's sign-in methods.",
+  })
   @ApiOkResponse({ type: [LinkedAccountDto] })
   @Get('accounts')
   accounts(
@@ -33,7 +39,10 @@ export class UserController {
     return this.userService.accounts(headers);
   }
 
-  @ApiOperation({ summary: 'My sessions' })
+  @ApiOperation({
+    summary: 'My sessions',
+    description: "Lists the user's sessions and marks this one.",
+  })
   @ApiOkResponse({ type: [UserSessionDto] })
   @Get('sessions')
   sessions(

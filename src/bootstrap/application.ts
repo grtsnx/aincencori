@@ -7,7 +7,7 @@ import {
 import { NestFactory } from '@nestjs/core';
 import { AppModule, ObserveInstrument } from '@/app';
 import { validateEnvironment, type Environment } from '@/config/index.js';
-import { authBasePath } from '@/config/better-auth.js';
+import { authBasePath } from '@/config/auth/better-auth.js';
 import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
 import { RequestIdMiddleware } from '@/middleware';
 import { configureSwagger } from './swagger.js';

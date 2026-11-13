@@ -17,7 +17,10 @@ import { AdminService } from './admin.service.js';
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  @ApiOperation({ summary: 'List users' })
+  @ApiOperation({
+    summary: 'List users',
+    description: 'Admins only. Lists users with search and paging.',
+  })
   @ApiOkResponse({ type: UserListDto })
   @Get('users')
   listUsers(

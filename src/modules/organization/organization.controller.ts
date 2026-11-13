@@ -15,14 +15,21 @@ import { OrganizationService } from './organization.service.js';
 export class OrganizationController {
   constructor(private readonly organizationService: OrganizationService) {}
 
-  @ApiOperation({ summary: 'My organizations' })
+  @ApiOperation({
+    summary: 'My organizations',
+    description: 'Lists organizations the user belongs to.',
+  })
   @ApiOkResponse({ type: [OrganizationDto] })
   @Get()
   list(@Headers() headers: IncomingHttpHeaders): Promise<OrganizationDto[]> {
     return this.organizationService.list(headers);
   }
 
-  @ApiOperation({ summary: 'Active organization' })
+  @ApiOperation({
+    summary: 'Active organization',
+    description:
+      'Returns the active organization with members, teams, invites.',
+  })
   @ApiOkResponse({ type: OrganizationDetailsDto })
   @Get('active')
   active(

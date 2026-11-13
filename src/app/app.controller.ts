@@ -5,7 +5,7 @@ import {
   MemoryHealthIndicator,
 } from '@nestjs/terminus';
 import { AppService } from './app.service.js';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '@/middleware';
 
@@ -19,20 +19,45 @@ export class AppController {
     private readonly memory: MemoryHealthIndicator,
   ) {}
 
-  @ApiOperation({ summary: 'Ping' })
+  @ApiOperation({
+    summary: 'Ping',
+    description: 'Confirms the API answers requests.',
+  })
+  @ApiOkResponse({ schema: { type: 'string', example: 'Hello World!' } })
   @Get()
   getHello(): string {
     return this.appService.getHello();
   }
 
-  @ApiOperation({ summary: 'Liveness' })
+  @ApiOperation({
+    summary: 'Liveness',
+    description: 'Shows the process is running.',
+  })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      properties: { status: { type: 'string', example: 'ok' } },
+    },
+  })
   @SkipThrottle()
   @Get('health/live')
   live(): { status: 'ok' } {
     return { status: 'ok' };
   }
 
-  @ApiOperation({ summary: 'Readiness' })
+  @ApiOperation({
+    summary: 'Readiness',
+    description: 'Shows the server can take traffic.',
+  })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      example: {
+        memory_heap: { status: 'up' },
+        memory_rss: { status: 'up' },
+      },
+    },
+  })
   @SkipThrottle()
   @Get('health/ready')
   @HealthCheck({ swaggerDocumentation: false })

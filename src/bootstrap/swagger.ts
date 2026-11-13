@@ -10,10 +10,12 @@ import {
   docSections,
   hiddenPaths,
   userPaths,
-} from '@/config/api-docs.js';
-import { authBasePath } from '@/config/better-auth.js';
+} from '@/config/docs/routes.js';
+import { sampleErrors, sampleValues } from '@/config/docs/samples.js';
+import { authBasePath } from '@/config/auth/better-auth.js';
 import type { Environment } from '@/config/index.js';
 import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
+import { statusType } from '@/middleware';
 
 const apiVersions = ['1', '2'] as const;
 type ApiVersion = (typeof apiVersions)[number];
@@ -47,8 +49,10 @@ function withAuthRoutes(
   auth: Record<string, unknown> | undefined,
 ): OpenAPIObject {
   if (!auth) return document;
-  const paths = (auth.paths ?? {}) as Record<string, Record<string, unknown>>;
-  const components = (auth.components ?? {}) as {
+  // A copy, so filling in examples never changes Better Auth's cached document.
+  const copy = structuredClone(auth);
+  const paths = (copy.paths ?? {}) as Record<string, Record<string, unknown>>;
+  const components = (copy.components ?? {}) as {
     schemas?: Record<string, unknown>;
   };
 
@@ -71,6 +75,9 @@ function withAuthRoutes(
         },
       ]),
     );
+    for (const operation of Object.values(document.paths[fullPath])) {
+      sampleAuthErrors(operation as Schema);
+    }
   }
 
   document.components = {
@@ -83,6 +90,151 @@ function withAuthRoutes(
     },
   };
   return document;
+}
+
+type Schema = Record<string, unknown>;
+
+const isoDate = '2026-11-13T09:30:00.000Z';
+
+// A sample value for a field, from its name, then its type.
+function sampleFor(name: string, schema: Schema): unknown {
+  if (schema.example !== undefined) return schema.example;
+  if (name in sampleValues) return sampleValues[name];
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) {
+    return schema.enum[0];
+  }
+  if (schema.default !== undefined) return schema.default;
+
+  const lower = name.toLowerCase();
+  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+  if (type === 'boolean') return true;
+  if (type === 'integer' || type === 'number') {
+    return /^(exp|iat|nbf|auth_?time)$/i.test(name) ? 1794535800 : 1;
+  }
+  if (type === 'array') {
+    const items = (schema.items ?? {}) as Schema;
+    return items.$ref ? [] : [sampleFor(name.replace(/s$/, ''), items)];
+  }
+  if (type === 'object') return {};
+  if (schema.format === 'date-time' || /(At|_at)$/.test(name)) return isoDate;
+  if (/email/.test(lower)) return 'ada@example.com';
+  if (/(url|uri)$/.test(lower)) return 'https://app.example.com';
+  if (/(id|_id)$/.test(lower)) return 'kq3F9aB2xY7pLm1n';
+  if (/token/.test(lower)) return 'h4Lz8QmVr2NcY7pKs1WdE6tXb3Gu9JfA';
+  if (/secret/.test(lower)) return 'secret_9Wd2Hs7Q';
+  return 'example';
+}
+
+// Puts a sample value on every field of every schema that has none.
+function fillExamples(node: unknown): void {
+  if (Array.isArray(node)) {
+    node.forEach(fillExamples);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  const schema = node as Schema;
+
+  const properties = schema.properties as Record<string, Schema> | undefined;
+  if (properties) {
+    for (const [name, property] of Object.entries(properties)) {
+      if (property && !property.$ref && property.example === undefined) {
+        const value = sampleFor(name, property);
+        if (value !== undefined) property.example = value;
+      }
+    }
+  }
+
+  // Query and path parameters.
+  const parameters = schema.parameters as
+    { name: string; example?: unknown; schema?: Schema }[] | undefined;
+  for (const parameter of parameters ?? []) {
+    if (parameter.example === undefined) {
+      parameter.example = sampleFor(parameter.name, parameter.schema ?? {});
+    }
+  }
+
+  for (const value of Object.values(schema)) fillExamples(value);
+}
+
+// Example error body for Better Auth routes: { "message": "..." }.
+function sampleAuthErrors(operation: Schema): void {
+  const responses = (operation.responses ?? {}) as Record<string, Schema>;
+  for (const [status, response] of Object.entries(responses)) {
+    if (Number(status) < 400) continue;
+    const content = response.content as Record<string, Schema> | undefined;
+    const json = content?.['application/json'];
+    if (json) json.example = { message: sampleErrors[status] ?? 'Error' };
+  }
+}
+
+// Our routes return { statusCode, statusType, message, data } (see the
+// response interceptor) and errors with path, requestId and timestamp.
+// Shows that real shape, with samples, on every Nest route.
+function sampleNestResponses(document: OpenAPIObject): void {
+  const errorExample = (status: number, message: string, path: string) => ({
+    statusCode: status,
+    statusType: statusType(status),
+    message,
+    path,
+    requestId: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f',
+    timestamp: isoDate,
+  });
+  const errorResponse = (status: number, message: string, path: string) => ({
+    description: message,
+    content: {
+      'application/json': { example: errorExample(status, message, path) },
+    },
+  });
+
+  for (const [path, operations] of Object.entries(document.paths)) {
+    if (!/^\/v\d+(\/|$)/.test(path)) continue;
+    for (const operation of Object.values(operations) as Schema[]) {
+      const responses = (operation.responses ?? {}) as Record<string, Schema>;
+      const isPublic = (operation.tags as string[] | undefined)?.includes(
+        'Server',
+      );
+
+      for (const [status, response] of Object.entries(responses)) {
+        const code = Number(status);
+        if (code < 200 || code >= 300) continue;
+        const content = response.content as Record<string, Schema> | undefined;
+        const data = content?.['application/json']?.schema ?? {};
+        response.description ||= 'Success';
+        response.content = {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                statusCode: { type: 'integer', example: code },
+                statusType: { type: 'string', example: statusType(code) },
+                message: { type: 'string', example: 'Success' },
+                data,
+              },
+            },
+          },
+        };
+      }
+
+      const hasInput = ((operation.parameters as unknown[]) ?? []).length > 0;
+      if (hasInput) {
+        responses['400'] ??= errorResponse(
+          400,
+          'limit must not be greater than 100',
+          path,
+        );
+      }
+      if (!isPublic) {
+        responses['401'] ??= errorResponse(401, 'Sign in to continue.', path);
+      }
+      responses['429'] ??= errorResponse(
+        429,
+        'ThrottlerException: Too Many Requests',
+        path,
+      );
+      responses['500'] ??= errorResponse(500, 'Internal server error', path);
+      operation.responses = responses;
+    }
+  }
 }
 
 export function configureSwagger(
@@ -108,10 +260,12 @@ export function configureSwagger(
         ([path]) => path === prefix || path.startsWith(`${prefix}/`),
       ),
     );
-    // Better Auth's routes are not versioned, so they live in v1.
-    return version === '1'
-      ? withAuthRoutes(document, betterAuth.openApiDocument())
-      : document;
+    sampleNestResponses(document);
+    // Better Auth's routes are not versioned, so every version lists them.
+    withAuthRoutes(document, betterAuth.openApiDocument());
+    fillExamples(document.paths);
+    fillExamples(document.components);
+    return document;
   };
 
   const freshDocument = (

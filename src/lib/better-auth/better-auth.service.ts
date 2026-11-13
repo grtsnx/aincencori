@@ -6,7 +6,10 @@ import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { randomBytes } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
-import { createAuthOptions, type AuthSettings } from '@/config/better-auth.js';
+import {
+  createAuthOptions,
+  type AuthSettings,
+} from '@/config/auth/better-auth.js';
 import type { PrismaClient } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
