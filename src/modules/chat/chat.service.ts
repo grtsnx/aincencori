@@ -539,6 +539,8 @@ export class ChatService implements OnModuleInit {
       title?: string;
       routineId?: string;
       stopNote?: string;
+      // The answer will be read aloud (a voice call): short, no formatting.
+      spoken?: boolean;
     },
   ): Promise<{
     chatId: string;
@@ -559,7 +561,18 @@ export class ChatService implements OnModuleInit {
       botId: input.botId,
       groupId: input.groupId,
     });
-    const result = await this.cencori.agentRun(agent, input.message, {
+    const speaker = input.spoken
+      ? agent.clone({
+          instructions: async (runContext) =>
+            `${(await agent.resolveInstructions(runContext)) ?? ''}\n\n` +
+            'This is a live voice call: your answer is read aloud. Speak ' +
+            'like a person on the phone: one to three short sentences, no ' +
+            'lists, no headings, no symbols, no widgets. Offer to send ' +
+            'long things (like a full email) in the chat instead.',
+          widgets: false,
+        })
+      : agent;
+    const result = await this.cencori.agentRun(speaker, input.message, {
       context: this.context(user),
       user: user.id,
       sessionId: input.chatId,

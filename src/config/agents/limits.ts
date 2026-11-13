@@ -45,10 +45,11 @@ export const maxGroupAsks = 8;
 // Steps one bot may take to answer a question inside a group.
 export const maxGroupBotTurns = 4;
 
-// Voice messages: the speech models (from Cencori's voice catalog), the
-// default voice, and the biggest recording we accept.
-export const speechToTextModel = 'whisper-1';
-export const textToSpeechModel = 'tts-1';
-export const defaultVoice = 'alloy';
-export const maxAudioBytes = 10 * 1_048_576;
-export const maxSpokenChars = 4_000;
+// Live voice calls (LiveKit). The worker that joins calls goes by this name,
+// and uses these speech models from LiveKit Inference.
+export const voiceAgentName = 'agentic-voice';
+export const voiceSttModel = 'assemblyai/universal-3-6-pro';
+export const voiceTtsModel = 'fishaudio/s2.1-pro';
+export const voiceTtsVoice = 'fa4c9eb3dccc4806b382b40d61c6b10a';
+// A call ticket works for this long; the call itself can run longer.
+export const voiceTicketSeconds = 10 * 60;

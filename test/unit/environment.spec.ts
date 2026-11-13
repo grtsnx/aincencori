@@ -61,6 +61,19 @@ describe('validateEnvironment', () => {
     ).toThrow(/REDIS_URL/);
   });
 
+  it('needs all three LiveKit settings together, or none', () => {
+    expect(() =>
+      validateEnvironment({ LIVEKIT_URL: 'wss://x.livekit.cloud' }),
+    ).toThrow(/LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET together/);
+    expect(
+      validateEnvironment({
+        LIVEKIT_URL: 'wss://x.livekit.cloud',
+        LIVEKIT_API_KEY: 'key',
+        LIVEKIT_API_SECRET: 'secret',
+      }).LIVEKIT_URL,
+    ).toBe('wss://x.livekit.cloud');
+  });
+
   it('disables Swagger by default in production', () => {
     expect(validateEnvironment(production).SWAGGER_ENABLED).toBe(false);
   });

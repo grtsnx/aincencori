@@ -25,6 +25,8 @@
     "start:prod": "node dist/main",
     "start:worker": "node --watch-path=dist --env-file=.env --enable-source-maps dist/worker.js",
     "start:worker:prod": "node --enable-source-maps dist/worker.js",
+    "start:voice": "node --env-file=.env --enable-source-maps dist/voice-worker.js dev",
+    "start:voice:prod": "node --enable-source-maps dist/voice-worker.js start",
     "lint": "oxlint src/ test/",
     "typecheck": "tsc --noEmit --incremental false -p tsconfig.json",
     "test": "NODE_ENV=test vitest run",

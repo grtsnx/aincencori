@@ -110,12 +110,6 @@ export function configureApplication(
     express.json({ limit: 25 * 1_048_576 }),
     authBodyLimitError,
   );
-  // Voice recordings (up to 10 MB, as a data URL).
-  server.post(
-    '/v1/voice/transcribe',
-    express.json({ limit: 15 * 1_048_576 }),
-    authBodyLimitError,
-  );
   server.all('/.well-known/{*any}', handler);
 
   app.useGlobalPipes(

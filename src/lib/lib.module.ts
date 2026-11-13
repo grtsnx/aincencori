@@ -3,6 +3,7 @@ import { BetterAuthModule } from './better-auth/better-auth.module.js';
 import { CencoriModule } from './cencori/cencori.module.js';
 import { EmailModule } from './email/email.module.js';
 import { GravatarModule } from './gravatar/gravatar.module.js';
+import { LivekitModule } from './livekit/livekit.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { R2Module } from './r2/r2.module.js';
 import { RedisModule } from './redis/redis.module.js';
@@ -13,6 +14,7 @@ import { BullmqModule } from './bullmq/bullmq.module.js';
     PrismaModule,
     RedisModule,
     R2Module,
+    LivekitModule,
     BullmqModule,
     EmailModule,
     GravatarModule,
@@ -23,6 +25,7 @@ import { BullmqModule } from './bullmq/bullmq.module.js';
     PrismaModule,
     RedisModule,
     R2Module,
+    LivekitModule,
     BullmqModule,
     EmailModule,
     GravatarModule,

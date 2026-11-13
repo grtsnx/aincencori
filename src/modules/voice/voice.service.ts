@@ -1,115 +1,59 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
-  ServiceUnavailableException,
+  NotFoundException,
 } from '@nestjs/common';
-import {
-  defaultVoice,
-  maxAudioBytes,
-  speechToTextModel,
-  textToSpeechModel,
-} from '@/config/agents/limits.js';
-import type {
-  SpeakDto,
-  TranscribeDto,
-  TranscriptDto,
-  VoiceListDto,
-} from '@/dto';
-import { CencoriService } from '@/lib/cencori/cencori.service.js';
+import { randomUUID } from 'node:crypto';
+import { voiceAgentName, voiceTicketSeconds } from '@/config/agents/limits.js';
+import type { StartCallDto, VoiceCallDto } from '@/dto';
+import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
+import { LivekitService } from '@/lib/livekit/livekit.service.js';
+import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
-// Voice messages. The app records the user, we turn the recording into text
-// (transcribe); the text goes to the chat like any message; the answer can
-// be read aloud (speak). Nothing is stored: audio comes in, text or audio
-// goes out. Live calls (talking over each other, like a phone) are a
-// different thing and not built.
+// Live voice calls: the user talks with the default assistant, one of their
+// bots or one of their groups, like a phone call. We give the app a ticket
+// for a private LiveKit room; our voice worker joins it, turns speech into
+// text, asks the bot through the normal chat (so memories, skills and
+// integrations all apply, and the call is saved as a chat), and speaks the
+// answer.
 @Injectable()
 export class VoiceService {
-  private readonly logger = new Logger(VoiceService.name);
-  private voicesCache?: { at: number; voices: string[] };
+  constructor(
+    private readonly livekit: LivekitService,
+    private readonly prisma: PrismaService,
+  ) {}
 
-  constructor(private readonly cencori: CencoriService) {}
-
-  // A recording in, its words out.
-  async transcribe(body: TranscribeDto): Promise<TranscriptDto> {
-    const [header, data] = body.audio.split(',', 2);
-    const contentType = header.slice('data:'.length).split(';')[0];
-    const bytes = Buffer.from(data ?? '', 'base64');
-    if (bytes.length === 0) {
-      throw new BadRequestException('The recording is empty.');
+  async startCall(
+    auth: AuthSession,
+    body: StartCallDto,
+  ): Promise<VoiceCallDto> {
+    const userId = auth.user.id;
+    if (body.botId && body.groupId) {
+      throw new BadRequestException('Choose a bot or a group, not both.');
     }
-    if (bytes.length > maxAudioBytes) {
-      throw new BadRequestException(
-        'The recording is too big (10 MB at most).',
-      );
+    // Only the user's own bot or group, and only one that is on.
+    if (body.botId) {
+      const bot = await this.prisma.db.bot.findFirst({
+        where: { id: body.botId, userId, enabled: true },
+        select: { id: true },
+      });
+      if (!bot) throw new NotFoundException('Bot not found.');
     }
-    const extension = contentType.split('/')[1]?.split(/[+;]/)[0] || 'webm';
-    const result = await this.call(() =>
-      this.cencori.voiceTranscribe({
-        audio: new Blob([bytes], { type: contentType }),
-        filename: `voice.${extension}`,
-        model: speechToTextModel,
-        language: body.language,
-      }),
-    );
-    return {
-      text: result.text.trim(),
-      language: result.language ?? null,
-      seconds: result.duration ?? null,
-    };
-  }
-
-  // Text in, an MP3 of it out.
-  async speak(body: SpeakDto): Promise<{ audio: Buffer; contentType: string }> {
-    const voice = body.voice ?? defaultVoice;
-    if (!(await this.voices()).voices.includes(voice)) {
-      throw new BadRequestException('Unknown voice. See "List voices".');
+    if (body.groupId) {
+      const group = await this.prisma.db.botGroup.findFirst({
+        where: { id: body.groupId, userId },
+        select: { id: true },
+      });
+      if (!group) throw new NotFoundException('Group not found.');
     }
-    const result = await this.call(() =>
-      this.cencori.voiceSpeak({
-        input: body.text,
-        model: textToSpeechModel,
-        voice,
-        responseFormat: 'mp3',
-      }),
-    );
-    return {
-      audio: Buffer.from(result.audio),
-      contentType: result.contentType || 'audio/mpeg',
-    };
-  }
-
-  // The voices of our speech model. Asked from Cencori at most hourly.
-  async voices(): Promise<VoiceListDto> {
-    if (!this.voicesCache || Date.now() - this.voicesCache.at > 3_600_000) {
-      let voices = [defaultVoice];
-      if (this.cencori.isConfigured) {
-        try {
-          const models = (await this.cencori.voiceListModels()) as {
-            tts: { id: string; voices?: string[] }[];
-          };
-          const found = models.tts.find((m) => m.id === textToSpeechModel);
-          if (found?.voices?.length) voices = found.voices;
-        } catch {
-          // Cencori is away: only the default voice is offered for now.
-          return { voices, defaultVoice };
-        }
-      }
-      this.voicesCache = { at: Date.now(), voices };
-    }
-    return { voices: this.voicesCache.voices, defaultVoice };
-  }
-
-  // Cencori being off, away or out of credit is "try later", not our bug.
-  private async call<T>(work: () => Promise<T>): Promise<T> {
-    try {
-      return await work();
-    } catch (error) {
-      if (error instanceof ServiceUnavailableException) throw error;
-      this.logger.warn(`Voice failed: ${(error as Error).message}`);
-      throw new ServiceUnavailableException(
-        'Voice is not available right now. Please try again later.',
-      );
-    }
+    return this.livekit.ticket({
+      // A fresh room per call, so nobody can guess or reuse it.
+      room: `call-${randomUUID()}`,
+      identity: userId,
+      name: auth.user.name,
+      agentName: voiceAgentName,
+      details: { userId, botId: body.botId, groupId: body.groupId },
+      seconds: voiceTicketSeconds,
+    });
   }
 }

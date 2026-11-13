@@ -5,7 +5,7 @@ Follow these rules exactly. If a change doesn't fit them, ask before breaking on
 ## Folder layout (NestJS)
 
 - `src/modules/<name>/`: one feature. **Exactly 3 files**: `<name>.service.ts`, `<name>.controller.ts`, `<name>.module.ts`. Nothing else in the folder.
-- `src/lib/<name>/`: one outside tool or service we wrap, named after it (Better Auth, Prisma, email, Cencori, BullMQ, Redis, R2). **Exactly 2 files**: `<name>.module.ts`, `<name>.service.ts`. Nothing else in the folder. Helpers, tokens, types or extra services do not go here.
+- `src/lib/<name>/`: one outside tool or service we wrap, named after it (Better Auth, Prisma, email, Cencori, BullMQ, Redis, R2, LiveKit). **Exactly 2 files**: `<name>.module.ts`, `<name>.service.ts`. Nothing else in the folder. Helpers, tokens, types or extra services do not go here.
 - `src/dto/<feature>/*.dto.ts`: request and response shapes, grouped by feature. **One** `src/dto/index.ts` at the root exports them all (imported as `@/dto`). No index files inside feature folders.
 - `src/config/`: settings, grouped by topic in folders (`config/auth/`, `config/docs/`, `config/email/`). `environment.ts` and `index.ts` stay at the root.
 - `src/middleware/`: guards, decorators, filters, interceptors, and shared helpers in `middleware/commons/` (for example hashing and token encryption).

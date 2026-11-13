@@ -1,74 +1,40 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
-export class TranscribeDto {
-  @ApiProperty({
+export class StartCallDto {
+  @ApiPropertyOptional({
     description:
-      'The recording as a data URL (mp3, wav, webm, m4a, ogg), up to 10 MB',
-    example: 'data:audio/webm;base64,GkXfo59ChoEBQveBAULygQRC84EI',
-  })
-  @IsString()
-  @Matches(/^data:audio\/[\w.+-]+(;[\w=.+-]+)*;base64,/, {
-    message: 'audio must be an audio data URL',
-  })
-  audio: string;
-
-  @ApiPropertyOptional({
-    description: 'The spoken language as a two-letter code, if known',
-    example: 'en',
+      'Talk to one of your bots. Leave out for the default assistant',
+    example: '3f9aB2xY-7aae-4ca4-86fd-933f1a45603f',
   })
   @IsOptional()
   @IsString()
-  @Matches(/^[a-z]{2}$/, { message: 'language must be a two-letter code' })
-  language?: string;
-}
-
-export class TranscriptDto {
-  @ApiProperty({ example: 'Write a short sales email to Chidi.' })
-  text: string;
-
-  @ApiProperty({ type: String, nullable: true, example: 'en' })
-  language: string | null;
-
-  @ApiProperty({
-    type: Number,
-    nullable: true,
-    description: 'Length of the recording in seconds',
-    example: 3.4,
-  })
-  seconds: number | null;
-}
-
-export class SpeakDto {
-  @ApiProperty({
-    description: 'The text to read aloud, up to 4,000 characters',
-    example: 'Here is the email I wrote for Chidi.',
-  })
-  @IsString()
-  @MinLength(1)
-  @MaxLength(4_000)
-  text: string;
+  @MaxLength(200)
+  botId?: string;
 
   @ApiPropertyOptional({
-    description: 'A voice from "List voices". Leave out for the default',
-    example: 'alloy',
+    description: 'Talk to one of your groups of bots',
+    example: '9c1ad96f-7aae-4ca4-86fd-933f1a45603f',
   })
   @IsOptional()
   @IsString()
-  @MaxLength(60)
-  voice?: string;
+  @MaxLength(200)
+  groupId?: string;
 }
 
-export class VoiceListDto {
-  @ApiProperty({ type: [String], example: ['alloy', 'echo', 'nova'] })
-  voices: string[];
+export class VoiceCallDto {
+  @ApiProperty({
+    description: 'The LiveKit server to connect to',
+    example: 'wss://agentic.livekit.cloud',
+  })
+  url: string;
 
-  @ApiProperty({ example: 'alloy' })
-  defaultVoice: string;
+  @ApiProperty({
+    description: 'Give this to the LiveKit client to join. Good for 10 minutes',
+    example: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJrcTNGOWFCMnhZN3BMbTFuIn0.c2lnbg',
+  })
+  token: string;
+
+  @ApiProperty({ example: 'call-7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
+  room: string;
 }

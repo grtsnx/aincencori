@@ -202,6 +202,16 @@ const environmentSchema = z
     RECAPTCHA_SECRET_KEY: optionalString(),
     SENDBYTE_API_KEY: optionalString(),
     CENCORI_API_KEY: optionalString(),
+    LIVEKIT_URL: optionalString().pipe(
+      z
+        .string()
+        .regex(/^wss?:\/\//, {
+          error: 'LIVEKIT_URL must be a ws:// or wss:// URL',
+        })
+        .optional(),
+    ),
+    LIVEKIT_API_KEY: optionalString(),
+    LIVEKIT_API_SECRET: optionalString(),
     SMTP_HOST: optionalString(),
     SMTP_PORT: z.preprocess(
       (value) =>
@@ -215,6 +225,19 @@ const environmentSchema = z
     MAIL_REPLY_TO: optionalString(),
   })
   .superRefine((environment, context) => {
+    // Voice calls: all three LiveKit settings, or none.
+    const liveKit = [
+      environment.LIVEKIT_URL,
+      environment.LIVEKIT_API_KEY,
+      environment.LIVEKIT_API_SECRET,
+    ].filter(Boolean).length;
+    if (liveKit !== 0 && liveKit !== 3) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET together, or none',
+      });
+    }
     if (environment.NODE_ENV === 'production') {
       for (const key of [
         'DATABASE_URL',
@@ -334,6 +357,9 @@ export interface Environment {
   RECAPTCHA_SECRET_KEY?: string;
   SENDBYTE_API_KEY?: string;
   CENCORI_API_KEY?: string;
+  LIVEKIT_URL?: string;
+  LIVEKIT_API_KEY?: string;
+  LIVEKIT_API_SECRET?: string;
   SMTP_HOST: string;
   SMTP_PORT: number;
   SMTP_SECURE: boolean;

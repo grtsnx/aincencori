@@ -207,34 +207,19 @@ describe('Chat (e2e)', () => {
       expect(r2.has(key)).toBe(false);
     });
 
-    it('checks voice requests before using Cencori', async () => {
+    it('answers 503 for voice calls until LiveKit is set up', async () => {
       const server = app.getHttpServer();
-      await request(server).get('/v1/voice/voices').expect(401);
-      const voices = await request(server)
-        .get('/v1/voice/voices')
-        .set('Cookie', cookies)
-        .expect(200);
-      expect(voices.body.data).toEqual({
-        voices: ['alloy'],
-        defaultVoice: 'alloy',
-      });
-
+      await request(server).post('/v1/voice/call').send({}).expect(401);
       await request(server)
-        .post('/v1/voice/transcribe')
+        .post('/v1/voice/call')
         .set('Cookie', cookies)
-        .send({ audio: 'data:image/png;base64,AAAA' })
-        .expect(400);
-      await request(server)
-        .post('/v1/voice/speak')
-        .set('Cookie', cookies)
-        .send({ text: '' })
-        .expect(400);
-      // Cencori is not set up in tests.
-      await request(server)
-        .post('/v1/voice/speak')
-        .set('Cookie', cookies)
-        .send({ text: 'Hello.' })
+        .send({})
         .expect(503);
+      await request(server)
+        .post('/v1/voice/call')
+        .set('Cookie', cookies)
+        .send({ botId: 'not-my-bot' })
+        .expect(404);
     });
 
     it("keeps other people's chats private", async () => {
