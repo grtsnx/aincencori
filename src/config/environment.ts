@@ -164,11 +164,6 @@ const environmentSchema = z
     ),
     // Read by the Prisma CLI only (prisma.config.ts), for migrations.
     DIRECT_DATABASE_URL: optionalString(),
-    DATABASE_POOL_SIZE: z.preprocess(
-      (value) =>
-        typeof value === 'string' && value.trim() === '' ? undefined : value,
-      z.coerce.number().int().min(1).max(200).optional(),
-    ),
     REDIS_URL: optionalString().pipe(
       z
         .string()
@@ -198,7 +193,6 @@ const environmentSchema = z
     RECAPTCHA_SECRET_KEY: optionalString(),
     SENDBYTE_API_KEY: optionalString(),
     CENCORI_API_KEY: optionalString(),
-    CENCORI_AGENT_ID: optionalString(),
     AGENT_MCP_URL: z.preprocess(
       (value) =>
         typeof value === 'string' && value.trim() === '' ? undefined : value,
@@ -317,7 +311,6 @@ export interface Environment {
   SWAGGER_ENABLED: boolean;
   DATABASE_URL?: string;
   DIRECT_DATABASE_URL?: string;
-  DATABASE_POOL_SIZE: number;
   REDIS_URL: string;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
@@ -333,7 +326,6 @@ export interface Environment {
   RECAPTCHA_SECRET_KEY?: string;
   SENDBYTE_API_KEY?: string;
   CENCORI_API_KEY?: string;
-  CENCORI_AGENT_ID?: string;
   AGENT_MCP_URL?: string;
   SMTP_HOST: string;
   SMTP_PORT: number;
@@ -419,7 +411,6 @@ export function validateEnvironment(
     MCP_RESOURCE_URL: `${betterAuthUrl}/mcp`,
     // Locally: the Valkey container from compose.yaml.
     REDIS_URL: parsed.REDIS_URL ?? 'redis://localhost:6380',
-    DATABASE_POOL_SIZE: parsed.DATABASE_POOL_SIZE ?? 10,
     // Locally: the Mailpit container from compose.yaml (inbox at :8025).
     SMTP_HOST: parsed.SMTP_HOST ?? 'localhost',
     SMTP_PORT: smtpPort,

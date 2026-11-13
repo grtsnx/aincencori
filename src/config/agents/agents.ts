@@ -58,8 +58,6 @@ export interface RoutineActions {
 export interface AgentSettings {
   // Never shown to anyone: the answer guardrail blocks replies that contain them.
   secrets: string[];
-  // Optional: an agent built in the Cencori dashboard runs as the main agent.
-  cencoriAgentId?: string;
   // Optional: an MCP server whose tools the agent may use.
   mcpUrl?: string;
   // Tells our team when an agent hands a chat to a person.
@@ -295,7 +293,5 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     mcpServers,
   };
 
-  return settings.cencoriAgentId
-    ? Agent.fromCencori<ChatContext>(settings.cencoriAgentId, options)
-    : new Agent<ChatContext>({ name: 'Agentic', ...options });
+  return new Agent<ChatContext>({ name: 'Agentic', ...options });
 }

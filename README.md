@@ -52,7 +52,7 @@ Then open the API docs:
 - Guardrails block pasted keys and passwords, and any answer that contains one of our secrets.
 - Every message is saved in our own database (`chatMessage`), so the history is ours and we can switch AI providers without losing it. Chats and messages load in small pages.
 - Each chat belongs to the user who started it. Staff with the `chat` permission can read and reply to chats handed to a person, then hand them back.
-- Agents live in `src/config/agents/agents.ts`. Optional: `CENCORI_AGENT_ID` runs an agent built in the Cencori dashboard, `AGENT_MCP_URL` adds an MCP server's tools.
+- Agents live in `src/config/agents/agents.ts`. Optional: `AGENT_MCP_URL` adds an MCP server's tools.
 
 **Routines and background jobs**
 
@@ -74,7 +74,7 @@ Then open the API docs:
 - Run as many API and worker servers as you need; nothing lives inside one server.
 - Sessions are read from Redis (no database read per request) and still saved in Postgres. A role edited straight in the database shows up at the user's next sign-in; changes through the API apply at once.
 - Both rate limits (ours and Better Auth's) count in Redis, so they hold across all servers.
-- The app reaches Postgres through PgBouncer, a connection pooler (locally port 6433), so many servers share a few real connections. Migrations go straight to Postgres with `DIRECT_DATABASE_URL`. Each server keeps `DATABASE_POOL_SIZE` connections to the pooler (default 10).
+- The app reaches Postgres through PgBouncer, a connection pooler (locally port 6433), so many servers share a few real connections. Migrations go straight to Postgres with `DIRECT_DATABASE_URL`. Each server keeps 10 connections to the pooler.
 - Emails go out 10 at a time, so a burst of sign-ups drains fast.
 
 **Security**

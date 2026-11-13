@@ -85,14 +85,12 @@ describe('chat agents', () => {
     ).resolves.toMatchObject({ tripwireTriggered: false });
   });
 
-  it('can run a dashboard agent and use an MCP server', () => {
+  it('can use an MCP server', () => {
     const agent = createChatAgent({
       ...settings,
-      cencoriAgentId: 'agent_123',
       mcpUrl: 'https://mcp.example.com/mcp',
     });
 
-    expect(agent.cencoriAgentId).toBe('agent_123');
     expect(agent.mcpServers).toHaveLength(1);
   });
 });

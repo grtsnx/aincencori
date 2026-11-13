@@ -83,7 +83,6 @@ export class ChatService implements OnModuleInit {
       secrets: secretSettings
         .map((key) => this.config.get<string>(key))
         .filter((value): value is string => Boolean(value)),
-      cencoriAgentId: this.config.get<string>('CENCORI_AGENT_ID'),
       mcpUrl: this.config.get<string>('AGENT_MCP_URL'),
       onHumanHandoff: ({ sessionId, reason }) =>
         this.logger.warn(`Chat ${sessionId} needs a person: ${reason}`),

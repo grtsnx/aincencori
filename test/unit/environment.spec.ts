@@ -60,13 +60,6 @@ describe('validateEnvironment', () => {
     ).toThrow(/REDIS_URL/);
   });
 
-  it('keeps 10 database connections per server unless told otherwise', () => {
-    expect(validateEnvironment({}).DATABASE_POOL_SIZE).toBe(10);
-    expect(
-      validateEnvironment({ DATABASE_POOL_SIZE: '25' }).DATABASE_POOL_SIZE,
-    ).toBe(25);
-  });
-
   it('disables Swagger by default in production', () => {
     expect(validateEnvironment(production).SWAGGER_ENABLED).toBe(false);
   });
