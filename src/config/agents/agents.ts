@@ -4,7 +4,9 @@ import {
   type ToolOptions,
   humanHandoff,
   type InputGuardrail,
+  type MCPCallResult,
   type MCPServer,
+  type MCPTool,
   MCPServerStreamableHttp,
   type OutputGuardrail,
   tool,
@@ -72,18 +74,43 @@ export interface AgentSettings {
   onHumanHandoff: (event: { sessionId: string; reason: string }) => void;
 }
 
-// One of a user's own MCP servers (see modules/integration). Every tool call
-// asks the user first. If the server is down or misbehaves the chat carries
-// on without its tools instead of failing.
+// One of a user's own MCP servers (see modules/integration). Each tool call
+// asks the user first unless their rules allow it; tools they turned off are
+// hidden. What the server answers is marked as outside text. If the server
+// is down or misbehaves the chat carries on without its tools.
 class UserMcpServer extends MCPServerStreamableHttp {
+  constructor(
+    options: ConstructorParameters<typeof MCPServerStreamableHttp>[0],
+    private readonly decide?: (tool: string) => ToolDecision,
+  ) {
+    super(options);
+  }
+
   override async connect(): Promise<void> {
     await super.connect().catch(() => undefined);
   }
 
-  override async listTools(): Promise<
-    Awaited<ReturnType<MCPServerStreamableHttp['listTools']>>
-  > {
-    return super.listTools().catch(() => []);
+  override async listTools(): Promise<MCPTool[]> {
+    const tools = await super.listTools().catch(() => []);
+    return tools.filter((tool) => this.decide?.(tool.name) !== 'deny');
+  }
+
+  override async callTool(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<MCPCallResult> {
+    if (this.decide?.(name) === 'deny') {
+      return { content: [{ type: 'text', text: deniedToolMessage }] };
+    }
+    const result = await super.callTool(name, args);
+    return {
+      ...result,
+      content: result.content?.map((part) =>
+        part.type === 'text' && typeof part.text === 'string'
+          ? { ...part, text: untrusted(`app ${this.name}`, part.text) }
+          : part,
+      ),
+    };
   }
 }
 
@@ -94,19 +121,24 @@ export function userMcpServer(options: {
   fetch: typeof fetch;
   // false: errors are thrown (used to test a connection).
   quiet?: boolean;
+  // The user's standing answer per tool. Default: always ask.
+  decide?: (tool: string) => ToolDecision;
 }): MCPServer {
-  const Server =
-    options.quiet === false ? MCPServerStreamableHttp : UserMcpServer;
-  return new Server({
+  const settings = {
     name: options.name,
     url: options.url,
     headers: options.token
       ? { authorization: `Bearer ${options.token}` }
       : undefined,
     fetch: options.fetch,
-    requireApproval: true,
+    requireApproval: options.decide
+      ? (tool: MCPTool) => options.decide?.(tool.name) === 'ask'
+      : true,
     timeoutMs: 15_000,
-  });
+  };
+  return options.quiet === false
+    ? new MCPServerStreamableHttp(settings)
+    : new UserMcpServer(settings, options.decide);
 }
 
 // ── Tools ────────────────────────────────────────────────────────────────

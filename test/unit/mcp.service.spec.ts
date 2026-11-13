@@ -66,6 +66,8 @@ async function connect() {
     documents as never,
     plans as never,
     marketplace as never,
+    { mine: vi.fn() } as never,
+    { inbox: vi.fn() } as never,
   );
   const server = (
     service as unknown as { serverFor(userId: string): McpServer }
@@ -149,7 +151,7 @@ describe('MCP server', () => {
     ]) {
       expect(names, name).toContain(name);
     }
-    expect(names).toHaveLength(50);
+    expect(names).toHaveLength(52);
     // Nothing from admin, staff or chats handed to a person.
     expect(names.join(' ')).not.toMatch(
       /admin|staff|ban|impersonate|role|reply|release|user_/,

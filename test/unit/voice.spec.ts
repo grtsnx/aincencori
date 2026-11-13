@@ -26,16 +26,24 @@ function voice(found: { bot?: boolean; group?: boolean } = {}) {
     },
   };
   return {
-    service: new VoiceService(new LivekitService(live), prisma as never),
+    service: new VoiceService(
+      new LivekitService(live),
+      prisma as never,
+      allowance as never,
+    ),
     prisma,
   };
 }
+
+// The user still has AI allowance left.
+const allowance = { assertAllowance: () => Promise.resolve() };
 
 describe('voice calls', () => {
   it('answers 503 until LiveKit is set up', async () => {
     const service = new VoiceService(
       new LivekitService(config({})),
       {} as never,
+      allowance as never,
     );
     await expect(service.startCall(auth, {})).rejects.toThrow(
       ServiceUnavailableException,

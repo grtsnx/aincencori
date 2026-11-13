@@ -24,6 +24,8 @@ import { IntegrationService } from '../integration/integration.service.js';
 import { MarketplaceService } from '../marketplace/marketplace.service.js';
 import { PlanService } from '../plan/plan.service.js';
 import { RoutineService } from '../routine/routine.service.js';
+import { ApprovalService } from '../approval/approval.service.js';
+import { UsageService } from '../usage/usage.service.js';
 
 type ToolResult = {
   content: { type: 'text'; text: string }[];
@@ -63,6 +65,8 @@ export class McpService {
     private readonly documents: DocumentService,
     private readonly plans: PlanService,
     private readonly marketplace: MarketplaceService,
+    private readonly usage: UsageService,
+    private readonly approvals: ApprovalService,
   ) {
     // Checks the access token; without a valid one the app is told where to
     // sign in (401 with a WWW-Authenticate header).
@@ -691,6 +695,25 @@ export class McpService {
       { id: z.string().describe('The shared bot id (not the bot id)') },
       { destructiveHint: true },
       ({ id }) => this.marketplace.unpublish(id, owner),
+    );
+
+    // ── Usage and approvals ────────────────────────────────────────────
+
+    tool(
+      'get_usage',
+      "The user's plan, this month's AI spend and what is left.",
+      {},
+      readOnly,
+      () => this.usage.mine(owner),
+    );
+
+    tool(
+      'list_approvals',
+      'Steps the AI stopped at, waiting for the user. The user approves ' +
+        'them in the app; they cannot be approved from here.',
+      {},
+      readOnly,
+      () => this.approvals.inbox(owner),
     );
 
     return server;

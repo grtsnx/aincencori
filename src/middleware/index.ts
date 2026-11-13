@@ -31,4 +31,7 @@ export {
 } from './decorators/index.js';
 export { HttpExceptionFilter } from './filters/index.js';
 export { AuthGuard } from './guards/index.js';
-export { ResponseInterceptor } from './interceptors/index.js';
+export {
+  ActivityInterceptor,
+  ResponseInterceptor,
+} from './interceptors/index.js';

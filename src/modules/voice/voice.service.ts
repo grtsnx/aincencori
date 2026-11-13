@@ -9,6 +9,7 @@ import type { StartCallDto, StartDictationDto, VoiceCallDto } from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { LivekitService } from '@/lib/livekit/livekit.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { UsageService } from '../usage/usage.service.js';
 
 // Voice, two ways. Calls: the user talks with the default assistant, one of their
 // bots or one of their groups, like a phone call. We give the app a ticket
@@ -21,6 +22,7 @@ export class VoiceService {
   constructor(
     private readonly livekit: LivekitService,
     private readonly prisma: PrismaService,
+    private readonly usage: UsageService,
   ) {}
 
   async startCall(
@@ -31,6 +33,7 @@ export class VoiceService {
     if (body.botId && body.groupId) {
       throw new BadRequestException('Choose a bot or a group, not both.');
     }
+    await this.usage.assertAllowance(userId);
     // Only the user's own bot or group, and only one that is on.
     if (body.botId) {
       const bot = await this.prisma.db.bot.findFirst({
@@ -68,6 +71,7 @@ export class VoiceService {
     auth: AuthSession,
     body: StartDictationDto,
   ): Promise<VoiceCallDto> {
+    await this.usage.assertAllowance(auth.user.id);
     return this.livekit.ticket({
       room: `dictate-${randomUUID()}`,
       identity: auth.user.id,

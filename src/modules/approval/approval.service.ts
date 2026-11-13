@@ -111,13 +111,6 @@ export class ApprovalService {
       chatId: null,
       expiresAt: null,
     });
-    this.activity.log({
-      userId,
-      actor: 'user',
-      action: 'rule.set',
-      target: body.tool,
-      detail: `${body.decision}${body.botId ? ' for one bot' : ' everywhere'}`,
-    });
     return rule;
   }
 
@@ -127,16 +120,10 @@ export class ApprovalService {
     });
     if (count === 0) throw new NotFoundException('Rule not found.');
     this.cache.delete(auth.user.id);
-    this.activity.log({
-      userId: auth.user.id,
-      actor: 'user',
-      action: 'rule.removed',
-      target: id,
-    });
   }
 
   // Steps waiting for the user, newest first.
-  async inbox(auth: AuthSession): Promise<PendingApprovalDto[]> {
+  async inbox(auth: { user: { id: string } }): Promise<PendingApprovalDto[]> {
     const rows = await this.prisma.db.pendingApproval.findMany({
       where: {
         userId: auth.user.id,
@@ -160,14 +147,6 @@ export class ApprovalService {
     });
     if (!row) throw new NotFoundException('Approval not found.');
     await this.prisma.db.pendingApproval.delete({ where: { id } });
-    for (const item of row.items as unknown as PendingApprovalItemDto[]) {
-      this.activity.log({
-        userId: auth.user.id,
-        actor: 'user',
-        action: 'approval.dismissed',
-        target: item.toolName,
-      });
-    }
   }
 
   // A run stopped at risky steps: put it in the inbox. A chat has at most

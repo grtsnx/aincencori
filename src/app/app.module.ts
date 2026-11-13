@@ -6,6 +6,7 @@ import { TerminusModule } from '@nestjs/terminus';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnvironment } from '@/config/index.js';
 import {
+  ActivityInterceptor,
   AuthGuard,
   HttpExceptionFilter,
   ResponseInterceptor,
@@ -65,6 +66,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: ActivityInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
   ],
 })

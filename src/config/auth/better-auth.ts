@@ -20,7 +20,11 @@ import {
 import { randomBytes } from 'node:crypto';
 import type { EmailTemplate } from '@/config/email/templates.js';
 import { organizationAc, organizationRoles } from './access.js';
-import { agentAuthPlugin } from './agent.js';
+import {
+  type AgentAuthActivity,
+  type AgentCapabilityRunner,
+  agentAuthPlugin,
+} from './agent.js';
 import { sentinelSecurity } from './sentinel.js';
 
 // Scopes OAuth and MCP apps may ask for (Better Auth's defaults).
@@ -73,6 +77,10 @@ export interface AuthSettings {
   secondaryStorage?: NonNullable<BetterAuthOptions['secondaryStorage']>;
   // Removes what we keep for a user (their chats) when the user is deleted.
   onUserDeleted?: (userId: string) => Promise<void>;
+  // Sign-ins and Agent Auth events, for the activity log.
+  onActivity?: (entry: AgentAuthActivity & { ip?: string | null }) => void;
+  // Runs Agent Auth capabilities the app handles.
+  runAgentCapability?: AgentCapabilityRunner;
   // Argon2id, from lib/hash. Used for every password Better Auth stores.
   passwordHasher: {
     hash(value: string): Promise<string>;
@@ -120,6 +128,20 @@ export function createAuthOptions(settings: AuthSettings) {
         delete: {
           after: async (user) => {
             await settings.onUserDeleted?.(user.id);
+          },
+        },
+      },
+      // Each sign-in goes in the user's activity log.
+      session: {
+        create: {
+          after: async (session) => {
+            settings.onActivity?.({
+              userId: session.userId,
+              actor: 'user',
+              action: 'signed-in',
+              target: null,
+              ip: session.ipAddress ?? null,
+            });
           },
         },
       },
@@ -285,6 +307,8 @@ export function createAuthOptions(settings: AuthSettings) {
         appURL: settings.appURL,
         trustProxy: settings.trustProxy,
         sharedCache: Boolean(settings.secondaryStorage),
+        runCapability: settings.runAgentCapability,
+        onActivity: settings.onActivity,
       }),
       ...(settings.recaptchaSecretKey
         ? [

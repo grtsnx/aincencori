@@ -42,6 +42,7 @@ export class ActivityService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    this.betterAuth.useActivity((entry) => this.log(entry));
     this.bullmq.handle(purgeActivityJob, () => this.purge());
     await this.bullmq
       .schedule(

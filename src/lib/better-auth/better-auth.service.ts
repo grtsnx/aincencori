@@ -9,6 +9,7 @@ import {
   createAuthOptions,
   type AuthSettings,
 } from '@/config/auth/better-auth.js';
+import type { AgentCapabilityRunner } from '@/config/auth/agent.js';
 import type { PrismaClient } from '@/generated/prisma/client.js';
 import { EmailService } from '@/lib/email/email.service.js';
 import {
@@ -58,6 +59,9 @@ export class BetterAuthService implements OnModuleInit {
   // Express handler for every Better Auth route.
   readonly handler: ReturnType<typeof toNodeHandler>;
   private readonly logger = new Logger(BetterAuthService.name);
+  // Set by the activity and agent-auth modules when the app starts.
+  private activitySink?: AuthSettings['onActivity'];
+  private capabilityRunner?: AgentCapabilityRunner;
 
   constructor(
     private readonly config: ConfigService,
@@ -154,6 +158,13 @@ export class BetterAuthService implements OnModuleInit {
           await bullmq.add(deleteBotAgentJob, { agentId: bot.cencoriAgentId });
         }
       },
+      onActivity: (entry) => this.activitySink?.(entry),
+      runAgentCapability: (capability, userId, args) => {
+        if (!this.capabilityRunner) {
+          throw new Error('Agent capabilities are not ready.');
+        }
+        return this.capabilityRunner(capability, userId, args);
+      },
       profileImage: (address) =>
         nodeEnv === 'test'
           ? Promise.resolve(
@@ -162,6 +173,16 @@ export class BetterAuthService implements OnModuleInit {
           : gravatar.profileImage(address),
     });
     this.handler = toNodeHandler(this.auth);
+  }
+
+  // The activity module hands over where sign-ins are logged.
+  useActivity(sink: NonNullable<AuthSettings['onActivity']>): void {
+    this.activitySink = sink;
+  }
+
+  // The agent-auth module hands over how capabilities run.
+  useAgentCapabilities(runner: AgentCapabilityRunner): void {
+    this.capabilityRunner = runner;
   }
 
   // The signed-in user and session for a request, or null.

@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  type OnModuleInit,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { type AgentSession, verifyAgentRequest } from '@better-auth/agent-auth';
 import type { IncomingHttpHeaders } from 'node:http';
@@ -10,16 +15,90 @@ import type {
   AgentSessionDto,
 } from '@/dto';
 import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
+import { BotService } from '../bot/bot.service.js';
+import { ChatService } from '../chat/chat.service.js';
+import { DocumentService } from '../document/document.service.js';
+import { PlanService } from '../plan/plan.service.js';
+import { UsageService } from '../usage/usage.service.js';
+
+// A text argument an agent sent, checked.
+function text(
+  args: Record<string, unknown>,
+  name: string,
+  max: number,
+  required = true,
+): string | undefined {
+  const value = args[name];
+  if (value === undefined || value === null || value === '') {
+    if (required) throw new BadRequestException(`${name} is required.`);
+    return undefined;
+  }
+  if (typeof value !== 'string' || value.length > max) {
+    throw new BadRequestException(`${name} must be text, at most ${max} long.`);
+  }
+  return value;
+}
 
 // AI agents: discovery, capabilities, and who an agent is acting for.
 // Registering agents, requesting and approving capabilities, and running them
 // go through Better Auth's Agent Auth routes under /v1/auth.
 @Injectable()
-export class AgentAuthService {
+export class AgentAuthService implements OnModuleInit {
   constructor(
     private readonly betterAuth: BetterAuthService,
     private readonly config: ConfigService,
+    private readonly chats: ChatService,
+    private readonly bots: BotService,
+    private readonly documents: DocumentService,
+    private readonly plans: PlanService,
+    private readonly usage: UsageService,
   ) {}
+
+  onModuleInit(): void {
+    this.betterAuth.useAgentCapabilities((capability, userId, args) =>
+      this.run(capability, userId, args),
+    );
+  }
+
+  // Runs a capability the user granted, as that user: the same checks and
+  // limits as their own requests (allowance, rules for risky steps).
+  private async run(
+    capability: string,
+    userId: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    const owner = { user: { id: userId } } as never;
+    switch (capability) {
+      case 'list_bots': {
+        const bots = await this.bots.list(owner, { limit: 100 });
+        return bots.map(({ id, name, description, enabled }) => ({
+          id,
+          name,
+          description,
+          enabled,
+        }));
+      }
+      case 'ask':
+        return this.chats.ask(userId, {
+          message: text(args, 'message', 8000) as string,
+          botId: text(args, 'botId', 200, false),
+          chatId: text(args, 'chatId', 200, false),
+        });
+      case 'search_documents':
+        return this.documents.search(owner, {
+          q: text(args, 'query', 500) as string,
+        });
+      case 'start_plan':
+        return this.plans.create(owner, {
+          goal: text(args, 'goal', 4000) as string,
+          botId: text(args, 'botId', 200, false),
+        });
+      case 'get_usage':
+        return this.usage.mine(owner);
+      default:
+        throw new BadRequestException(`Unknown capability: ${capability}`);
+    }
+  }
 
   // The discovery document agents read first.
   async configuration(): Promise<AgentConfigurationDto> {

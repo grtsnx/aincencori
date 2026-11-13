@@ -21,7 +21,6 @@ import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { assertStaff, type ModelUsage } from '@/middleware';
-import { ActivityService } from '../activity/activity.service.js';
 
 // What kind of work a run was, from the metadata it was started with.
 export function usageKind(metadata?: Record<string, string>): string {
@@ -54,7 +53,6 @@ export class UsageService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly cencori: CencoriService,
     private readonly betterAuth: BetterAuthService,
-    private readonly activity: ActivityService,
   ) {}
 
   onModuleInit(): void {
@@ -95,7 +93,7 @@ export class UsageService implements OnModuleInit {
   }
 
   // The signed-in user's plan and this month's usage.
-  mine(auth: AuthSession): Promise<UsageDto> {
+  mine(auth: { user: { id: string } }): Promise<UsageDto> {
     return this.summary(auth.user.id);
   }
 
@@ -175,16 +173,6 @@ export class UsageService implements OnModuleInit {
       update: data,
     });
     await this.syncPlan(userId, body.plan);
-    this.activity.log({
-      userId,
-      actor: `staff:${auth.user.id}`,
-      action: 'plan.changed',
-      target: body.plan,
-      detail:
-        typeof body.monthlyLimitUsd === 'number'
-          ? `Allowance set to $${body.monthlyLimitUsd} a month.`
-          : null,
-    });
     return this.summary(userId);
   }
 

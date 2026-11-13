@@ -27,6 +27,7 @@ import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { assertPublicUrl, safeFetch, UnsafeUrlError } from '@/middleware';
+import { ApprovalService } from '../approval/approval.service.js';
 
 interface Owner {
   user: { id: string };
@@ -73,6 +74,7 @@ export class IntegrationService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly cencori: CencoriService,
     private readonly bullmq: BullmqService,
+    private readonly approvals: ApprovalService,
   ) {
     this.allowPrivate = config.get<string>('NODE_ENV') !== 'production';
     this.fetch = safeFetch(this.allowPrivate);
@@ -410,6 +412,9 @@ export class IntegrationService implements OnModuleInit {
         : undefined,
       fetch: this.fetch,
       quiet,
+      // Rules are read fresh before each chat turn.
+      decide: (tool) =>
+        this.approvals.cachedDecision(integration.userId, tool),
     });
   }
 
