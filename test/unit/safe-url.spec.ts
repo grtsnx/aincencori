@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   assertPublicUrl,
   safeFetch,
@@ -51,5 +51,27 @@ describe('assertPublicUrl', () => {
     await expect(safeFetch()('https://10.0.0.5/mcp')).rejects.toThrow(
       UnsafeUrlError,
     );
+  });
+
+  it('blocks a DNS rebinding before the request reaches the private address', async () => {
+    const resolve = vi
+      .fn()
+      .mockResolvedValueOnce([{ address: '8.8.8.8', family: 4 }])
+      .mockResolvedValueOnce([{ address: '127.0.0.1', family: 4 }]);
+    vi.doMock('node:dns/promises', () => ({ lookup: resolve }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('ok')));
+    vi.resetModules();
+
+    try {
+      const safeUrl = await import('@/middleware/commons/safe-url.js');
+      await expect(
+        safeUrl.safeFetch()('https://example.com/mcp'),
+      ).rejects.toThrow(safeUrl.UnsafeUrlError);
+      expect(resolve).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.doUnmock('node:dns/promises');
+      vi.resetModules();
+    }
   });
 });

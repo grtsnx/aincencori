@@ -388,11 +388,12 @@ export class ChatService implements OnModuleInit {
     const rules = await this.approvals.rulesFor(userId);
     // The user answered an approval card (here or from the inbox).
     if (turn.approval) {
-      await this.approvals.resolve(
+      const resolved = await this.approvals.resolve(
         userId,
         turn.approval.state,
         turn.approval.decisions,
       );
+      if (!resolved) throw new NotFoundException('Approval not found.');
     }
     // A bot with app connections (Gmail...) starts its chat in a session
     // that carries them, so Cencori can offer those tools.

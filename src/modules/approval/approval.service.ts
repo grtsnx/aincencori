@@ -193,11 +193,22 @@ export class ApprovalService {
     userId: string,
     state: string,
     decisions: Record<string, ApprovalDecision>,
-  ): Promise<void> {
-    const row = await this.prisma.db.pendingApproval.findFirst({
-      where: { userId, state },
+  ): Promise<boolean> {
+    const db = this.prisma.db;
+    const row = await db.pendingApproval.findFirst({
+      where: {
+        userId,
+        state,
+        createdAt: {
+          gt: new Date(Date.now() - pendingApprovalDays * 24 * 60 * 60_000),
+        },
+      },
     });
-    if (!row) return;
+    if (!row) return false;
+    const { count } = await db.pendingApproval.deleteMany({
+      where: { id: row.id, userId, state },
+    });
+    if (count !== 1) return false;
     const items = row.items as unknown as PendingApprovalItemDto[];
     for (const [callId, decision] of Object.entries(decisions)) {
       const item = items.find((candidate) => candidate.callId === callId);
@@ -223,7 +234,7 @@ export class ApprovalService {
             : null,
       });
     }
-    await this.prisma.db.pendingApproval.deleteMany({ where: { id: row.id } });
+    return true;
   }
 
   // One rule per tool and place: a new answer replaces the old one.

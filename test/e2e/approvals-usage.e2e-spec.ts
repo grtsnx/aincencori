@@ -248,6 +248,17 @@ describe('Approvals, usage and activity (e2e)', () => {
         .delete(`/v1/approvals/${waiting.body.data[0].id}`)
         .set('Cookie', cookies)
         .expect(204);
+      await call()
+        .post('/v1/chat')
+        .set('Cookie', cookies)
+        .send({
+          sessionId: 'ses_e2e_2',
+          approval: {
+            state: 'other.state',
+            decisions: { c: { approved: true } },
+          },
+        })
+        .expect(404);
     });
 
     it('shows sign-ins and changes in the activity log', async () => {
