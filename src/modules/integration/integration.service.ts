@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -59,11 +60,11 @@ const ownMcp: IntegrationAppDto = {
 // - Their own MCP server: an address and optional token, kept by us.
 // A bot only gets the integrations its owner picked for it (see modules/bot).
 @Injectable()
-export class IntegrationService implements OnModuleInit {
+export class IntegrationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IntegrationService.name);
   // Only local development may use http and localhost addresses.
   private readonly allowPrivate: boolean;
-  private readonly fetch: typeof fetch;
+  private readonly fetch: ReturnType<typeof safeFetch>;
   // Connected MCP servers, kept while the integration is unchanged, so a
   // chat turn does not ask each server for its tool list again.
   private readonly servers = new Map<string, MCPServer>();
@@ -88,6 +89,10 @@ export class IntegrationService implements OnModuleInit {
         await this.cencori.tenantsRemove(tenantId);
       },
     );
+  }
+
+  onModuleDestroy(): Promise<void> {
+    return this.fetch.close();
   }
 
   // Apps a user can connect: Cencori's, plus their own MCP server.

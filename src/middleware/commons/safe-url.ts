@@ -3,6 +3,7 @@
 // (databases, cloud metadata) and read what comes back.
 import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
+import { Agent, fetch as undiciFetch } from 'undici';
 
 const privateAddresses = new BlockList();
 for (const [network, prefix] of [
@@ -68,13 +69,80 @@ export async function assertPublicUrl(
   return url;
 }
 
-// A fetch that checks the address on every call and never follows redirects
-// (a redirect could lead somewhere private).
-export function safeFetch(allowPrivate = false): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+// Resolves and checks DNS again at connection time, so DNS rebinding cannot
+// change a public address into a private one between the check and the call.
+export function safeFetch(
+  allowPrivate = false,
+): typeof fetch & { close: () => Promise<void> } {
+  const dispatcher = allowPrivate
+    ? undefined
+    : new Agent({
+        connect: {
+          lookup: (hostname, options, callback) => {
+            void lookup(hostname, { all: true, verbatim: true }).then(
+              (addresses) => {
+                const accepted = addresses.filter(
+                  (entry) => !isPrivate(entry.address),
+                );
+                if (
+                  addresses.length === 0 ||
+                  accepted.length !== addresses.length
+                ) {
+                  callback(
+                    new UnsafeUrlError(
+                      'The address must be on the public internet.',
+                    ),
+                    '',
+                    0,
+                  );
+                  return;
+                }
+                const familyMatches = options.family
+                  ? accepted.filter((entry) => entry.family === options.family)
+                  : accepted;
+                if (familyMatches.length === 0) {
+                  callback(new Error('No matching address family.'), '', 0);
+                  return;
+                }
+                if (options.all) callback(null, familyMatches);
+                else
+                  callback(
+                    null,
+                    familyMatches[0].address,
+                    familyMatches[0].family,
+                  );
+              },
+              () =>
+                callback(
+                  new UnsafeUrlError('The address could not be resolved.'),
+                  '',
+                  0,
+                ),
+            );
+          },
+        },
+      });
+  const request = async (input: RequestInfo | URL, init?: RequestInit) => {
     const target =
       typeof input === 'string' || input instanceof URL ? input : input.url;
     await assertPublicUrl(String(target), allowPrivate);
-    return fetch(input, { ...init, redirect: 'error' });
-  }) as typeof fetch;
+    try {
+      return (await undiciFetch(
+        input as unknown as Parameters<typeof undiciFetch>[0],
+        {
+          ...init,
+          redirect: 'error',
+          ...(dispatcher ? { dispatcher } : {}),
+        } as unknown as Parameters<typeof undiciFetch>[1],
+      )) as unknown as Response;
+    } catch (error) {
+      if (error instanceof TypeError && error.cause instanceof UnsafeUrlError) {
+        throw error.cause;
+      }
+      throw error;
+    }
+  };
+  return Object.assign(request as typeof fetch, {
+    close: () => dispatcher?.close() ?? Promise.resolve(),
+  });
 }
