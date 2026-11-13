@@ -265,8 +265,8 @@ export function configureSwagger(
       ),
     );
     sampleNestResponses(document);
-    // Better Auth's routes are not versioned, so every version lists them.
-    withAuthRoutes(document, betterAuth.openApiDocument());
+    // Better Auth lives under /v1/auth, so only v1 lists its routes.
+    if (version === '1') withAuthRoutes(document, betterAuth.openApiDocument());
     fillExamples(document.paths);
     fillExamples(document.components);
     return document;

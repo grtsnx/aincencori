@@ -85,12 +85,15 @@ describe('API docs and versioning (e2e)', () => {
       expect(v2.some((path) => path.startsWith('/v1'))).toBe(false);
     });
 
-    it('lists Better Auth routes in every version', () => {
-      for (const document of Object.values(documents)) {
-        expect(Object.keys(document.paths as Schema)).toContain(
-          '/api/auth/sign-in/email-otp',
-        );
-      }
+    it('lists Better Auth routes in v1 only (they live under /v1/auth)', () => {
+      expect(Object.keys(documents.v1.paths as Schema)).toContain(
+        '/v1/auth/sign-in/email-otp',
+      );
+      expect(
+        Object.keys(documents.v2.paths as Schema).some((path) =>
+          path.startsWith('/v1/'),
+        ),
+      ).toBe(false);
     });
   });
 

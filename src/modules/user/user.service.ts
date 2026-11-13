@@ -9,7 +9,7 @@ import {
 
 // Reads the signed-in user's own data through Better Auth. Changing the
 // profile, email, linked accounts or sessions goes through Better Auth's
-// /api/auth/* routes (update-user, link-social, revoke-session, ...).
+// /v1/auth/* routes (update-user, link-social, revoke-session, ...).
 @Injectable()
 export class UserService {
   constructor(private readonly betterAuth: BetterAuthService) {}

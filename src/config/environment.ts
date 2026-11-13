@@ -179,6 +179,16 @@ const environmentSchema = z
     LINKEDIN_CLIENT_ID: optionalString(),
     LINKEDIN_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
+    RESEND_API_KEY: optionalString(),
+    SMTP_URL: optionalString().pipe(
+      z
+        .string()
+        .regex(/^smtps?:\/\//, {
+          error: 'SMTP_URL must start with smtp:// or smtps://',
+        })
+        .optional(),
+    ),
+    MAIL_FROM: optionalString(),
   })
   .superRefine((environment, context) => {
     if (environment.NODE_ENV === 'production') {
@@ -187,8 +197,8 @@ const environmentSchema = z
         'BETTER_AUTH_SECRET',
         'BETTER_AUTH_URL',
         'APP_URL',
-        // Sends the sign-in codes; without it nobody can sign in with email.
-        'BETTER_AUTH_API_KEY',
+        // The sender address for sign-in codes and invites.
+        'MAIL_FROM',
       ] as const) {
         if (!environment[key]) {
           context.addIssue({
@@ -197,6 +207,15 @@ const environmentSchema = z
             path: [key],
           });
         }
+      }
+
+      // Sign-in codes need a way out: Resend or an SMTP server.
+      if (!environment.RESEND_API_KEY && !environment.SMTP_URL) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Set RESEND_API_KEY or SMTP_URL in production',
+          path: ['SMTP_URL'],
+        });
       }
 
       if (!environment.AUTH_IP_HEADERS) {
@@ -273,6 +292,9 @@ export interface Environment {
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
+  RESEND_API_KEY?: string;
+  SMTP_URL: string;
+  MAIL_FROM: string;
   // Worked out, not set in .env.
   AUTH_IP_HEADERS: string[];
   AUTH_TRUSTED_PROXIES: string[];
@@ -347,5 +369,9 @@ export function validateEnvironment(
     // Passkeys belong to the shared parent domain when there is one.
     PASSKEY_RP_ID: cookieDomain ?? new URL(appUrl).hostname,
     MCP_RESOURCE_URL: `${betterAuthUrl}/mcp`,
+    // Locally: the Mailpit container from compose.yaml (inbox at :8025).
+    SMTP_URL: parsed.SMTP_URL ?? 'smtp://localhost:1025',
+    MAIL_FROM:
+      parsed.MAIL_FROM ?? `${parsed.PLATFORM_NAME} <no-reply@localhost>`,
   };
 }

@@ -9,7 +9,7 @@ export class AgentCapabilityDto {
 }
 
 export class AgentConfigurationDto {
-  @ApiProperty({ example: 'http://localhost:3000/api/auth' })
+  @ApiProperty({ example: 'http://localhost:3000/v1/auth' })
   issuer: string;
 
   @ApiProperty({ example: 'Agentic' })
@@ -24,9 +24,9 @@ export class AgentConfigurationDto {
   @ApiProperty({
     description: 'Absolute URLs of every Agent Auth endpoint',
     example: {
-      register: 'http://localhost:3000/api/auth/agent/register',
-      capabilities: 'http://localhost:3000/api/auth/capability/list',
-      execute: 'http://localhost:3000/api/auth/capability/execute',
+      register: 'http://localhost:3000/v1/auth/agent/register',
+      capabilities: 'http://localhost:3000/v1/auth/capability/list',
+      execute: 'http://localhost:3000/v1/auth/capability/execute',
     },
   })
   endpoints: Record<string, string>;

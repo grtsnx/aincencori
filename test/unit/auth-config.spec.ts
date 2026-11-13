@@ -4,7 +4,7 @@ import {
   type AuthSettings,
 } from '@/config/auth/better-auth.js';
 import { symmetricDecrypt } from 'better-auth/crypto';
-import { encryptOAuthToken } from '@/lib/better-auth/oauth-token-encryption.js';
+import { encryptOAuthToken } from '@/middleware/commons/oauth-tokens.js';
 
 const settings: AuthSettings = {
   appName: 'Agentic',

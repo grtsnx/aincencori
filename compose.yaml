@@ -1,4 +1,4 @@
-# Local Postgres for this project. Start it with `docker compose up -d --wait`.
+# Local Postgres and Mailpit for this project. Start them with `docker compose up -d --wait`.
 # It listens on 5433 so it can run beside other projects that use 5432.
 # The address matches DATABASE_URL in .env.example.
 name: aincencori
@@ -20,6 +20,15 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  # Catches every email locally. Inbox: http://localhost:8025 (SMTP on 1025).
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: aincencori-mailpit
+    ports:
+      - '127.0.0.1:1025:1025'
+      - '127.0.0.1:8025:8025'
     restart: unless-stopped
 
 volumes:

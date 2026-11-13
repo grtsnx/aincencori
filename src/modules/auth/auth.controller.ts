@@ -10,7 +10,7 @@ import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { CurrentSession } from '@/middleware';
 import { AuthService } from './auth.service.js';
 
-// Sign-up, sign-in and sign-out are served by Better Auth under /api/auth.
+// Sign-up, sign-in and sign-out are served by Better Auth under /v1/auth.
 @Controller({ path: 'auth', version: '1' })
 @ApiTags('Auth')
 @ApiCookieAuth()

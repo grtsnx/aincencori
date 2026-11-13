@@ -1,6 +1,5 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { EmailTemplateId } from '@better-auth/infra';
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
@@ -11,9 +10,9 @@ import {
   type AuthSettings,
 } from '@/config/auth/better-auth.js';
 import type { PrismaClient } from '@/generated/prisma/client.js';
-import { HashService } from '@/lib/hash/hash.service.js';
-import { EmailOutboxService } from '@/lib/email/email-outbox.service.js';
+import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { hashValue, verifyHash } from '@/middleware/commons/hash.js';
 
 function createAuth(prisma: PrismaClient, settings: AuthSettings) {
   return betterAuth({
@@ -42,21 +41,16 @@ function lazyClient(prisma: PrismaService): PrismaClient {
 export class BetterAuthService implements OnModuleInit {
   readonly auth: Auth;
   private openApi?: Record<string, unknown>;
-  // Tests only: the last email "sent" to each address.
-  private readonly testEmails = new Map<string, Record<string, string>>();
   // Express handler for every Better Auth route.
   readonly handler: ReturnType<typeof toNodeHandler>;
   private readonly logger = new Logger(BetterAuthService.name);
-  private readonly production: boolean;
 
   constructor(
     private readonly config: ConfigService,
     prisma: PrismaService,
-    hasher: HashService,
-    private readonly emailOutbox: EmailOutboxService,
+    email: EmailService,
   ) {
     const nodeEnv = config.getOrThrow<string>('NODE_ENV');
-    this.production = nodeEnv === 'production';
     // A provider is on when both its ID and secret are set.
     const provider = (name: 'GOOGLE' | 'GITHUB' | 'LINKEDIN') => {
       const clientId = config.get<string>(`${name}_CLIENT_ID`);
@@ -88,9 +82,10 @@ export class BetterAuthService implements OnModuleInit {
       trustedProxies: config.getOrThrow<string[]>('AUTH_TRUSTED_PROXIES'),
       trustProxy: nodeEnv === 'production',
       testing: nodeEnv === 'test',
+      // Saved to the email outbox, then sent in the background.
       sendEmail: (template, to, variables) =>
-        this.sendEmail(template, to, variables),
-      passwordHasher: hasher,
+        email.enqueue(template, to, variables),
+      passwordHasher: { hash: hashValue, verify: verifyHash },
     });
     this.handler = toNodeHandler(this.auth);
   }
@@ -110,39 +105,9 @@ export class BetterAuthService implements OnModuleInit {
     }
   }
 
-  // Tests only: the variables of the last email to an address (e.g. otpCode).
-  lastTestEmail(to: string): Record<string, string> | undefined {
-    return this.testEmails.get(to);
-  }
-
   // Better Auth's own routes as an OpenAPI document, for the API docs.
   openApiDocument(): Record<string, unknown> | undefined {
     return this.openApi;
-  }
-
-  // Emails go through Better Auth Infrastructure. Without its API key in
-  // development, delivery is skipped and only the template name is logged.
-  private async sendEmail(
-    template: EmailTemplateId,
-    to: string,
-    variables: Record<string, string>,
-  ): Promise<void> {
-    // Tests never send email. They read the last message here instead.
-    if (this.config.get<string>('NODE_ENV') === 'test') {
-      this.testEmails.set(to, variables);
-      return;
-    }
-
-    const apiKey = this.config.get<string>('BETTER_AUTH_API_KEY');
-    if (!apiKey) {
-      if (!this.production) {
-        this.logger.warn(
-          `Email not sent (no BETTER_AUTH_API_KEY). Template: ${template}.`,
-        );
-      }
-      return;
-    }
-    await this.emailOutbox.enqueue(template, to, variables);
   }
 
   // Production always has a secret (the config check requires it). Elsewhere a

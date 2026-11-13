@@ -51,7 +51,7 @@ Then open the API docs:
 
 The docs are grouped into Auth, Agent Auth, User, Organization and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
 
-There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under `/api/auth` and appear in both.
+There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under `/v1/auth` (v2 gets its own when we start v2).
 
 ## Where things go
 

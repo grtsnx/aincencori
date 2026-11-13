@@ -1,3 +1,5 @@
+// Encrypts OAuth tokens stored before Better Auth's encryptOAuthTokens was on.
+// Used by scripts/encrypt-oauth-tokens.ts; already-encrypted values are kept.
 import { symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
 
 async function isEncrypted(token: string, secret: string): Promise<boolean> {

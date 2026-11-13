@@ -4,3 +4,5 @@ export {
   httpResponse,
   statusType,
 } from './http-response.js';
+export { hashValue, verifyHash } from './hash.js';
+export { encryptOAuthToken } from './oauth-tokens.js';

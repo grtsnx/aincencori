@@ -19,7 +19,7 @@ interface OrganizationRecord {
 
 // Reads organizations through Better Auth as the signed-in user, so its
 // membership and role checks always apply. Creating, inviting and managing
-// members and teams go through Better Auth's /api/auth/organization/* routes.
+// members and teams go through Better Auth's /v1/auth/organization/* routes.
 @Injectable()
 export class OrganizationService {
   constructor(private readonly betterAuth: BetterAuthService) {}
@@ -37,7 +37,7 @@ export class OrganizationService {
     });
     if (!organization) {
       throw new NotFoundException(
-        'No active organization. Set one with /api/auth/organization/set-active.',
+        'No active organization. Set one with /v1/auth/organization/set-active.',
       );
     }
 
@@ -68,7 +68,7 @@ export class OrganizationService {
   }
 
   // Every permission a custom organization role can be given. Create roles with
-  // Better Auth's /api/auth/organization/create-role.
+  // Better Auth's /v1/auth/organization/create-role.
   permissions(): PermissionCatalogDto {
     return { permissions: permissionCatalog };
   }

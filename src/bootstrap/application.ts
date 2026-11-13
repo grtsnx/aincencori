@@ -4,7 +4,10 @@ import {
   ValidationPipe,
   VersioningType,
 } from '@nestjs/common';
-import express, { type ErrorRequestHandler } from 'express';
+import express, {
+  type ErrorRequestHandler,
+  type RequestHandler,
+} from 'express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule, ObserveInstrument } from '@/app';
 import { validateEnvironment, type Environment } from '@/config/index.js';
@@ -12,6 +15,18 @@ import { authBasePath } from '@/config/auth/better-auth.js';
 import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
 import { RequestIdMiddleware } from '@/middleware';
 import { configureSwagger } from './swagger.js';
+
+// Matches a path (after the auth base path) against every route Better Auth
+// registered, such as /sign-in/email-otp or /callback/:id.
+function betterAuthRouteMatcher(api: object): (path: string) => boolean {
+  const patterns = Object.values(api).flatMap((endpoint: unknown) => {
+    const path = (endpoint as { path?: unknown }).path;
+    return typeof path === 'string'
+      ? [new RegExp(`^${path.replace(/:[^/]+/g, '[^/]+')}/?$`)]
+      : [];
+  });
+  return (path) => patterns.some((pattern) => pattern.test(path));
+}
 
 export function configureApplication(
   app: INestApplication,
@@ -46,7 +61,8 @@ export function configureApplication(
   // Better Auth reads the raw request body, so its routes are mounted here:
   // after security headers, CSRF and CORS, before Nest adds its JSON parser on init.
   // /.well-known is where MCP clients discover the OAuth server.
-  const { handler } = app.get(BetterAuthService);
+  const betterAuth = app.get(BetterAuthService);
+  const { handler } = betterAuth;
   const server = app.getHttpAdapter().getInstance();
   const authBodyParser = express.text({ type: '*/*', limit: 1_048_576 });
   const authBodyLimitError: ErrorRequestHandler = (
@@ -66,20 +82,28 @@ export function configureApplication(
     }
     next(error);
   };
-  // These routes run before Nest's default parsers; apply the same explicit
-  // byte limit here, then pass their UTF-8 body through to Better Auth.
-  server.use(authBasePath, authBodyParser, authBodyLimitError);
-  server.use('/.well-known', authBodyParser, authBodyLimitError);
-  server.all(`${authBasePath}/{*any}`, handler);
+  // Parses the body with an explicit byte limit, then hands it to Better Auth.
+  const toBetterAuth: RequestHandler = (request, response, next) =>
+    authBodyParser(request, response, (error?: unknown) =>
+      error
+        ? authBodyLimitError(error, request, response, next)
+        : void handler(request, response),
+    );
+
+  // Our own routes share /v1/auth (for example /v1/auth/session), so only
+  // paths Better Auth actually serves go to it; the rest reach Nest.
+  const isAuthRoute = betterAuthRouteMatcher(betterAuth.auth.api);
+  server.all(`${authBasePath}/{*any}`, ((request, response, next) =>
+    isAuthRoute(request.path.slice(authBasePath.length))
+      ? toBetterAuth(request, response, next)
+      : next()) as RequestHandler);
   // Agent Auth's discovery document lives under the auth path; agents look
   // for it here.
-  server.get(
-    '/.well-known/agent-configuration',
-    (request: { url: string }, response: unknown) => {
-      request.url = `${authBasePath}/agent-configuration`;
-      return handler(request as never, response as never);
-    },
-  );
+  server.get('/.well-known/agent-configuration', ((request, response, next) => {
+    request.url = `${authBasePath}/agent-configuration`;
+    toBetterAuth(request, response, next);
+  }) as RequestHandler);
+  server.use('/.well-known', authBodyParser, authBodyLimitError);
   server.all('/.well-known/{*any}', handler);
 
   app.useGlobalPipes(

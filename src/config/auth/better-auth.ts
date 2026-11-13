@@ -2,7 +2,7 @@ import { passkey } from '@better-auth/passkey';
 import { emailHarmony } from 'better-auth-harmony';
 import { cimd } from '@better-auth/cimd';
 import { fetchClientMetadataResource } from '@better-auth/cimd/node';
-import { dash, type EmailTemplateId } from '@better-auth/infra';
+import { dash } from '@better-auth/infra';
 import { mcp } from '@better-auth/mcp';
 import type { BetterAuthOptions } from 'better-auth';
 import {
@@ -17,6 +17,8 @@ import {
   testUtils,
   twoFactor,
 } from 'better-auth/plugins';
+import { randomBytes } from 'node:crypto';
+import type { EmailTemplate } from '@/config/email/templates.js';
 import { organizationAc, organizationRoles } from './access.js';
 import { agentAuthPlugin } from './agent.js';
 
@@ -24,11 +26,12 @@ import { agentAuthPlugin } from './agent.js';
 const oauthScopes = ['openid', 'profile', 'email', 'offline_access'];
 
 // Better Auth serves every auth route under this path.
-export const authBasePath = '/api/auth';
+// Versioned with the rest of the API. v2 gets its own when we start v2.
+export const authBasePath = '/v1/auth';
 
 // Sends one of the Better Auth dashboard's email templates.
 export type AuthMailer = (
-  template: EmailTemplateId,
+  template: EmailTemplate,
   to: string,
   variables: Record<string, string>,
 ) => Promise<void>;
@@ -74,7 +77,7 @@ export interface AuthSettings {
 // After changing it, run `bun run auth:generate` and `bun run db:migrate`.
 export function createAuthOptions(settings: AuthSettings) {
   const send = (
-    template: EmailTemplateId,
+    template: EmailTemplate,
     to: string,
     variables: Record<string, string>,
   ) =>
@@ -90,6 +93,10 @@ export function createAuthOptions(settings: AuthSettings) {
     secret: settings.secret,
     trustedOrigins: [...new Set([...settings.trustedOrigins, settings.appURL])],
     telemetry: { enabled: false },
+
+    // Failed OAuth sign-ins (cancelled, bad callback) land on our frontend,
+    // not Better Auth's development error page. The error is in the query.
+    onAPIError: { errorURL: `${settings.appURL}/auth/error` },
 
     // Sign-in is email OTP, Google or passkey. No password sign-in. Any password
     // Better Auth still stores (for example set by an admin) is hashed with Argon2id.
@@ -128,6 +135,9 @@ export function createAuthOptions(settings: AuthSettings) {
     disabledPaths: ['/token'],
 
     advanced: {
+      // Fetch related rows (session + user, organization + members) in one
+      // query instead of several. Prisma relations come from auth:generate.
+      database: { joins: true },
       ...(settings.cookieDomain && {
         crossSubDomainCookies: {
           enabled: true,
@@ -181,6 +191,8 @@ export function createAuthOptions(settings: AuthSettings) {
         // Backup codes must be read back, so they are encrypted (not hashed).
         backupCodeOptions: { storeBackupCodes: 'encrypted' },
         otpOptions: {
+          // Only a digest is stored; the code sent to the user is unchanged.
+          storeOTP: 'hashed',
           async sendOTP({ user, otp }) {
             return send('two-factor', user.email, {
               otpCode: otp,
@@ -211,7 +223,11 @@ export function createAuthOptions(settings: AuthSettings) {
       lastLoginMethod({ storeInDatabase: true }),
       multiSession({ maximumSessions: 5 }),
       // The schema is shown in this API's Swagger and Scalar docs instead.
-      openAPI({ disableDefaultReference: true }),
+      openAPI({
+        disableDefaultReference: true,
+        // A nonce for the reference page's inline script (CSP). New each start.
+        nonce: randomBytes(16).toString('base64'),
+      }),
       jwt({ disableSettingJwtHeader: true }),
       mcp({
         loginPage: `${settings.appURL}/sign-in`,

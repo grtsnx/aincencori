@@ -1,6 +1,6 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.js';
-import { encryptOAuthToken } from '../src/lib/better-auth/oauth-token-encryption.js';
+import { encryptOAuthToken } from '../src/middleware/commons/oauth-tokens.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 const secret = process.env.BETTER_AUTH_SECRET;

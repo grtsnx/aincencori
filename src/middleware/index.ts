@@ -1,8 +1,11 @@
 export {
   RequestIdMiddleware,
   describeException,
+  encryptOAuthToken,
+  hashValue,
   httpResponse,
   statusType,
+  verifyHash,
 } from './commons/index.js';
 export {
   CurrentSession,

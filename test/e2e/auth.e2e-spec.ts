@@ -6,6 +6,7 @@ import { AppModule } from '@/app';
 import { configureApplication } from '@/bootstrap/application.js';
 import { validateEnvironment } from '@/config/index.js';
 import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
+import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
 async function createApp(): Promise<INestApplication> {
@@ -39,7 +40,7 @@ describe('Better Auth (e2e)', () => {
 
   it('serves Better Auth routes with the app security headers', async () => {
     const response = await request(app.getHttpServer())
-      .get('/api/auth/ok')
+      .get('/v1/auth/ok')
       .expect(200);
 
     expect(response.body).toEqual({ ok: true });
@@ -64,7 +65,7 @@ describe('Better Auth (e2e)', () => {
 
   it('has no password sign-up', async () => {
     const response = await request(app.getHttpServer())
-      .post('/api/auth/sign-up/email')
+      .post('/v1/auth/sign-up/email')
       .send({ email: 'x@example.com', password: 'whatever-123', name: 'X' });
 
     expect(response.status).toBeGreaterThanOrEqual(400);
@@ -73,7 +74,7 @@ describe('Better Auth (e2e)', () => {
   it('rejects oversized Better Auth request bodies', async () => {
     const oversizedEmail = `${'x'.repeat(1_048_600)}@example.com`;
     const response = await request(app.getHttpServer())
-      .post('/api/auth/email-otp/send-verification-otp')
+      .post('/v1/auth/email-otp/send-verification-otp')
       .set('content-type', 'application/json')
       .send(JSON.stringify({ email: oversizedEmail, type: 'sign-in' }))
       .expect(413);
@@ -103,23 +104,23 @@ describe('Better Auth (e2e)', () => {
     expect(paths).toEqual(
       expect.arrayContaining([
         '/v1/auth/session',
-        '/api/auth/sign-in/email-otp',
-        '/api/auth/organization/create',
-        '/api/auth/admin/set-role',
+        '/v1/auth/sign-in/email-otp',
+        '/v1/auth/organization/create',
+        '/v1/auth/admin/set-role',
       ]),
     );
-    expect(paths.some((path) => path.startsWith('/api/auth/dash'))).toBe(false);
+    expect(paths.some((path) => path.startsWith('/v1/auth/dash'))).toBe(false);
     // Password routes are off, so the docs leave them out.
-    expect(paths).not.toContain('/api/auth/sign-in/email');
-    expect(paths).not.toContain('/api/auth/error');
-    expect(response.body.paths['/api/auth/ok'].get.summary).toBe(
+    expect(paths).not.toContain('/v1/auth/sign-in/email');
+    expect(paths).not.toContain('/v1/auth/error');
+    expect(response.body.paths['/v1/auth/ok'].get.summary).toBe(
       'Check auth is running',
     );
     expect(
-      response.body.paths['/api/auth/passkey/generate-register-options'].get
+      response.body.paths['/v1/auth/passkey/generate-register-options'].get
         .summary,
     ).toBe('Start adding a passkey');
-    expect(response.body.paths['/api/auth/admin/set-role'].post).toMatchObject({
+    expect(response.body.paths['/v1/auth/admin/set-role'].post).toMatchObject({
       tags: ['Admin'],
       summary: 'Change user role',
     });
@@ -187,7 +188,7 @@ describe('Better Auth (e2e)', () => {
 
   it('blocks throwaway email domains', async () => {
     const response = await request(app.getHttpServer())
-      .post('/api/auth/email-otp/send-verification-otp')
+      .post('/v1/auth/email-otp/send-verification-otp')
       .send({ email: 'someone@mailinator.com', type: 'sign-in' });
 
     expect(response.status).toBe(400);
@@ -203,15 +204,15 @@ describe('Better Auth (e2e)', () => {
     async function signIn(): Promise<string[]> {
       const server = app.getHttpServer();
       await request(server)
-        .post('/api/auth/email-otp/send-verification-otp')
+        .post('/v1/auth/email-otp/send-verification-otp')
         .send({ email, type: 'sign-in' })
         .expect(200);
       // Codes are stored hashed, so read the code from the (unsent) email.
-      const otp = app.get(BetterAuthService).lastTestEmail(email)?.otpCode;
+      const otp = app.get(EmailService).lastTestEmail(email)?.otpCode;
       expect(otp).toMatch(/^\d{6}$/);
 
       const response = await request(server)
-        .post('/api/auth/sign-in/email-otp')
+        .post('/v1/auth/sign-in/email-otp')
         .send({ email, otp })
         .expect(200);
       const cookies = response.headers['set-cookie'] as unknown as string[];
@@ -251,7 +252,7 @@ describe('Better Auth (e2e)', () => {
       });
 
       await request(server)
-        .post('/api/auth/sign-out')
+        .post('/v1/auth/sign-out')
         .set('Cookie', cookies)
         .expect(200);
 
@@ -296,17 +297,17 @@ describe('Better Auth (e2e)', () => {
       const cookies = await signIn();
 
       const created = await request(server)
-        .post('/api/auth/organization/create')
+        .post('/v1/auth/organization/create')
         .set('Cookie', cookies)
         .send({ name: 'E2E Org', slug })
         .expect(200);
       await request(server)
-        .post('/api/auth/organization/set-active')
+        .post('/v1/auth/organization/set-active')
         .set('Cookie', cookies)
         .send({ organizationId: created.body.id })
         .expect(200);
       await request(server)
-        .post('/api/auth/organization/create-team')
+        .post('/v1/auth/organization/create-team')
         .set('Cookie', cookies)
         .send({ name: 'Support' })
         .expect(200);
@@ -429,7 +430,7 @@ describe('Better Auth (e2e)', () => {
       const cookies = await signIn();
 
       await request(server)
-        .post('/api/auth/admin/create-user')
+        .post('/v1/auth/admin/create-user')
         .set('Cookie', cookies)
         .send({
           email: createdEmail,
@@ -458,7 +459,7 @@ describe('Better Auth (e2e)', () => {
       );
 
       const created = await request(server)
-        .post('/api/auth/oauth2/create-client')
+        .post('/v1/auth/oauth2/create-client')
         .set('Cookie', cookies)
         .send({
           client_name: 'E2E MCP app',

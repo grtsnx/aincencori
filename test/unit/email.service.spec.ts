@@ -1,7 +1,7 @@
 import { symmetricDecrypt } from 'better-auth/crypto';
 import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EmailOutboxService } from '@/lib/email/email-outbox.service.js';
+import { EmailService } from '@/lib/email/email.service.js';
 
 const secret = 'outbox-encryption-test-secret';
 const message = {
@@ -21,15 +21,17 @@ function createService(rows: unknown[] = [], updateCounts: number[] = [1, 1]) {
     db: { emailOutbox: { create, findMany, updateMany, deleteMany } },
   } as never;
   const config = {
+    get: () => undefined,
     getOrThrow: (key: string) =>
       key === 'BETTER_AUTH_SECRET' ? secret : undefined,
   } as never;
-  const sender = vi.fn().mockResolvedValue(undefined);
-  const service = new EmailOutboxService(config, prisma, sender);
+  // @nestjs/mail's Mailer; only send() is used.
+  const sender = vi.fn().mockResolvedValue({ messageId: 'm1' });
+  const service = new EmailService(config, prisma, { send: sender } as never);
   return { service, create, findMany, updateMany, deleteMany, sender };
 }
 
-describe('EmailOutboxService', () => {
+describe('EmailService (outbox + @nestjs/mail)', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('persists an encrypted payload before returning', async () => {
@@ -63,7 +65,15 @@ describe('EmailOutboxService', () => {
 
     await service.processDueMessages(new Date('2026-11-13T00:00:00.000Z'));
 
-    expect(sender).toHaveBeenCalledWith(message);
+    expect(sender).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: message.to,
+        subject: expect.stringContaining('sign-in code'),
+        text: expect.stringContaining('123456'),
+        idempotencyKey: expect.any(String),
+        retry: false,
+      }),
+    );
     expect(updateMany).toHaveBeenCalledTimes(2);
     expect(updateMany.mock.calls[0]?.[0].data).toMatchObject({
       attempts: { increment: 1 },
@@ -154,6 +164,28 @@ describe('EmailOutboxService', () => {
     expect(findMany.mock.calls[0]?.[0].where.OR[1]).toMatchObject({
       status: 'sending',
     });
-    expect(sender).toHaveBeenCalledWith(message);
+    expect(sender).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: message.to,
+        subject: expect.stringContaining('sign-in code'),
+        text: expect.stringContaining('123456'),
+        idempotencyKey: expect.any(String),
+        retry: false,
+      }),
+    );
+  });
+
+  it('keeps test emails in memory instead of the database', async () => {
+    const create = vi.fn();
+    const service = new EmailService(
+      { get: () => 'test' } as never,
+      { db: { emailOutbox: { create } } } as never,
+      { send: vi.fn() } as never,
+    );
+
+    await service.enqueue(message.template, message.to, message.variables);
+
+    expect(create).not.toHaveBeenCalled();
+    expect(service.lastTestEmail(message.to)).toEqual(message.variables);
   });
 });

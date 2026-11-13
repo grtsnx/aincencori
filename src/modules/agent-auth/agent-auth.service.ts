@@ -13,7 +13,7 @@ import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
 
 // AI agents: discovery, capabilities, and who an agent is acting for.
 // Registering agents, requesting and approving capabilities, and running them
-// go through Better Auth's Agent Auth routes under /api/auth.
+// go through Better Auth's Agent Auth routes under /v1/auth.
 @Injectable()
 export class AgentAuthService {
   constructor(
