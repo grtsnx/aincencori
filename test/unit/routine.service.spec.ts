@@ -31,7 +31,8 @@ function createService(rows = [routine(true), routine(false)]) {
       ),
     },
     routine: {
-      findMany: vi.fn().mockResolvedValue(rows),
+      // One page of routines, then the end.
+      findMany: vi.fn().mockResolvedValueOnce(rows).mockResolvedValue([]),
       findUnique: vi.fn(({ where }: { where: { id: string } }) =>
         Promise.resolve(byId.get(where.id) ?? null),
       ),
@@ -75,15 +76,33 @@ describe('RoutineService reliability', () => {
 
     await reconcile()?.();
 
-    expect(bullmq.schedule).toHaveBeenCalledWith(
-      'routine-run',
-      'enabled-routine',
-      { cron: '0 8 * * *', timezone: 'Africa/Lagos' },
-      { routineId: 'enabled-routine' },
-    );
-    expect(bullmq.unschedule).toHaveBeenCalledWith(
-      'routine-run',
-      'paused-routine',
+    // It runs in the background, so wait for it.
+    await vi.waitFor(() => {
+      expect(bullmq.schedule).toHaveBeenCalledWith(
+        'routine-run',
+        'enabled-routine',
+        { cron: '0 8 * * *', timezone: 'Africa/Lagos' },
+        { routineId: 'enabled-routine' },
+      );
+      expect(bullmq.unschedule).toHaveBeenCalledWith(
+        'routine-run',
+        'paused-routine',
+      );
+    });
+  });
+
+  it('does not hold up a starting worker, and reads routines in pages', async () => {
+    const { service, bullmq, db, reconcile } = createService();
+    // Re-scheduling never finishes here, like a huge backlog would.
+    bullmq.schedule.mockReturnValue(new Promise(() => undefined));
+    service.onModuleInit();
+
+    // The start-up step returns at once; jobs can start running.
+    await expect(reconcile()?.()).resolves.toBeUndefined();
+    await vi.waitFor(() =>
+      expect(db.routine.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 500, orderBy: { id: 'asc' } }),
+      ),
     );
   });
 
@@ -95,10 +114,12 @@ describe('RoutineService reliability', () => {
     service.onModuleInit();
 
     await reconcile()?.();
+    await vi.waitFor(() =>
+      expect(bullmq.unschedule).toHaveBeenCalledWith('routine-run', orphan.id),
+    );
     await getHandler()?.({ routineId: orphan.id });
 
     expect(bullmq.schedule).not.toHaveBeenCalled();
-    expect(bullmq.unschedule).toHaveBeenCalledWith('routine-run', orphan.id);
     expect(chat.runRoutine).not.toHaveBeenCalled();
   });
 

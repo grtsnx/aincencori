@@ -51,7 +51,16 @@ export class RoutineService implements OnModuleInit {
       ({ routineId, manual }) => this.run(routineId, manual ?? false),
       { concurrency: routineConcurrency },
     );
-    this.bullmq.onWorkerStart(() => this.reconcileSchedules());
+    // Puts every timetable back in line with the database when a worker
+    // starts. In the background: with many routines this takes minutes, and
+    // jobs (like sign-in emails) must not wait. Each run checks its routine
+    // still exists and is on, so nothing wrong runs meanwhile.
+    this.bullmq.onWorkerStart(() => {
+      void this.reconcileSchedules().catch(() =>
+        this.logger.error('Routine schedules could not be reconciled.'),
+      );
+      return Promise.resolve();
+    });
     // Lets the chat agent manage the user's routines ("every morning at 8...").
     this.chat.useRoutines({
       list: (userId) => this.list({ user: { id: userId } }, {}),
@@ -247,22 +256,31 @@ export class RoutineService implements OnModuleInit {
     }
   }
 
+  // A page of routines at a time, so memory stays flat however many there are.
   private async reconcileSchedules(): Promise<void> {
-    const routines = await this.prisma.db.routine.findMany();
-    const ownerIds = [...new Set(routines.map((routine) => routine.userId))];
-    const owners = ownerIds.length
-      ? await this.prisma.db.user.findMany({
-          where: { id: { in: ownerIds } },
-          select: { id: true },
-        })
-      : [];
-    const existingOwners = new Set(owners.map((owner) => owner.id));
-    for (const routine of routines) {
-      if (!existingOwners.has(routine.userId)) {
-        await this.bullmq.unschedule(runRoutine, routine.id);
-      } else {
-        await this.sync(routine);
+    const db = this.prisma.db;
+    let after: string | undefined;
+    for (;;) {
+      const routines = await db.routine.findMany({
+        orderBy: { id: 'asc' },
+        take: 500,
+        ...(after ? { cursor: { id: after }, skip: 1 } : {}),
+      });
+      if (routines.length === 0) return;
+      const ownerIds = [...new Set(routines.map((routine) => routine.userId))];
+      const owners = await db.user.findMany({
+        where: { id: { in: ownerIds } },
+        select: { id: true },
+      });
+      const existingOwners = new Set(owners.map((owner) => owner.id));
+      for (const routine of routines) {
+        if (!existingOwners.has(routine.userId)) {
+          await this.bullmq.unschedule(runRoutine, routine.id);
+        } else {
+          await this.sync(routine);
+        }
       }
+      after = routines.at(-1)?.id;
     }
   }
 
