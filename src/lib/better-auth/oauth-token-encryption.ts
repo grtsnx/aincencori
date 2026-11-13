@@ -5,9 +5,9 @@ function isEncrypted(token: string): boolean {
 }
 
 export async function encryptOAuthToken(
-  token: string | null | undefined,
+  token: string | null,
   secret: string,
-): Promise<string | null | undefined> {
+): Promise<string | null> {
   if (token == null || isEncrypted(token)) return token;
   return symmetricEncrypt({ key: secret, data: token });
 }

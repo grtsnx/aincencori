@@ -33,6 +33,7 @@ describe('createAuthOptions', () => {
       ipAddressHeaders: ['x-forwarded-for'],
       trustedProxies: ['10.0.0.0/8'],
     });
+  });
 
   it('encrypts plaintext OAuth tokens idempotently', async () => {
     const token = 'provider-refresh-token-value';
@@ -45,6 +46,4 @@ describe('createAuthOptions', () => {
     expect(await encryptOAuthToken(encrypted, settings.secret)).toBe(encrypted);
     expect(await encryptOAuthToken(null, settings.secret)).toBeNull();
   });
-  });
-
 });

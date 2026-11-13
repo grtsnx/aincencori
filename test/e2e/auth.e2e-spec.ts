@@ -70,6 +70,17 @@ describe('Better Auth (e2e)', () => {
     expect(response.status).toBeGreaterThanOrEqual(400);
   });
 
+  it('rejects oversized Better Auth request bodies', async () => {
+    const oversizedEmail = `${'x'.repeat(1_048_600)}@example.com`;
+    const response = await request(app.getHttpServer())
+      .post('/api/auth/email-otp/send-verification-otp')
+      .set('content-type', 'application/json')
+      .send(JSON.stringify({ email: oversizedEmail, type: 'sign-in' }))
+      .expect(413);
+
+    expect(response.body).toEqual({ message: 'Request body too large.' });
+  });
+
   it('never links Google to an existing account by email', () => {
     const { accountLinking } = app.get(BetterAuthService).auth.options.account;
     expect(accountLinking).toMatchObject({ disableImplicitLinking: true });

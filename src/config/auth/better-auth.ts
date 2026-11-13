@@ -78,8 +78,7 @@ export function createAuthOptions(settings: AuthSettings) {
     to: string,
     variables: Record<string, string>,
   ) =>
-    // Not awaited, so response time does not reveal whether an email exists.
-    void settings.sendEmail(template, to, {
+    settings.sendEmail(template, to, {
       appName: settings.appName,
       ...variables,
     });
@@ -159,7 +158,7 @@ export function createAuthOptions(settings: AuthSettings) {
             'email-verification': 'verify-email-otp',
             'forget-password': 'reset-password-otp',
           } as const;
-          send(
+          return send(
             template[type as keyof typeof template] ?? 'sign-in-otp',
             email,
             {
@@ -183,7 +182,7 @@ export function createAuthOptions(settings: AuthSettings) {
         backupCodeOptions: { storeBackupCodes: 'encrypted' },
         otpOptions: {
           async sendOTP({ user, otp }) {
-            send('two-factor', user.email, {
+            return send('two-factor', user.email, {
               otpCode: otp,
               userEmail: user.email,
               userName: user.name,
@@ -200,7 +199,7 @@ export function createAuthOptions(settings: AuthSettings) {
         dynamicAccessControl: { enabled: true },
         teams: { enabled: true },
         async sendInvitationEmail(data) {
-          send('invitation', data.email, {
+          return send('invitation', data.email, {
             inviteLink: `${settings.appURL}/accept-invitation/${data.id}`,
             inviterName: data.inviter.user.name,
             inviterEmail: data.inviter.user.email,

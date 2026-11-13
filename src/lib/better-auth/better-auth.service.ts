@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { sendEmail, type EmailTemplateId } from '@better-auth/infra';
+import type { EmailTemplateId } from '@better-auth/infra';
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
@@ -12,6 +12,7 @@ import {
 } from '@/config/auth/better-auth.js';
 import type { PrismaClient } from '@/generated/prisma/client.js';
 import { HashService } from '@/lib/hash/hash.service.js';
+import { EmailOutboxService } from '@/lib/email/email-outbox.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
 function createAuth(prisma: PrismaClient, settings: AuthSettings) {
@@ -52,6 +53,7 @@ export class BetterAuthService implements OnModuleInit {
     private readonly config: ConfigService,
     prisma: PrismaService,
     hasher: HashService,
+    private readonly emailOutbox: EmailOutboxService,
   ) {
     const nodeEnv = config.getOrThrow<string>('NODE_ENV');
     this.production = nodeEnv === 'production';
@@ -135,22 +137,12 @@ export class BetterAuthService implements OnModuleInit {
     if (!apiKey) {
       if (!this.production) {
         this.logger.warn(
-          `Email not sent (no BETTER_AUTH_API_KEY). ${template} to ${to}: ${JSON.stringify(variables)}`,
+          `Email not sent (no BETTER_AUTH_API_KEY). Template: ${template}.`,
         );
       }
       return;
     }
-    try {
-      const result = await sendEmail(
-        { template, to, variables: variables as never },
-        { apiKey },
-      );
-      if (!result.success) {
-        this.logger.error(`Email ${template} failed: ${result.error}`);
-      }
-    } catch (error) {
-      this.logger.error(`Email ${template} failed: ${String(error)}`);
-    }
+    await this.emailOutbox.enqueue(template, to, variables);
   }
 
   // Production always has a secret (the config check requires it). Elsewhere a
