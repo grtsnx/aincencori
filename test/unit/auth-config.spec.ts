@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createAuthOptions, type AuthSettings } from '@/config/auth/better-auth.js';
+import {
+  createAuthOptions,
+  type AuthSettings,
+} from '@/config/auth/better-auth.js';
 import { symmetricDecrypt } from 'better-auth/crypto';
 import { encryptOAuthToken } from '@/lib/better-auth/oauth-token-encryption.js';
 
@@ -45,5 +48,16 @@ describe('createAuthOptions', () => {
     ).toBe(token);
     expect(await encryptOAuthToken(encrypted, settings.secret)).toBe(encrypted);
     expect(await encryptOAuthToken(null, settings.secret)).toBeNull();
+  });
+
+  it('encrypts plaintext tokens that happen to be hexadecimal', async () => {
+    const token = 'a'.repeat(64);
+    const encrypted = await encryptOAuthToken(token, settings.secret);
+
+    expect(encrypted).not.toBe(token);
+    expect(
+      await symmetricDecrypt({ key: settings.secret, data: encrypted! }),
+    ).toBe(token);
+    expect(await encryptOAuthToken(encrypted, settings.secret)).toBe(encrypted);
   });
 });

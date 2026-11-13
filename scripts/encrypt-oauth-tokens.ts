@@ -33,9 +33,9 @@ async function migrate(): Promise<void> {
     if (accounts.length === 0) break;
 
     for (const account of accounts) {
-      const accessToken = await encryptOAuthToken(account.accessToken, secret);
-      const refreshToken = await encryptOAuthToken(account.refreshToken, secret);
-      const idToken = await encryptOAuthToken(account.idToken, secret);
+      const accessToken = await encryptOAuthToken(account.accessToken, secret!);
+      const refreshToken = await encryptOAuthToken(account.refreshToken, secret!);
+      const idToken = await encryptOAuthToken(account.idToken, secret!);
       if (
         accessToken === account.accessToken &&
         refreshToken === account.refreshToken &&

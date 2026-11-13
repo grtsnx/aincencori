@@ -112,7 +112,14 @@ const supportedIpHeaders = new Set(ipHeaders);
 function splitList(value: unknown): string[] {
   if (value === undefined || value === '') return [];
   const values = Array.isArray(value) ? value : String(value).split(',');
-  return [...new Set(values.map(String).map((item) => item.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      values
+        .map(String)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function isIpOrCidr(value: string): boolean {
@@ -287,6 +294,9 @@ export function validateEnvironment(
     throw new Error(
       `AUTH_IP_HEADERS may contain only these headers: ${[...ipHeaders].join(', ')}`,
     );
+  }
+  if (parsed.NODE_ENV === 'production' && configuredIpHeaders.length !== 1) {
+    throw new Error('AUTH_IP_HEADERS must contain exactly one trusted header');
   }
   if (trustedProxies.some((proxy) => !isIpOrCidr(proxy))) {
     throw new Error('AUTH_TRUSTED_PROXIES contains an invalid IP or CIDR');

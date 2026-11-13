@@ -8,6 +8,7 @@ import { AppService } from './app.service.js';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '@/middleware';
+import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
 @Controller({ version: ['1', '2'] })
 @ApiTags('Server')
@@ -17,6 +18,7 @@ export class AppController {
     private readonly appService: AppService,
     private readonly health: HealthCheckService,
     private readonly memory: MemoryHealthIndicator,
+    private readonly prisma: PrismaService,
   ) {}
 
   @ApiOperation({
@@ -53,6 +55,7 @@ export class AppController {
     schema: {
       type: 'object',
       example: {
+        database: { status: 'up' },
         memory_heap: { status: 'up' },
         memory_rss: { status: 'up' },
       },
@@ -65,6 +68,10 @@ export class AppController {
     const result = await this.health.check([
       () => this.memory.checkHeap('memory_heap', 500 * 1024 * 1024),
       () => this.memory.checkRSS('memory_rss', 1_500_000_000),
+      async () => {
+        await this.prisma.db.$queryRaw`SELECT 1`;
+        return { database: { status: 'up' as const } };
+      },
     ]);
     return result.details;
   }

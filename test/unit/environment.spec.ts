@@ -69,19 +69,28 @@ describe('validateEnvironment', () => {
 
   it('requires HTTPS for production auth and frontend origins', () => {
     expect(() =>
-      validateEnvironment({ ...production, BETTER_AUTH_URL: 'http://api.example.com' }),
+      validateEnvironment({
+        ...production,
+        BETTER_AUTH_URL: 'http://api.example.com',
+      }),
     ).toThrow(/BETTER_AUTH_URL must use HTTPS in production/);
     expect(() =>
       validateEnvironment({ ...production, APP_URL: 'http://app.example.com' }),
     ).toThrow(/APP_URL must use HTTPS in production/);
     expect(() =>
-      validateEnvironment({ ...production, CORS_ORIGINS: 'http://app.example.com' }),
+      validateEnvironment({
+        ...production,
+        CORS_ORIGINS: 'http://app.example.com',
+      }),
     ).toThrow(/CORS_ORIGINS must use HTTPS in production/);
   });
 
   it('requires the distinct frontend origin in production CORS settings', () => {
     expect(() =>
-      validateEnvironment({ ...production, CORS_ORIGINS: 'https://admin.example.com' }),
+      validateEnvironment({
+        ...production,
+        CORS_ORIGINS: 'https://admin.example.com',
+      }),
     ).toThrow(/APP_URL must be included in CORS_ORIGINS/);
   });
 
@@ -92,8 +101,13 @@ describe('validateEnvironment', () => {
     }).toThrow(/AUTH_IP_HEADERS is required in production/);
 
     expect(() =>
-      validateEnvironment({ ...production, AUTH_IP_HEADERS: 'x-forwarded-for' }),
-    ).toThrow(/AUTH_TRUSTED_PROXIES is required when x-forwarded-for is trusted/);
+      validateEnvironment({
+        ...production,
+        AUTH_IP_HEADERS: 'x-forwarded-for',
+      }),
+    ).toThrow(
+      /AUTH_TRUSTED_PROXIES is required when x-forwarded-for is trusted/,
+    );
 
     expect(() =>
       validateEnvironment({
@@ -102,6 +116,15 @@ describe('validateEnvironment', () => {
         AUTH_TRUSTED_PROXIES: 'not-a-cidr',
       }),
     ).toThrow(/AUTH_TRUSTED_PROXIES contains an invalid IP or CIDR/);
+  });
+
+  it('rejects multiple client IP headers to prevent spoofable fallbacks', () => {
+    expect(() =>
+      validateEnvironment({
+        ...production,
+        AUTH_IP_HEADERS: 'x-vercel-forwarded-for,cf-connecting-ip',
+      }),
+    ).toThrow(/AUTH_IP_HEADERS must contain exactly one trusted header/);
   });
 
   it('returns the explicitly trusted client IP headers and proxy CIDRs', () => {
@@ -240,7 +263,9 @@ describe('sharedParentDomain', () => {
 describe('clientIpHeaders', () => {
   it('uses only the detected hosting platform header', () => {
     expect(clientIpHeaders({})).toEqual(['x-forwarded-for']);
-    expect(clientIpHeaders({ VERCEL: '1' })).toEqual(['x-vercel-forwarded-for']);
+    expect(clientIpHeaders({ VERCEL: '1' })).toEqual([
+      'x-vercel-forwarded-for',
+    ]);
     expect(clientIpHeaders({ FLY_APP_NAME: 'api' })).toEqual(['fly-client-ip']);
     expect(clientIpHeaders({ AWS_EXECUTION_ENV: 'AWS_ECS_FARGATE' })).toEqual([
       'x-forwarded-for',

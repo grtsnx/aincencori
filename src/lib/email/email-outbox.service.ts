@@ -65,10 +65,20 @@ export class EmailOutboxService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const payload = await symmetricEncrypt({
       key: this.config.getOrThrow<string>('BETTER_AUTH_SECRET'),
-      data: JSON.stringify({ template, to, variables } satisfies OutboundMessage),
+      data: JSON.stringify({
+        template,
+        to,
+        variables,
+      } satisfies OutboundMessage),
     });
     await this.prisma.db.emailOutbox.create({
-      data: { id: randomUUID(), payload },
+      data: {
+        id: randomUUID(),
+        payload,
+        status: 'pending',
+        attempts: 0,
+        availableAt: new Date(),
+      },
     });
   }
 
@@ -82,7 +92,10 @@ export class EmailOutboxService implements OnModuleInit, OnModuleDestroy {
           availableAt: { lte: now },
           OR: [
             { status: 'pending' },
-            { status: 'sending', lockedAt: { lt: new Date(now.getTime() - leaseMs) } },
+            {
+              status: 'sending',
+              lockedAt: { lt: new Date(now.getTime() - leaseMs) },
+            },
           ],
         },
         orderBy: { createdAt: 'asc' },
@@ -149,12 +162,13 @@ export class EmailOutboxService implements OnModuleInit, OnModuleDestroy {
         lastErrorCategory: category,
       },
     });
-    this.logger.error(`Email outbox ${id} failed (${category}, attempt ${attempt}).`);
+    this.logger.error(
+      `Email outbox ${id} failed (${category}, attempt ${attempt}).`,
+    );
   }
 
   private async pruneOldMessages(now: Date): Promise<void> {
     if (now.getTime() - this.lastPrunedAt < 24 * 60 * 60_000) return;
-    this.lastPrunedAt = now.getTime();
     const cutoff = new Date(now.getTime() - retentionMs);
     await this.prisma.db.emailOutbox.deleteMany({
       where: {
@@ -164,5 +178,6 @@ export class EmailOutboxService implements OnModuleInit, OnModuleDestroy {
         ],
       },
     });
+    this.lastPrunedAt = now.getTime();
   }
 }

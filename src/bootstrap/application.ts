@@ -49,7 +49,12 @@ export function configureApplication(
   const { handler } = app.get(BetterAuthService);
   const server = app.getHttpAdapter().getInstance();
   const authBodyParser = express.text({ type: '*/*', limit: 1_048_576 });
-  const authBodyLimitError: ErrorRequestHandler = (error, _request, response, next) => {
+  const authBodyLimitError: ErrorRequestHandler = (
+    error,
+    _request,
+    response,
+    next,
+  ) => {
     if (
       error &&
       typeof error === 'object' &&

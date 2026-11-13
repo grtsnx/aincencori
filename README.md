@@ -87,6 +87,10 @@ Without `BETTER_AUTH_API_KEY`, development prints sign-in codes in the server lo
 
 - OAuth token encryption: Better Auth encrypts newly stored provider tokens. After setting the production `BETTER_AUTH_SECRET`, run `bun run auth:encrypt-oauth-tokens` to encrypt existing linked-account tokens. The command is idempotent and does not print token values.
 
+- Production proxy settings: set `AUTH_IP_HEADERS` to the single client-IP header your edge proxy overwrites. For `x-forwarded-for`, set `AUTH_TRUSTED_PROXIES` to the proxy IPs or CIDRs. Production startup rejects missing or invalid settings and rejects non-HTTPS app/API/CORS origins.
+
+- Email outbox: deploy the `emailOutbox` migration with `bun run db:deploy` before starting the new application. Outbound email payloads are encrypted with `BETTER_AUTH_SECRET`; keep that secret stable while pending messages exist. Delivery retries are at-least-once, so an abrupt restart after a provider accepted a message can cause a duplicate email.
+
 ## Tests and checks
 
 ```bash

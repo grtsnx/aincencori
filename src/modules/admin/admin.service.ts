@@ -21,6 +21,7 @@ import {
   type AuthSession,
   BetterAuthService,
 } from '@/lib/better-auth/better-auth.service.js';
+import type { Organization } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
 type StaffPermission = 'invite' | 'list' | 'update' | 'remove';
@@ -31,12 +32,31 @@ interface StoredRole {
   permission: string | Record<string, string[]>;
 }
 
+type StaffOrganizationRecord = Organization;
+
+function isUniqueConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const value = error as {
+    code?: unknown;
+    body?: { code?: unknown };
+  };
+  const code = value.code ?? value.body?.code;
+  return (
+    code === 'P2002' ||
+    code === 'ORGANIZATION_ALREADY_EXISTS' ||
+    code === 'MEMBER_ALREADY_EXISTS'
+  );
+}
+
 // Platform admins (Better Auth admin role "admin") can do everything here.
 // Staff are members of the Staff organization; their role decides what they
 // may do, checked by Better Auth. Calls run as the signed-in user, so Better
 // Auth's own permission checks always apply.
 @Injectable()
 export class AdminService {
+  private staffOrganizationCreation?: Promise<StaffOrganizationRecord>;
+  private readonly staffMembershipAdditions = new Map<string, Promise<void>>();
+
   constructor(
     private readonly betterAuth: BetterAuthService,
     private readonly prisma: PrismaService,
@@ -270,12 +290,7 @@ export class AdminService {
       if (!adminUserId) {
         throw new ForbiddenException('You are not allowed to do this.');
       }
-      await this.betterAuth.auth.api.createOrganization({
-        body: { name: 'Staff', slug, userId: adminUserId },
-      });
-      organization = await db.organization.findUniqueOrThrow({
-        where: { slug },
-      });
+      organization = await this.createStaffOrganization(adminUserId);
     }
 
     if (adminUserId) {
@@ -283,16 +298,75 @@ export class AdminService {
         where: { organizationId: organization.id, userId: adminUserId },
       });
       if (!member) {
-        await this.betterAuth.auth.api.addMember({
-          body: {
-            organizationId: organization.id,
-            userId: adminUserId,
-            role: 'owner',
-          },
-        });
+        await this.addStaffOwner(organization.id, adminUserId);
       }
     }
     return organization.id;
+  }
+
+  private createStaffOrganization(
+    adminUserId: string,
+  ): Promise<StaffOrganizationRecord> {
+    this.staffOrganizationCreation ??= this.createStaffOrganizationOnce(
+      adminUserId,
+    ).finally(() => {
+      this.staffOrganizationCreation = undefined;
+    });
+    return this.staffOrganizationCreation;
+  }
+
+  private async createStaffOrganizationOnce(
+    adminUserId: string,
+  ): Promise<StaffOrganizationRecord> {
+    try {
+      await this.betterAuth.auth.api.createOrganization({
+        body: {
+          name: 'Staff',
+          slug: staffOrganizationSlug,
+          userId: adminUserId,
+        },
+      });
+    } catch (error) {
+      if (!isUniqueConflict(error)) throw error;
+      const winner = await this.prisma.db.organization.findUnique({
+        where: { slug: staffOrganizationSlug },
+      });
+      if (!winner) throw error;
+      return winner;
+    }
+
+    return this.prisma.db.organization.findUniqueOrThrow({
+      where: { slug: staffOrganizationSlug },
+    });
+  }
+
+  private addStaffOwner(organizationId: string, userId: string): Promise<void> {
+    const key = `${organizationId}:${userId}`;
+    let addition = this.staffMembershipAdditions.get(key);
+    if (!addition) {
+      addition = this.addStaffOwnerOnce(organizationId, userId).finally(() => {
+        this.staffMembershipAdditions.delete(key);
+      });
+      this.staffMembershipAdditions.set(key, addition);
+    }
+    return addition;
+  }
+
+  private async addStaffOwnerOnce(
+    organizationId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.betterAuth.auth.api.addMember({
+        body: { organizationId, userId, role: 'owner' },
+      });
+    } catch (error) {
+      if (!isUniqueConflict(error)) throw error;
+      const winner = await this.prisma.db.member.findFirst({
+        where: { organizationId, userId },
+      });
+      if (!winner) throw error;
+    }
   }
 
   private toInvitation(invitation: {
