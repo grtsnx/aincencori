@@ -1,36 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { sendEmail, type EmailTemplateId } from '@better-auth/infra';
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { randomBytes } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
-import { baseAuthOptions } from '@/config/better-auth.js';
+import { createAuthOptions, type AuthSettings } from '@/config/better-auth.js';
 import type { PrismaClient } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
-interface AuthSettings {
-  secret: string;
-  baseURL: string;
-  trustedOrigins: string[];
-  cookieDomain?: string;
-}
-
 function createAuth(prisma: PrismaClient, settings: AuthSettings) {
   return betterAuth({
-    ...baseAuthOptions,
+    ...createAuthOptions(settings),
     database: prismaAdapter(prisma, { provider: 'postgresql' }),
-    secret: settings.secret,
-    baseURL: settings.baseURL,
-    trustedOrigins: settings.trustedOrigins,
-    advanced: settings.cookieDomain
-      ? {
-          crossSubDomainCookies: {
-            enabled: true,
-            domain: settings.cookieDomain,
-          },
-        }
-      : undefined,
   });
 }
 
@@ -53,16 +36,44 @@ function lazyClient(prisma: PrismaService): PrismaClient {
 @Injectable()
 export class BetterAuthService {
   readonly auth: Auth;
-  // Express handler for every route under authBasePath.
+  // Express handler for every Better Auth route.
   readonly handler: ReturnType<typeof toNodeHandler>;
   private readonly logger = new Logger(BetterAuthService.name);
+  private readonly production: boolean;
 
-  constructor(config: ConfigService, prisma: PrismaService) {
+  constructor(
+    private readonly config: ConfigService,
+    prisma: PrismaService,
+  ) {
+    const nodeEnv = config.getOrThrow<string>('NODE_ENV');
+    this.production = nodeEnv === 'production';
+    const googleId = config.get<string>('GOOGLE_CLIENT_ID');
+    const googleSecret = config.get<string>('GOOGLE_CLIENT_SECRET');
+
     this.auth = createAuth(lazyClient(prisma), {
-      secret: this.secret(config),
+      appName: config.getOrThrow<string>('PLATFORM_NAME'),
       baseURL: config.getOrThrow<string>('BETTER_AUTH_URL'),
+      appURL: config.getOrThrow<string>('APP_URL'),
+      secret: this.secret(nodeEnv),
       trustedOrigins: config.getOrThrow<string[]>('CORS_ORIGINS'),
       cookieDomain: config.get<string>('AUTH_COOKIE_DOMAIN'),
+      // Tests never report to the dashboard.
+      dashApiKey:
+        nodeEnv === 'test'
+          ? undefined
+          : config.get<string>('BETTER_AUTH_API_KEY'),
+      google:
+        googleId && googleSecret
+          ? { clientId: googleId, clientSecret: googleSecret }
+          : undefined,
+      recaptchaSecretKey: config.get<string>('RECAPTCHA_SECRET_KEY'),
+      passkeyRpID: config.getOrThrow<string>('PASSKEY_RP_ID'),
+      mcpResource: config.getOrThrow<string>('MCP_RESOURCE_URL'),
+      ipAddressHeaders: config.getOrThrow<string[]>('AUTH_IP_HEADERS'),
+      trustedProxies: config.getOrThrow<string[]>('AUTH_TRUSTED_PROXIES'),
+      testing: nodeEnv === 'test',
+      sendEmail: (template, to, variables) =>
+        this.sendEmail(template, to, variables),
     });
     this.handler = toNodeHandler(this.auth);
   }
@@ -72,13 +83,52 @@ export class BetterAuthService {
     return this.auth.api.getSession({ headers: fromNodeHeaders(headers) });
   }
 
+  // Better Auth's own routes as an OpenAPI document, for the API docs.
+  openApiDocument(): Promise<Record<string, unknown>> {
+    return this.auth.api.generateOpenAPISchema() as Promise<
+      Record<string, unknown>
+    >;
+  }
+
+  // Emails go through Better Auth Infrastructure. Without its API key
+  // (development only), the message is logged so you can still sign in.
+  private async sendEmail(
+    template: EmailTemplateId,
+    to: string,
+    variables: Record<string, string>,
+  ): Promise<void> {
+    // Tests read codes from Better Auth's test helpers, never from real email.
+    if (this.config.get<string>('NODE_ENV') === 'test') return;
+
+    const apiKey = this.config.get<string>('BETTER_AUTH_API_KEY');
+    if (!apiKey) {
+      if (!this.production) {
+        this.logger.warn(
+          `Email not sent (no BETTER_AUTH_API_KEY). ${template} to ${to}: ${JSON.stringify(variables)}`,
+        );
+      }
+      return;
+    }
+    try {
+      const result = await sendEmail(
+        { template, to, variables: variables as never },
+        { apiKey },
+      );
+      if (!result.success) {
+        this.logger.error(`Email ${template} failed: ${result.error}`);
+      }
+    } catch (error) {
+      this.logger.error(`Email ${template} failed: ${String(error)}`);
+    }
+  }
+
   // Production always has a secret (the config check requires it). Elsewhere a
   // missing secret gets a random one, so sessions end when the server restarts.
-  private secret(config: ConfigService): string {
-    const secret = config.get<string>('BETTER_AUTH_SECRET');
+  private secret(nodeEnv: string): string {
+    const secret = this.config.get<string>('BETTER_AUTH_SECRET');
     if (secret) return secret;
 
-    if (config.get<string>('NODE_ENV') !== 'test') {
+    if (nodeEnv !== 'test') {
       this.logger.warn(
         'BETTER_AUTH_SECRET is not set. Using a random secret, so sessions end when the server restarts.',
       );

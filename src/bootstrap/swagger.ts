@@ -2,8 +2,10 @@ import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
 import type { Environment } from '@/config/index.js';
+import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
 
 const apiVersions = ['1', '2'] as const;
+const authDocumentUrl = '/api/auth-json';
 type ApiVersion = (typeof apiVersions)[number];
 
 export function configureSwagger(
@@ -40,6 +42,30 @@ export function configureSwagger(
     return buildDocument(version);
   };
 
+  // Better Auth's own routes (sign-in, OTP, organizations, ...) as a third document.
+  const betterAuth = app.get(BetterAuthService);
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .get(
+      authDocumentUrl,
+      async (
+        _request: unknown,
+        response: {
+          setHeader(name: string, value: string): void;
+          json(body: unknown): void;
+        },
+        next: (error?: unknown) => void,
+      ) => {
+        try {
+          response.setHeader('Cache-Control', 'no-store');
+          response.json(await betterAuth.openApiDocument());
+        } catch (error) {
+          next(error);
+        }
+      },
+    );
+
   for (const version of apiVersions) {
     SwaggerModule.setup(`api/v${version}`, app, () => buildDocument(version), {
       ui: false,
@@ -75,10 +101,13 @@ export function configureSwagger(
     ].join('\n'),
     swaggerOptions: {
       persistAuthorization: false,
-      urls: apiVersions.map((version) => ({
-        url: `/api/v${version}-json`,
-        name: `version ${version}`,
-      })),
+      urls: [
+        ...apiVersions.map((version) => ({
+          url: `/api/v${version}-json`,
+          name: `version ${version}`,
+        })),
+        { url: authDocumentUrl, name: 'auth (Better Auth)' },
+      ],
       'urls.primaryName': 'version 1',
       onComplete: () => {
         const nativeSelect = document.querySelector<HTMLSelectElement>(
@@ -174,12 +203,20 @@ export function configureSwagger(
       hideDarkModeToggle: true,
       pageTitle: `${environment.PLATFORM_NAME} API Reference`,
       showDeveloperTools: 'never',
-      sources: apiVersions.map((version, index) => ({
-        default: index === 0,
-        slug: `v${version}`,
-        title: `version ${version}`,
-        url: `/api/v${version}-json`,
-      })),
+      sources: [
+        ...apiVersions.map((version, index) => ({
+          default: index === 0,
+          slug: `v${version}`,
+          title: `version ${version}`,
+          url: `/api/v${version}-json`,
+        })),
+        {
+          default: false,
+          slug: 'auth',
+          title: 'auth (Better Auth)',
+          url: authDocumentUrl,
+        },
+      ],
       theme: 'default',
       urlRouting: false,
     }),

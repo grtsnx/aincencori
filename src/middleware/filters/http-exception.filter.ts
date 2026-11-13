@@ -2,7 +2,6 @@ import {
   ArgumentsHost,
   Catch,
   ExceptionFilter,
-  HttpException,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -31,7 +30,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const requestPath = request.path ?? request.originalUrl ?? request.url;
     const path = requestPath?.split('?', 1)[0];
 
-    if (!(exception instanceof HttpException)) {
+    if (statusCode >= 500) {
       this.logger.error({
         error:
           exception instanceof Error

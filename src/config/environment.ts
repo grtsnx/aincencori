@@ -64,6 +64,28 @@ function isHttpOrigin(value: string): boolean {
   }
 }
 
+const optionalOrigin = (name: string, example: string) =>
+  optionalString().pipe(
+    z
+      .string()
+      .refine(isHttpOrigin, {
+        error: `${name} must be an http(s) origin without a path, such as ${example}`,
+      })
+      .optional(),
+  );
+
+// A comma-separated list in .env; empty means none.
+function commaList(value: string | undefined): string[] {
+  return [
+    ...new Set(
+      (value ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 const environmentSchema = z
   .object({
     NODE_ENV: z.enum(environments).default('development'),
@@ -89,15 +111,26 @@ const environmentSchema = z
         .min(32, { error: 'BETTER_AUTH_SECRET must be at least 32 characters' })
         .optional(),
     ),
-    BETTER_AUTH_URL: optionalString().pipe(
+    BETTER_AUTH_URL: optionalOrigin(
+      'BETTER_AUTH_URL',
+      'https://api.example.com',
+    ),
+    APP_URL: optionalOrigin('APP_URL', 'https://app.example.com'),
+    BETTER_AUTH_API_KEY: optionalString(),
+    GOOGLE_CLIENT_ID: optionalString(),
+    GOOGLE_CLIENT_SECRET: optionalString(),
+    RECAPTCHA_SECRET_KEY: optionalString(),
+    PASSKEY_RP_ID: optionalString().pipe(
       z
         .string()
-        .refine(isHttpOrigin, {
-          error:
-            'BETTER_AUTH_URL must be an http(s) origin without a path, such as https://api.example.com',
+        .regex(/^[a-z0-9.-]+$/i, {
+          error: 'PASSKEY_RP_ID must be a domain name, such as example.com',
         })
         .optional(),
     ),
+    MCP_RESOURCE_URL: optionalString().pipe(z.url().optional()),
+    AUTH_IP_HEADERS: optionalString(),
+    AUTH_TRUSTED_PROXIES: optionalString(),
     AUTH_COOKIE_DOMAIN: optionalString().pipe(
       z
         .string()
@@ -114,6 +147,9 @@ const environmentSchema = z
         'DATABASE_URL',
         'BETTER_AUTH_SECRET',
         'BETTER_AUTH_URL',
+        'APP_URL',
+        // Sends the sign-in codes; without it nobody can sign in with email.
+        'BETTER_AUTH_API_KEY',
       ] as const) {
         if (!environment[key]) {
           context.addIssue({
@@ -123,6 +159,15 @@ const environmentSchema = z
           });
         }
       }
+    }
+
+    if (!environment.GOOGLE_CLIENT_ID !== !environment.GOOGLE_CLIENT_SECRET) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Set both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or neither',
+        path: ['GOOGLE_CLIENT_ID'],
+      });
     }
 
     if (!environment.OBSERVE_ENABLED) return;
@@ -156,18 +201,36 @@ export interface Environment {
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL: string;
   AUTH_COOKIE_DOMAIN?: string;
+  APP_URL: string;
+  BETTER_AUTH_API_KEY?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  RECAPTCHA_SECRET_KEY?: string;
+  PASSKEY_RP_ID: string;
+  MCP_RESOURCE_URL: string;
+  AUTH_IP_HEADERS: string[];
+  AUTH_TRUSTED_PROXIES: string[];
 }
 
 export function validateEnvironment(
   values: Record<string, unknown>,
 ): Environment {
   const parsed = environmentSchema.parse(values);
+  const origins = corsOrigins(parsed.CORS_ORIGINS);
+  const betterAuthUrl =
+    parsed.BETTER_AUTH_URL ?? `http://localhost:${parsed.PORT}`;
+  // The frontend. Defaults to the first CORS origin in development.
+  const appUrl = parsed.APP_URL ?? origins[0] ?? 'http://localhost:3001';
   return {
     ...parsed,
-    CORS_ORIGINS: corsOrigins(parsed.CORS_ORIGINS),
+    CORS_ORIGINS: origins,
     OBSERVE_ENABLED: parsed.OBSERVE_ENABLED ?? false,
     SWAGGER_ENABLED: parsed.SWAGGER_ENABLED ?? parsed.NODE_ENV !== 'production',
-    BETTER_AUTH_URL:
-      parsed.BETTER_AUTH_URL ?? `http://localhost:${parsed.PORT}`,
+    BETTER_AUTH_URL: betterAuthUrl,
+    APP_URL: appUrl,
+    PASSKEY_RP_ID: parsed.PASSKEY_RP_ID ?? new URL(appUrl).hostname,
+    MCP_RESOURCE_URL: parsed.MCP_RESOURCE_URL ?? `${betterAuthUrl}/mcp`,
+    AUTH_IP_HEADERS: commaList(parsed.AUTH_IP_HEADERS),
+    AUTH_TRUSTED_PROXIES: commaList(parsed.AUTH_TRUSTED_PROXIES),
   };
 }

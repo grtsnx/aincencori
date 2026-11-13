@@ -1,3 +1,4 @@
+import { APIError } from 'better-auth/api';
 import { HttpException, HttpStatus } from '@nestjs/common';
 
 export function statusType(statusCode: number): string {
@@ -30,6 +31,24 @@ export function describeException(exception: unknown): {
   message: string;
   data?: unknown;
 } {
+  // Errors from Better Auth's API (for example "not allowed") keep their status.
+  if (exception instanceof APIError) {
+    const statusCode = exception.statusCode;
+    if (statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      return { statusCode, message: 'Internal server error' };
+    }
+    const body = (exception.body ?? {}) as {
+      message?: unknown;
+      code?: unknown;
+    };
+    return {
+      statusCode,
+      message:
+        typeof body.message === 'string' ? body.message : exception.message,
+      ...(typeof body.code === 'string' && { data: { code: body.code } }),
+    };
+  }
+
   if (!(exception instanceof HttpException)) {
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,

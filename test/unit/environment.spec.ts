@@ -6,6 +6,8 @@ const production = {
   DATABASE_URL: 'postgresql://user:pass@db.example.com:5432/app',
   BETTER_AUTH_SECRET: 'a'.repeat(32),
   BETTER_AUTH_URL: 'https://api.example.com',
+  APP_URL: 'https://app.example.com',
+  BETTER_AUTH_API_KEY: 'key',
 };
 
 describe('validateEnvironment', () => {
@@ -50,6 +52,8 @@ describe('validateEnvironment', () => {
       'DATABASE_URL',
       'BETTER_AUTH_SECRET',
       'BETTER_AUTH_URL',
+      'APP_URL',
+      'BETTER_AUTH_API_KEY',
     ] as const) {
       expect(() => validateEnvironment({ ...production, [key]: '' })).toThrow(
         new RegExp(`${key} is required in production`),
@@ -104,5 +108,26 @@ describe('validateEnvironment', () => {
         OBSERVE_SERVICE_ID: 'service',
       }).OBSERVE_ENABLED,
     ).toBe(true);
+  });
+
+  it('requires both Google credentials or neither', () => {
+    expect(() => validateEnvironment({ GOOGLE_CLIENT_ID: 'id' })).toThrow(
+      /GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET/,
+    );
+  });
+
+  it('derives frontend, passkey and MCP defaults', () => {
+    expect(
+      validateEnvironment({
+        CORS_ORIGINS: 'https://app.example.com',
+        BETTER_AUTH_URL: 'https://api.example.com',
+        AUTH_IP_HEADERS: 'cf-connecting-ip, x-real-ip',
+      }),
+    ).toMatchObject({
+      APP_URL: 'https://app.example.com',
+      PASSKEY_RP_ID: 'app.example.com',
+      MCP_RESOURCE_URL: 'https://api.example.com/mcp',
+      AUTH_IP_HEADERS: ['cf-connecting-ip', 'x-real-ip'],
+    });
   });
 });
