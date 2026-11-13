@@ -21,6 +21,16 @@ export class CreateBotDto {
   @MaxLength(60)
   name: string;
 
+  @ApiPropertyOptional({
+    description:
+      'One line on what it is for. With it, the default assistant can hand chats to this bot',
+    example: 'Answers sales emails and follows up with leads.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  description?: string;
+
   @ApiProperty({
     description: 'How the bot should behave',
     example: 'You help me answer sales emails. Be short and friendly.',
@@ -55,6 +65,14 @@ export class UpdateBotDto {
   @MinLength(1)
   @MaxLength(60)
   name?: string;
+
+  @ApiPropertyOptional({
+    example: 'Answers sales emails and follows up with leads.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  description?: string;
 
   @ApiPropertyOptional({
     example: 'You help me answer sales emails. Be short and friendly.',
@@ -121,6 +139,13 @@ export class BotDto {
   name: string;
 
   @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'Answers sales emails and follows up with leads.',
+  })
+  description: string | null;
+
+  @ApiProperty({
     example: 'You help me answer sales emails. Be short and friendly.',
   })
   instructions: string;
@@ -133,6 +158,110 @@ export class BotDto {
     type: [BotIntegrationDto],
   })
   integrations: BotIntegrationDto[];
+
+  @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
+  createdAt: Date;
+
+  @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
+  updatedAt: Date;
+}
+
+export class CreateBotMemoryDto {
+  @ApiProperty({
+    description: 'A fact the bot should know',
+    example: 'My company is Acme and we sell accounting software.',
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  text: string;
+}
+
+export class BotMemoryDto {
+  @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
+  id: string;
+
+  @ApiProperty({
+    example: 'My company is Acme and we sell accounting software.',
+  })
+  text: string;
+
+  @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
+  createdAt: Date;
+}
+
+export class CreateBotSkillDto {
+  @ApiProperty({ example: 'follow-up-email' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(60)
+  name: string;
+
+  @ApiProperty({
+    description: 'When the bot should use it',
+    example: 'Write a follow-up email after a sales call.',
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  description: string;
+
+  @ApiProperty({
+    description: 'The steps to follow',
+    example:
+      '1. Thank them for the call.\n2. Sum up what was agreed.\n3. Ask for a next meeting.',
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(20_000)
+  instructions: string;
+}
+
+export class UpdateBotSkillDto {
+  @ApiPropertyOptional({ example: 'follow-up-email' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(60)
+  name?: string;
+
+  @ApiPropertyOptional({
+    example: 'Write a follow-up email after a sales call.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  description?: string;
+
+  @ApiPropertyOptional({
+    example: '1. Thank them for the call.\n2. Ask for a next meeting.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(20_000)
+  instructions?: string;
+}
+
+export class BotSkillDto {
+  @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
+  id: string;
+
+  @ApiProperty({ example: 'follow-up-email' })
+  name: string;
+
+  @ApiProperty({ example: 'Write a follow-up email after a sales call.' })
+  description: string;
+
+  @ApiProperty({
+    example:
+      '1. Thank them for the call.\n2. Sum up what was agreed.\n3. Ask for a next meeting.',
+  })
+  instructions: string;
+
+  @ApiProperty({ description: 'Goes up with every change', example: 1 })
+  version: number;
 
   @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
   createdAt: Date;

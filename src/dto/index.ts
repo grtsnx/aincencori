@@ -23,9 +23,14 @@ export {
 export {
   BotDto,
   BotIntegrationDto,
+  BotMemoryDto,
+  BotSkillDto,
   CreateBotDto,
+  CreateBotMemoryDto,
+  CreateBotSkillDto,
   ListBotsQueryDto,
   UpdateBotDto,
+  UpdateBotSkillDto,
 } from './bot/bot.dto.js';
 export {
   ChatActionDto,

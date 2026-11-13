@@ -584,6 +584,9 @@ model BotSkill {
   name         String
   description  String
   instructions String
+  // The copy at Cencori (safety scan and version history), when synced.
+  cencoriSkillId String?
+  version      Int      @default(1)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

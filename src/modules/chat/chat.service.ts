@@ -12,8 +12,9 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import type { Agent, MCPServer } from 'cencori/agents';
+import type { Agent } from 'cencori/agents';
 import {
+  type BotParts,
   type ChatContext,
   createBotAgent,
   createChatAgent,
@@ -47,14 +48,18 @@ interface ChatUser {
 }
 
 // What the chat needs to run one of a user's bots.
-export interface BotRuntime {
+export interface BotRuntime extends BotParts {
   id: string;
-  name: string;
-  instructions: string;
-  // The bot's own-MCP integrations.
-  mcpServers: MCPServer[];
   // Set when the bot has signed-in app connections (Gmail, Slack...).
   cencori?: { agentId: string; tenantId: string; installationId: string };
+}
+
+// How the chat gets bots from the bot module.
+export interface BotLoader {
+  // One of the user's bots, for a chat with it.
+  one: (userId: string, botId: string) => Promise<BotRuntime>;
+  // The user's bots the default assistant may hand a chat to.
+  forAssistant: (userId: string) => Promise<BotRuntime[]>;
 }
 
 // A routine run's answer: done, or stopped at a step the user must approve.
@@ -84,7 +89,7 @@ export class ChatService implements OnModuleInit {
   // Set by the routine module when the app starts.
   private routineActions?: RoutineActions;
   // Set by the bot module: loads one of the user's bots for a chat.
-  private bots?: (userId: string, botId: string) => Promise<BotRuntime>;
+  private bots?: BotLoader;
   private readonly secrets: string[];
 
   constructor(
@@ -109,9 +114,9 @@ export class ChatService implements OnModuleInit {
     this.routineActions = actions;
   }
 
-  // The bot module hands over how to load a user's bot.
-  useBots(load: (userId: string, botId: string) => Promise<BotRuntime>): void {
-    this.bots = load;
+  // The bot module hands over how to load a user's bots.
+  useBots(loader: BotLoader): void {
+    this.bots = loader;
   }
 
   // Which agent answers: the user's bot when the chat is with one, else the
@@ -127,13 +132,31 @@ export class ChatService implements OnModuleInit {
       });
       if (chat?.userId === userId) botId = chat.botId ?? undefined;
     }
-    if (!botId) return { agent: this.agent };
+    if (!botId) return { agent: await this.assistantFor(userId) };
+    return this.botAgent(userId, botId);
+  }
+
+  private async botAgent(
+    userId: string,
+    botId: string,
+  ): Promise<{ agent: Agent<ChatContext>; bot: BotRuntime }> {
     if (!this.bots) throw new NotFoundException('Bot not found.');
-    const bot = await this.bots(userId, botId);
-    return {
-      agent: createBotAgent({ secrets: this.secrets }, bot),
-      bot,
-    };
+    const bot = await this.bots.one(userId, botId);
+    return { agent: createBotAgent({ secrets: this.secrets }, bot), bot };
+  }
+
+  // The orchestrator for one user: the default assistant, able to hand the
+  // chat to that user's own bots (by their description) as well as to its
+  // built-in helpers.
+  private async assistantFor(userId: string): Promise<Agent<ChatContext>> {
+    const bots = (await this.bots?.forAssistant(userId)) ?? [];
+    if (bots.length === 0) return this.agent;
+    const taken = new Set(this.agent.handoffs.map((agent) => agent.name));
+    const own = bots
+      // Handoffs go by name, so a second bot with the same name is skipped.
+      .filter((bot) => !taken.has(bot.name) && taken.add(bot.name))
+      .map((bot) => createBotAgent({ secrets: this.secrets }, bot));
+    return this.agent.clone({ handoffs: [...this.agent.handoffs, ...own] });
   }
 
   onModuleInit(): void {
@@ -171,8 +194,10 @@ export class ChatService implements OnModuleInit {
       authorizeSession: (sessionId) => this.owns(sessionId, userId),
       // Signs paused runs (approvals) so the browser can't change them.
       secret: this.config.getOrThrow<string>('BETTER_AUTH_SECRET'),
-      // Cencori remembers facts about this user across chats.
-      memory: { userId },
+      // The default assistant: Cencori remembers facts about this user
+      // across chats. A bot keeps its own memories instead (see BotParts),
+      // so one bot's facts never reach another.
+      ...(bot ? {} : { memory: { userId } }),
       metadata: { userId },
       maxTurns: maxAgentTurns,
     });
@@ -313,6 +338,7 @@ export class ChatService implements OnModuleInit {
     userId: string;
     name: string;
     prompt: string;
+    botId?: string | null;
   }): Promise<RoutineRunStatus> {
     const user = await this.prisma.db.user.findUnique({
       where: { id: routine.userId },
@@ -320,10 +346,14 @@ export class ChatService implements OnModuleInit {
     if (!user) throw new NotFoundException('User not found.');
     const startedAt = new Date();
 
-    const result = await this.cencori.agentRun(this.agent, routine.prompt, {
+    // The routine's bot runs it; without one, the default assistant does.
+    const agent = routine.botId
+      ? (await this.botAgent(user.id, routine.botId)).agent
+      : this.agent;
+    const result = await this.cencori.agentRun(agent, routine.prompt, {
       context: this.context(user),
       user: user.id,
-      memory: { userId: user.id },
+      ...(routine.botId ? {} : { memory: { userId: user.id } }),
       metadata: { userId: user.id, routineId: routine.id },
       maxTurns: maxAgentTurns,
     });
@@ -350,6 +380,7 @@ export class ChatService implements OnModuleInit {
           userId: user.id,
           title: routine.name.slice(0, 80),
           routineId: routine.id,
+          botId: routine.botId,
         },
       }),
       this.prisma.db.chatMessage.createMany({

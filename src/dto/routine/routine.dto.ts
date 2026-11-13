@@ -44,6 +44,15 @@ export class CreateRoutineDto {
   @MaxLength(100)
   timezone: string;
 
+  @ApiPropertyOptional({
+    description: 'The bot that runs it. Leave out for the default assistant',
+    example: '3f9aB2xY-7aae-4ca4-86fd-933f1a45603f',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  botId?: string;
+
   @ApiPropertyOptional({ default: true, example: true })
   @IsOptional()
   @IsBoolean()
@@ -102,6 +111,15 @@ export class ListRoutinesQueryDto {
   @IsString()
   @MaxLength(200)
   before?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only the routines of this bot',
+    example: '3f9aB2xY-7aae-4ca4-86fd-933f1a45603f',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  botId?: string;
 }
 
 export class RoutineDto {
@@ -110,6 +128,14 @@ export class RoutineDto {
 
   @ApiProperty({ example: 'Morning news' })
   name: string;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'The bot that runs it; null for the default assistant',
+    example: null,
+  })
+  botId: string | null;
 
   @ApiProperty({ example: 'Summarize the top 5 tech news stories of today.' })
   prompt: string;

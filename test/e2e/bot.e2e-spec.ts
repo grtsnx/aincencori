@@ -58,6 +58,7 @@ describe('Bots (e2e)', () => {
       const db = app.get(PrismaService).db;
       const user = await db.user.findUnique({ where: { email } });
       if (user) {
+        await db.routine.deleteMany({ where: { userId: user.id } });
         await db.bot.deleteMany({ where: { userId: user.id } });
         await db.integration.deleteMany({ where: { userId: user.id } });
       }
@@ -135,6 +136,96 @@ describe('Bots (e2e)', () => {
       expect(
         after.body.data.integrations.map((i: { name: string }) => i.name),
       ).toEqual(['personal-mail']);
+    });
+
+    it('gives a bot memories, skills and routines, all optional', async () => {
+      const bot = (
+        await call()
+          .post('/v1/bots')
+          .set('Cookie', cookies)
+          .send({
+            name: 'Prospector',
+            description: 'Finds and researches sales leads.',
+            instructions: 'Find leads.',
+          })
+          .expect(200)
+      ).body.data;
+      expect(bot.description).toBe('Finds and researches sales leads.');
+      const base = `/v1/bots/${bot.id}`;
+
+      // Memories
+      const memory = await call()
+        .post(`${base}/memories`)
+        .set('Cookie', cookies)
+        .send({ text: 'My company is Acme.' })
+        .expect(200);
+      const memories = await call()
+        .get(`${base}/memories`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(memories.body.data.map((m: { text: string }) => m.text)).toEqual([
+        'My company is Acme.',
+      ]);
+      await call()
+        .delete(`${base}/memories/${memory.body.data.id}`)
+        .set('Cookie', cookies)
+        .expect(204);
+
+      // Skills: the same name twice is refused; a change is a new version.
+      const skill = { name: 'follow-up', description: 'Follow up.', instructions: '1. Thank them.' };
+      const created = await call()
+        .post(`${base}/skills`)
+        .set('Cookie', cookies)
+        .send(skill)
+        .expect(200);
+      expect(created.body.data.version).toBe(1);
+      await call()
+        .post(`${base}/skills`)
+        .set('Cookie', cookies)
+        .send(skill)
+        .expect(409);
+      const changed = await call()
+        .patch(`${base}/skills/${created.body.data.id}`)
+        .set('Cookie', cookies)
+        .send({ instructions: '1. Thank them.\n2. Ask for a call.' })
+        .expect(200);
+      expect(changed.body.data.version).toBe(2);
+
+      // A routine run by this bot; another person's bot is refused.
+      const routine = await call()
+        .post('/v1/routines')
+        .set('Cookie', cookies)
+        .send({
+          name: 'Daily leads',
+          prompt: 'Find 5 new leads.',
+          cron: '0 9 * * *',
+          timezone: 'Africa/Lagos',
+          botId: bot.id,
+        })
+        .expect(200);
+      expect(routine.body.data.botId).toBe(bot.id);
+      const mine = await call()
+        .get(`/v1/routines?botId=${bot.id}`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(mine.body.data).toHaveLength(1);
+      await call()
+        .post('/v1/routines')
+        .set('Cookie', cookies)
+        .send({
+          name: 'x',
+          prompt: 'y',
+          cron: '0 9 * * *',
+          timezone: 'UTC',
+          botId: 'not-my-bot',
+        })
+        .expect(400);
+
+      // Deleting the bot takes its memories, skills and routines with it.
+      await call().delete(base).set('Cookie', cookies).expect(204);
+      const db = app.get(PrismaService).db;
+      expect(await db.botSkill.count({ where: { botId: bot.id } })).toBe(0);
+      expect(await db.routine.count({ where: { botId: bot.id } })).toBe(0);
     });
 
     it("refuses integrations that are not the user's", async () => {

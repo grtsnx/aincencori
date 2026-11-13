@@ -246,21 +246,90 @@ const noSecretsOut = (secrets: string[]): OutputGuardrail<ChatContext> => ({
 
 // ── Agents ───────────────────────────────────────────────────────────────
 
-// The chat starts with the main agent. It answers itself, hands the chat to a
-// specialist (Account, Research, Routines), asks the Writer for drafts, or hands it to a
-// person on our team.
-// A bot a user made: their instructions, plus the integrations they picked
-// for it (none is fine). Same guardrails as the default assistant.
+// What a bot is made of. Only the name and instructions are required;
+// memories, skills and integrations are all optional.
+export interface BotParts {
+  name: string;
+  description?: string | null;
+  instructions: string;
+  // Facts it already knows.
+  memories: string[];
+  // Playbooks it can run. It sees name and description, and reads the steps
+  // when it uses one.
+  skills: { name: string; description: string; instructions: string }[];
+  // Its own-MCP integrations.
+  mcpServers: MCPServer[];
+  // The bot keeps a new fact.
+  saveMemory: (text: string) => Promise<void>;
+  // The bot rewrites its own instructions (the user approves first).
+  updateInstructions: (instructions: string) => Promise<void>;
+}
+
+// A bot a user made. Same guardrails as the default assistant.
 export function createBotAgent(
   settings: Pick<AgentSettings, 'secrets'>,
-  bot: { name: string; instructions: string; mcpServers: MCPServer[] },
+  bot: BotParts,
 ): Agent<ChatContext> {
+  const tools: FunctionTool<ChatContext>[] = [
+    webSearch(),
+    webFetch(),
+    tool({
+      name: 'save_memory',
+      description:
+        'Keep a lasting fact about the user or their work, in one short ' +
+        'sentence, when it will help in later chats. Never save secrets.',
+      parameters: z.object({ fact: z.string().min(1).max(500) }),
+      execute: async ({ fact }) => {
+        if (secretLike.test(fact)) return 'Not saved: it looks like a secret.';
+        await bot.saveMemory(fact);
+        return 'Saved.';
+      },
+    }) as FunctionTool<ChatContext>,
+    tool({
+      name: 'update_my_instructions',
+      description:
+        'Rewrite your own instructions when the user asks you to change ' +
+        'how you behave. Send the full new instructions, not just the change.',
+      parameters: z.object({ instructions: z.string().min(1).max(8000) }),
+      // Changes how the bot behaves from now on, so the user approves it.
+      needsApproval: true,
+      execute: async ({ instructions }) => {
+        await bot.updateInstructions(instructions);
+        return 'Instructions updated. They apply from the next message.';
+      },
+    }) as FunctionTool<ChatContext>,
+  ];
+  if (bot.skills.length > 0) {
+    tools.push(
+      tool({
+        name: 'use_skill',
+        description: 'Read the steps of one of your skills, then follow them.',
+        parameters: z.object({ name: z.string() }),
+        execute: ({ name }) =>
+          bot.skills.find((skill) => skill.name === name)?.instructions ??
+          `No skill named "${name}".`,
+      }) as FunctionTool<ChatContext>,
+    );
+  }
+
   return new Agent<ChatContext>({
     name: bot.name,
+    handoffDescription: bot.description ?? undefined,
     instructions: ({ context }) =>
-      `${bot.instructions}\n\nThe user is ${context.user.name}. ` +
-      'Show data as widgets when it helps.',
-    tools: [webSearch(), webFetch()],
+      [
+        bot.instructions,
+        `The user is ${context.user.name}. Show data as widgets when it helps.`,
+        bot.memories.length > 0 &&
+          `What you already know:\n${bot.memories.map((fact) => `- ${fact}`).join('\n')}`,
+        bot.skills.length > 0 &&
+          'Your skills (call use_skill with the name to read the steps):\n' +
+            bot.skills
+              .map((skill) => `- ${skill.name}: ${skill.description}`)
+              .join('\n'),
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    tools,
     inputGuardrails: [noSecretsIn],
     outputGuardrails: [noSecretsOut(settings.secrets)],
     widgets: true,
@@ -268,6 +337,10 @@ export function createBotAgent(
   });
 }
 
+// The default assistant is the orchestrator: every chat without a bot starts
+// here. It answers itself, hands the chat to a specialist (Account, Research,
+// Routines) or to one of the user's own bots (added per chat, see
+// ChatService), asks the Writer for drafts, or hands it to a person on our team.
 export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
   const account = new Agent<ChatContext>({
     name: 'Account',
@@ -319,6 +392,7 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'Keep answers short and plain. Show data as widgets when it helps. ' +
       'Hand account questions to Account, web questions to Research and ' +
       'scheduled or repeating tasks to Routines. ' +
+      'If one of the user’s own bots fits the job better, hand it over. ' +
       'Use the writer tool for drafts. If the user asks for a person, ' +
       'or you cannot help, hand the chat to a human.',
     tools: [

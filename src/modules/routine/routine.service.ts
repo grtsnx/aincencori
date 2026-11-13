@@ -64,7 +64,10 @@ export class RoutineService implements OnModuleInit {
   // The user's routines, newest first, one page at a time.
   async list(auth: Owner, query: ListRoutinesQueryDto): Promise<RoutineDto[]> {
     const routines = await this.prisma.db.routine.findMany({
-      where: { userId: auth.user.id },
+      where: {
+        userId: auth.user.id,
+        ...(query.botId ? { botId: query.botId } : {}),
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit ?? 50,
       ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
@@ -78,6 +81,14 @@ export class RoutineService implements OnModuleInit {
 
   async create(auth: Owner, body: CreateRoutineDto): Promise<RoutineDto> {
     checkSchedule(body.cron, body.timezone);
+    if (body.botId) {
+      // Only the user's own bot may run their routine.
+      const bot = await this.prisma.db.bot.findFirst({
+        where: { id: body.botId, userId: auth.user.id },
+        select: { id: true },
+      });
+      if (!bot) throw new BadRequestException('Unknown bot.');
+    }
     const count = await this.prisma.db.routine.count({
       where: { userId: auth.user.id },
     });
@@ -90,6 +101,7 @@ export class RoutineService implements OnModuleInit {
       data: {
         id: randomUUID(),
         userId: auth.user.id,
+        botId: body.botId,
         name: body.name,
         prompt: body.prompt,
         cron: body.cron,
@@ -230,6 +242,7 @@ function toDto(routine: Routine): RoutineDto {
   return {
     id: routine.id,
     name: routine.name,
+    botId: routine.botId,
     prompt: routine.prompt,
     cron: routine.cron,
     timezone: routine.timezone,

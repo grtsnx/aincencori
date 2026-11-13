@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type ChatContext, createChatAgent } from '@/config/agents/agents.js';
+import {
+  type BotParts,
+  type ChatContext,
+  createBotAgent,
+  createChatAgent,
+} from '@/config/agents/agents.js';
 import { ChatService, parseEvent } from '@/modules/chat/chat.service.js';
 
 const settings = {
@@ -83,6 +88,75 @@ describe('chat agents', () => {
         output.execute({ output: 'You are in Acme.', agent, runContext }),
       ),
     ).resolves.toMatchObject({ tripwireTriggered: false });
+  });
+});
+
+describe('bot agents', () => {
+  const parts = (over: Partial<BotParts> = {}): BotParts => ({
+    name: 'Sales Bot',
+    description: 'Answers sales emails.',
+    instructions: 'Answer sales emails.',
+    memories: [],
+    skills: [],
+    mcpServers: [],
+    saveMemory: vi.fn().mockResolvedValue(undefined),
+    updateInstructions: vi.fn().mockResolvedValue(undefined),
+    ...over,
+  });
+  const call = (agent: ReturnType<typeof createBotAgent>, name: string) => {
+    const found = agent.tools.find((t) => t.name === name);
+    if (!found) throw new Error(`no tool ${name}`);
+    return found;
+  };
+
+  it('works with only a name and instructions', async () => {
+    const agent = createBotAgent(settings, parts());
+
+    expect(agent.tools.map((t) => t.name)).toEqual([
+      'web_search',
+      'web_fetch',
+      'save_memory',
+      'update_my_instructions',
+    ]);
+    const text = await agent.resolveInstructions(runContext);
+    expect(text).toContain('Answer sales emails.');
+    expect(text).not.toContain('What you already know');
+    expect(text).not.toContain('Your skills');
+  });
+
+  it('knows its memories and lists its skills', async () => {
+    const agent = createBotAgent(
+      settings,
+      parts({
+        memories: ['The company is Acme.'],
+        skills: [
+          {
+            name: 'follow-up-email',
+            description: 'Write a follow-up email.',
+            instructions: '1. Thank them.',
+          },
+        ],
+      }),
+    );
+
+    const text = await agent.resolveInstructions(runContext);
+    expect(text).toContain('- The company is Acme.');
+    expect(text).toContain('- follow-up-email: Write a follow-up email.');
+    // The steps are read only when the skill is used.
+    expect(text).not.toContain('1. Thank them.');
+    expect(agent.tools.map((t) => t.name)).toContain('use_skill');
+  });
+
+  it('asks before changing its own instructions, not before saving a fact', () => {
+    const agent = createBotAgent(settings, parts());
+
+    expect(
+      (call(agent, 'update_my_instructions') as { needsApproval?: unknown })
+        .needsApproval,
+    ).toBeTruthy();
+    expect(
+      (call(agent, 'save_memory') as { needsApproval?: unknown }).needsApproval,
+    ).toBeFalsy();
   });
 });
 

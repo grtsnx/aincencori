@@ -17,7 +17,17 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { BotDto, CreateBotDto, ListBotsQueryDto, UpdateBotDto } from '@/dto';
+import {
+  BotDto,
+  BotMemoryDto,
+  BotSkillDto,
+  CreateBotDto,
+  CreateBotMemoryDto,
+  CreateBotSkillDto,
+  ListBotsQueryDto,
+  UpdateBotDto,
+  UpdateBotSkillDto,
+} from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { CurrentSession } from '@/middleware';
 import { BotService } from './bot.service.js';
@@ -44,7 +54,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Create a bot',
-    description: 'Creates a bot. Integrations are optional.',
+    description: 'Only name and instructions are needed; the rest is optional.',
   })
   @ApiOkResponse({ type: BotDto })
   @Post()
@@ -95,5 +105,107 @@ export class BotController {
     @CurrentSession() auth: AuthSession,
   ): Promise<void> {
     return this.botService.remove(id, auth);
+  }
+
+  @ApiOperation({
+    summary: 'List bot memories',
+    description: 'Facts the bot knows, newest first. Page with "before".',
+  })
+  @ApiOkResponse({ type: [BotMemoryDto] })
+  @Get(':id/memories')
+  memories(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+    @Query() query: ListBotsQueryDto,
+  ): Promise<BotMemoryDto[]> {
+    return this.botService.memories(id, auth, query);
+  }
+
+  @ApiOperation({
+    summary: 'Add a memory',
+    description: 'Teaches the bot a fact it uses in every chat.',
+  })
+  @ApiOkResponse({ type: BotMemoryDto })
+  @Post(':id/memories')
+  @HttpCode(200)
+  addMemory(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+    @Body() body: CreateBotMemoryDto,
+  ): Promise<BotMemoryDto> {
+    return this.botService.addMemory(id, auth, body);
+  }
+
+  @ApiOperation({
+    summary: 'Delete a memory',
+    description: 'Makes the bot forget one fact.',
+  })
+  @ApiNoContentResponse({ description: 'Deleted' })
+  @Delete(':id/memories/:memoryId')
+  @HttpCode(204)
+  removeMemory(
+    @Param('id') id: string,
+    @Param('memoryId') memoryId: string,
+    @CurrentSession() auth: AuthSession,
+  ): Promise<void> {
+    return this.botService.removeMemory(id, memoryId, auth);
+  }
+
+  @ApiOperation({
+    summary: 'List bot skills',
+    description: 'Playbooks the bot can run.',
+  })
+  @ApiOkResponse({ type: [BotSkillDto] })
+  @Get(':id/skills')
+  skills(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+  ): Promise<BotSkillDto[]> {
+    return this.botService.skills(id, auth);
+  }
+
+  @ApiOperation({
+    summary: 'Add a skill',
+    description: 'Gives the bot a playbook. It is safety-scanned first.',
+  })
+  @ApiOkResponse({ type: BotSkillDto })
+  @Post(':id/skills')
+  @HttpCode(200)
+  addSkill(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+    @Body() body: CreateBotSkillDto,
+  ): Promise<BotSkillDto> {
+    return this.botService.addSkill(id, auth, body);
+  }
+
+  @ApiOperation({
+    summary: 'Update a skill',
+    description: 'Changes a skill; each change is a new version.',
+  })
+  @ApiOkResponse({ type: BotSkillDto })
+  @Patch(':id/skills/:skillId')
+  updateSkill(
+    @Param('id') id: string,
+    @Param('skillId') skillId: string,
+    @CurrentSession() auth: AuthSession,
+    @Body() body: UpdateBotSkillDto,
+  ): Promise<BotSkillDto> {
+    return this.botService.updateSkill(id, skillId, auth, body);
+  }
+
+  @ApiOperation({
+    summary: 'Delete a skill',
+    description: 'Removes a skill from the bot.',
+  })
+  @ApiNoContentResponse({ description: 'Deleted' })
+  @Delete(':id/skills/:skillId')
+  @HttpCode(204)
+  removeSkill(
+    @Param('id') id: string,
+    @Param('skillId') skillId: string,
+    @CurrentSession() auth: AuthSession,
+  ): Promise<void> {
+    return this.botService.removeSkill(id, skillId, auth);
   }
 }
