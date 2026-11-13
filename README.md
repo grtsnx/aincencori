@@ -8,7 +8,7 @@ You need Bun 1.3.14+, Node.js 24+ and Docker.
 
 ```bash
 cp .env.example .env
-docker compose up -d --wait   # Postgres (port 5433) and Mailpit (inbox: http://localhost:8025)
+docker compose up -d --wait   # Postgres (5433), Valkey (6380) and Mailpit (inbox: http://localhost:8025)
 bun install --frozen-lockfile
 bun run db:migrate
 bun run start:dev
@@ -53,6 +53,12 @@ Then open the API docs:
 - Each chat belongs to the user who started it. Staff with the `chat` permission can read and reply to chats handed to a person, then hand them back.
 - Agents live in `src/config/agents/agents.ts`. Optional: `CENCORI_AGENT_ID` runs an agent built in the Cencori dashboard, `AGENT_MCP_URL` adds an MCP server's tools.
 
+**Routines and background jobs**
+
+- Routines: the agent runs a prompt on a schedule ("every morning at 8, summarize the news") in the user's time zone. Each run is saved as a chat. Users can pause, edit, run now, and see past runs.
+- Limits (in `src/config/agents/limits.ts`): 25 routines per user, at most one run every 15 minutes.
+- Background jobs use BullMQ on Redis or Valkey (`REDIS_URL`; locally the Valkey container). Failed jobs retry with growing waits. Tests run jobs straight away and need no Redis.
+
 **Security**
 
 - Security headers, CSRF checks, rate limits and request IDs on every route.
@@ -66,7 +72,7 @@ Then open the API docs:
 
 ## API docs
 
-The docs are grouped into Auth, Agent Auth, User, Organization, Chat and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
+The docs are grouped into Auth, Agent Auth, User, Organization, Chat, Routines and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
 
 There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under `/v1/auth` (v2 gets its own when we start v2).
 
@@ -77,7 +83,7 @@ The full rules for people and AI coding agents are in [AGENTS.md](AGENTS.md) (Cl
 ```
 src/
   modules/<name>/   one feature: <name>.service.ts, .controller.ts, .module.ts (exactly these 3)
-  lib/<name>/       one outside tool (Better Auth, Prisma, email): .module.ts, .service.ts (exactly these 2)
+  lib/<name>/       one outside tool, named after it (better-auth, prisma, bullmq...): .module.ts, .service.ts (exactly these 2)
   dto/<feature>/    request and response shapes, all exported from dto/index.ts
   config/           settings: environment.ts, auth/ (Better Auth), docs/ (doc wording and samples)
   middleware/       guards, decorators, filters, interceptors; commons/ for helpers (hashing)
@@ -90,6 +96,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | Setting                                                                    | What it's for                                                  |
 | -------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `DATABASE_URL`                                                             | Postgres connection                                            |
+| `REDIS_URL`                                                                | Redis or Valkey for background jobs. Required in production    |
 | `BETTER_AUTH_SECRET`                                                       | Signs sessions (32+ characters). Required in production        |
 | `BETTER_AUTH_URL`                                                          | This API's address                                             |
 | `APP_URL`                                                                  | The frontend's address                                         |

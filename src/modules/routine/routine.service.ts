@@ -37,12 +37,12 @@ export class RoutineService implements OnModuleInit {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly queue: BullmqService,
+    private readonly bullmq: BullmqService,
     private readonly chat: ChatService,
   ) {}
 
   onModuleInit(): void {
-    this.queue.handle<{ routineId: string }>(
+    this.bullmq.handle<{ routineId: string }>(
       runRoutine,
       ({ routineId }) => this.run(routineId),
       { concurrency: routineConcurrency },
@@ -109,14 +109,14 @@ export class RoutineService implements OnModuleInit {
 
   async remove(id: string, auth: AuthSession): Promise<void> {
     await this.own(id, auth);
-    await this.queue.unschedule(runRoutine, id);
+    await this.bullmq.unschedule(runRoutine, id);
     await this.prisma.db.routine.delete({ where: { id } });
   }
 
   // Runs it once now, outside its schedule. The answer arrives as a chat.
   async runNow(id: string, auth: AuthSession): Promise<RoutineDto> {
     await this.own(id, auth);
-    await this.queue.add(runRoutine, { routineId: id }, { attempts: 1 });
+    await this.bullmq.add(runRoutine, { routineId: id }, { attempts: 1 });
     return toDto(await this.own(id, auth));
   }
 
@@ -143,7 +143,7 @@ export class RoutineService implements OnModuleInit {
     });
     // Deleted since (for example with its user): stop its timetable too.
     if (!routine) {
-      await this.queue.unschedule(runRoutine, routineId);
+      await this.bullmq.unschedule(runRoutine, routineId);
       return;
     }
     let status: string;
@@ -162,14 +162,14 @@ export class RoutineService implements OnModuleInit {
   // Puts the queue's timetable in line with the routine: on or off.
   private async sync(routine: Routine): Promise<void> {
     if (routine.enabled) {
-      await this.queue.schedule(
+      await this.bullmq.schedule(
         runRoutine,
         routine.id,
         { cron: routine.cron, timezone: routine.timezone },
         { routineId: routine.id },
       );
     } else {
-      await this.queue.unschedule(runRoutine, routine.id);
+      await this.bullmq.unschedule(runRoutine, routine.id);
     }
   }
 

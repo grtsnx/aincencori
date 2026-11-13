@@ -71,7 +71,7 @@ export class ChatService implements OnModuleInit {
     private readonly cencori: CencoriService,
     private readonly betterAuth: BetterAuthService,
     private readonly prisma: PrismaService,
-    private readonly queue: BullmqService,
+    private readonly bullmq: BullmqService,
   ) {
     this.agent = createChatAgent({
       secrets: secretSettings
@@ -85,7 +85,7 @@ export class ChatService implements OnModuleInit {
   }
 
   onModuleInit(): void {
-    this.queue.handle<{ sessionId: string }>(
+    this.bullmq.handle<{ sessionId: string }>(
       deleteAtCencori,
       async ({ sessionId }) => {
         if (!this.cencori.isConfigured) return;
@@ -163,7 +163,7 @@ export class ChatService implements OnModuleInit {
     }
     // Our copy goes now; Cencori's in the background, retried if it is down.
     await this.prisma.db.chatSession.delete({ where: { id: sessionId } });
-    await this.queue.add(
+    await this.bullmq.add(
       deleteAtCencori,
       { sessionId },
       { jobId: `delete-${sessionId}` },
