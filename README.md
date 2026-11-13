@@ -85,6 +85,8 @@ Without `BETTER_AUTH_API_KEY`, development prints sign-in codes in the server lo
 - Our own tables: edit `prisma/schema.prisma`, then `bun run db:migrate`.
 - Better Auth's tables: change the options in `src/config/auth/better-auth.ts`, then run `bun run auth:generate` and `bun run db:migrate`. Don't edit Better Auth's tables by hand.
 
+- OAuth token encryption: Better Auth encrypts newly stored provider tokens. After setting the production `BETTER_AUTH_SECRET`, run `bun run auth:encrypt-oauth-tokens` to encrypt existing linked-account tokens. The command is idempotent and does not print token values.
+
 ## Tests and checks
 
 ```bash

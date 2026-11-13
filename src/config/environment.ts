@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
 const environments = ['development', 'production', 'test'] as const;
@@ -106,17 +107,29 @@ const ipHeaders = [
   'x-forwarded-for', // Amazon load balancers and API Gateway; the usual default
 ];
 
+const supportedIpHeaders = new Set(ipHeaders);
+
+function splitList(value: unknown): string[] {
+  if (value === undefined || value === '') return [];
+  const values = Array.isArray(value) ? value : String(value).split(',');
+  return [...new Set(values.map(String).map((item) => item.trim()).filter(Boolean))];
+}
+
+function isIpOrCidr(value: string): boolean {
+  const parts = value.split('/');
+  if (parts.length > 2 || !parts[0]) return false;
+  const version = isIP(parts[0]);
+  if (version === 0) return false;
+  if (parts.length === 1) return true;
+  const prefix = parts[1];
+  if (!prefix || !/^\d+$/.test(prefix)) return false;
+  return Number(prefix) <= (version === 4 ? 32 : 128);
+}
+
 export function clientIpHeaders(values: Record<string, unknown>): string[] {
-  const platformHeader = values.VERCEL
-    ? 'x-vercel-forwarded-for'
-    : values.FLY_APP_NAME
-      ? 'fly-client-ip'
-      : values.AWS_EXECUTION_ENV || values.ECS_CONTAINER_METADATA_URI_V4
-        ? 'x-forwarded-for'
-        : undefined;
-  return [
-    ...new Set([platformHeader, ...ipHeaders].filter(Boolean)),
-  ] as string[];
+  if (values.VERCEL) return ['x-vercel-forwarded-for'];
+  if (values.FLY_APP_NAME) return ['fly-client-ip'];
+  return ['x-forwarded-for'];
 }
 
 const environmentSchema = z
@@ -125,6 +138,8 @@ const environmentSchema = z
     PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
     PLATFORM_NAME: z.string().trim().min(1).default('Agentic'),
     CORS_ORIGINS: z.unknown().optional(),
+    AUTH_IP_HEADERS: optionalString(),
+    AUTH_TRUSTED_PROXIES: optionalString(),
     OBSERVE_ENABLED: booleanValue('OBSERVE_ENABLED').optional(),
     OBSERVE_APP_KEY: z.string().trim().optional(),
     OBSERVE_APP_SECRET: z.string().trim().optional(),
@@ -175,6 +190,26 @@ const environmentSchema = z
             path: [key],
           });
         }
+      }
+
+      if (!environment.AUTH_IP_HEADERS) {
+        context.addIssue({
+          code: 'custom',
+          message: 'AUTH_IP_HEADERS is required in production',
+          path: ['AUTH_IP_HEADERS'],
+        });
+      }
+
+      if (
+        splitList(environment.AUTH_IP_HEADERS).includes('x-forwarded-for') &&
+        !environment.AUTH_TRUSTED_PROXIES
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message:
+            'AUTH_TRUSTED_PROXIES is required when x-forwarded-for is trusted',
+          path: ['AUTH_TRUSTED_PROXIES'],
+        });
       }
     }
 
@@ -233,6 +268,7 @@ export interface Environment {
   RECAPTCHA_SECRET_KEY?: string;
   // Worked out, not set in .env.
   AUTH_IP_HEADERS: string[];
+  AUTH_TRUSTED_PROXIES: string[];
   PASSKEY_RP_ID: string;
   MCP_RESOURCE_URL: string;
 }
@@ -242,10 +278,49 @@ export function validateEnvironment(
 ): Environment {
   const parsed = environmentSchema.parse(values);
   const origins = corsOrigins(parsed.CORS_ORIGINS);
+  const configuredIpHeaders = splitList(parsed.AUTH_IP_HEADERS).map((header) =>
+    header.toLowerCase(),
+  );
+  const trustedProxies = splitList(parsed.AUTH_TRUSTED_PROXIES);
+
+  if (configuredIpHeaders.some((header) => !supportedIpHeaders.has(header))) {
+    throw new Error(
+      `AUTH_IP_HEADERS may contain only these headers: ${[...ipHeaders].join(', ')}`,
+    );
+  }
+  if (trustedProxies.some((proxy) => !isIpOrCidr(proxy))) {
+    throw new Error('AUTH_TRUSTED_PROXIES contains an invalid IP or CIDR');
+  }
+
   const betterAuthUrl =
     parsed.BETTER_AUTH_URL ?? `http://localhost:${parsed.PORT}`;
   // The frontend. Defaults to the first CORS origin in development.
   const appUrl = parsed.APP_URL ?? origins[0] ?? 'http://localhost:3001';
+
+  if (parsed.NODE_ENV === 'production') {
+    const productionOrigins = [
+      ['BETTER_AUTH_URL', betterAuthUrl],
+      ['APP_URL', appUrl],
+      ...origins.map((origin) => ['CORS_ORIGINS', origin] as const),
+    ] as const;
+    for (const [name, origin] of productionOrigins) {
+      if (new URL(origin).protocol !== 'https:') {
+        throw new Error(`${name} must use HTTPS in production`);
+      }
+    }
+    if (betterAuthUrl !== appUrl && !origins.includes(appUrl)) {
+      throw new Error('APP_URL must be included in CORS_ORIGINS');
+    }
+    if (
+      configuredIpHeaders.includes('x-forwarded-for') &&
+      trustedProxies.length === 0
+    ) {
+      throw new Error(
+        'AUTH_TRUSTED_PROXIES is required when x-forwarded-for is trusted',
+      );
+    }
+  }
+
   const cookieDomain = sharedParentDomain(appUrl, betterAuthUrl);
   return {
     ...parsed,
@@ -254,7 +329,10 @@ export function validateEnvironment(
     SWAGGER_ENABLED: parsed.SWAGGER_ENABLED ?? parsed.NODE_ENV !== 'production',
     BETTER_AUTH_URL: betterAuthUrl,
     APP_URL: appUrl,
-    AUTH_IP_HEADERS: clientIpHeaders(values),
+    AUTH_IP_HEADERS: configuredIpHeaders.length
+      ? configuredIpHeaders
+      : clientIpHeaders(values),
+    AUTH_TRUSTED_PROXIES: trustedProxies,
     AUTH_COOKIE_DOMAIN: cookieDomain,
     // Passkeys belong to the shared parent domain when there is one.
     PASSKEY_RP_ID: cookieDomain ?? new URL(appUrl).hostname,

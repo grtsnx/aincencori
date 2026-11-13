@@ -56,6 +56,7 @@ export interface AuthSettings {
   mcpResource: string;
   // Where to read the visitor's IP, in order (see config/environment.ts).
   ipAddressHeaders: string[];
+  trustedProxies: string[];
   // True in production, where the API always sits behind a proxy.
   trustProxy: boolean;
   // Adds Better Auth's test helpers. Never true in production.
@@ -88,7 +89,7 @@ export function createAuthOptions(settings: AuthSettings) {
     basePath: authBasePath,
     baseURL: settings.baseURL,
     secret: settings.secret,
-    trustedOrigins: settings.trustedOrigins,
+    trustedOrigins: [...new Set([...settings.trustedOrigins, settings.appURL])],
     telemetry: { enabled: false },
 
     // Sign-in is email OTP, Google or passkey. No password sign-in. Any password
@@ -113,6 +114,7 @@ export function createAuthOptions(settings: AuthSettings) {
     // account by matching email. The user signs in first (email OTP), then
     // links the provider with linkSocial().
     account: {
+      encryptOAuthTokens: true,
       accountLinking: {
         enabled: true,
         disableImplicitLinking: true,
@@ -133,7 +135,10 @@ export function createAuthOptions(settings: AuthSettings) {
           domain: settings.cookieDomain,
         },
       }),
-      ipAddress: { ipAddressHeaders: settings.ipAddressHeaders },
+      ipAddress: {
+        ipAddressHeaders: settings.ipAddressHeaders,
+        trustedProxies: settings.trustedProxies,
+      },
     },
 
     plugins: [
