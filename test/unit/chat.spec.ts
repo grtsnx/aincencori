@@ -84,15 +84,6 @@ describe('chat agents', () => {
       ),
     ).resolves.toMatchObject({ tripwireTriggered: false });
   });
-
-  it('can use an MCP server', () => {
-    const agent = createChatAgent({
-      ...settings,
-      mcpUrl: 'https://mcp.example.com/mcp',
-    });
-
-    expect(agent.mcpServers).toHaveLength(1);
-  });
 });
 
 describe('parseEvent', () => {

@@ -497,6 +497,25 @@ model Routine {
   @@map("routine")
 }
 
+// An MCP server a user connected, so the chat agent can use its tools.
+// A user can have many.
+model Integration {
+  id        String   @id
+  userId    String
+  // Shown to the user and put in front of the server's tool names.
+  name      String
+  url       String
+  // The server's access token, encrypted. Never sent back to the browser.
+  token     String?
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId, createdAt])
+  @@map("integration")
+}
+
 model OrganizationRole {
   id             String       @id
   organizationId String

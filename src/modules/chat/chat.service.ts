@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import type { Agent } from 'cencori/agents';
+import type { Agent, MCPServer } from 'cencori/agents';
 import {
   type ChatContext,
   createChatAgent,
@@ -71,6 +71,8 @@ export class ChatService implements OnModuleInit {
   private readonly agent: Agent<ChatContext>;
   // Set by the routine module when the app starts.
   private routineActions?: RoutineActions;
+  // Set by the integration module: a user's own MCP servers.
+  private integrations?: (userId: string) => Promise<MCPServer[]>;
 
   constructor(
     private readonly config: ConfigService,
@@ -83,7 +85,6 @@ export class ChatService implements OnModuleInit {
       secrets: secretSettings
         .map((key) => this.config.get<string>(key))
         .filter((value): value is string => Boolean(value)),
-      mcpUrl: this.config.get<string>('AGENT_MCP_URL'),
       onHumanHandoff: ({ sessionId, reason }) =>
         this.logger.warn(`Chat ${sessionId} needs a person: ${reason}`),
     });
@@ -92,6 +93,19 @@ export class ChatService implements OnModuleInit {
   // The routine module hands over what the agent may do with routines.
   useRoutines(actions: RoutineActions): void {
     this.routineActions = actions;
+  }
+
+  // The integration module hands over how to load a user's MCP servers.
+  useIntegrations(load: (userId: string) => Promise<MCPServer[]>): void {
+    this.integrations = load;
+  }
+
+  // The agent for one user: the shared agent plus that user's MCP servers.
+  private async agentFor(userId: string): Promise<Agent<ChatContext>> {
+    const servers = (await this.integrations?.(userId)) ?? [];
+    return servers.length > 0
+      ? this.agent.clone({ mcpServers: servers })
+      : this.agent;
   }
 
   onModuleInit(): void {
@@ -116,7 +130,8 @@ export class ChatService implements OnModuleInit {
     const abort = new AbortController();
     response.on('close', () => abort.abort());
 
-    const handler = this.cencori.agentChatHandler(this.agent, {
+    const agent = await this.agentFor(userId);
+    const handler = this.cencori.agentChatHandler(agent, {
       context: () => this.context(auth.user, headers),
       user: () => userId,
       authorizeSession: (sessionId) => this.owns(sessionId, userId),
@@ -271,7 +286,8 @@ export class ChatService implements OnModuleInit {
     if (!user) throw new NotFoundException('User not found.');
     const startedAt = new Date();
 
-    const result = await this.cencori.agentRun(this.agent, routine.prompt, {
+    const agent = await this.agentFor(user.id);
+    const result = await this.cencori.agentRun(agent, routine.prompt, {
       context: this.context(user),
       user: user.id,
       memory: { userId: user.id },

@@ -9,3 +9,6 @@ export const minRoutineIntervalMinutes = 15;
 
 // How many routines run at the same time on one server.
 export const routineConcurrency = 5;
+
+// MCP servers each user may connect.
+export const maxIntegrationsPerUser = 10;

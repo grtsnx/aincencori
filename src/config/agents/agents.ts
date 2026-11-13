@@ -3,6 +3,7 @@ import {
   type FunctionTool,
   humanHandoff,
   type InputGuardrail,
+  type MCPServer,
   MCPServerStreamableHttp,
   type OutputGuardrail,
   tool,
@@ -58,10 +59,41 @@ export interface RoutineActions {
 export interface AgentSettings {
   // Never shown to anyone: the answer guardrail blocks replies that contain them.
   secrets: string[];
-  // Optional: an MCP server whose tools the agent may use.
-  mcpUrl?: string;
   // Tells our team when an agent hands a chat to a person.
   onHumanHandoff: (event: { sessionId: string; reason: string }) => void;
+}
+
+// One of a user's own MCP servers (see modules/integration). Every tool call
+// asks the user first. If the server is down or misbehaves the chat carries
+// on without its tools instead of failing.
+class UserMcpServer extends MCPServerStreamableHttp {
+  override async connect(): Promise<void> {
+    await super.connect().catch(() => undefined);
+  }
+
+  override async listTools(): Promise<
+    Awaited<ReturnType<MCPServerStreamableHttp['listTools']>>
+  > {
+    return super.listTools().catch(() => []);
+  }
+}
+
+export function userMcpServer(options: {
+  name: string;
+  url: string;
+  token?: string;
+  fetch: typeof fetch;
+}): MCPServer {
+  return new UserMcpServer({
+    name: options.name,
+    url: options.url,
+    headers: options.token
+      ? { authorization: `Bearer ${options.token}` }
+      : undefined,
+    fetch: options.fetch,
+    requireApproval: true,
+    timeoutMs: 15_000,
+  });
 }
 
 // ── Tools ────────────────────────────────────────────────────────────────
@@ -258,16 +290,6 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     modelSettings: { temperature: 0.7 },
   });
 
-  const mcpServers = settings.mcpUrl
-    ? [
-        new MCPServerStreamableHttp({
-          name: 'mcp',
-          url: settings.mcpUrl,
-          requireApproval: true,
-        }),
-      ]
-    : [];
-
   const options = {
     instructions: ({ context }: { context: ChatContext }) =>
       `You are Agentic, a helpful assistant. The user is ${context.user.name}. ` +
@@ -290,7 +312,6 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     inputGuardrails: [noSecretsIn],
     outputGuardrails: [noSecretsOut(settings.secrets)],
     widgets: true,
-    mcpServers,
   };
 
   return new Agent<ChatContext>({ name: 'Agentic', ...options });

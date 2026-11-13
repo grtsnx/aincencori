@@ -35,6 +35,13 @@ export {
   ChatStatusDto,
 } from './chat/chat.dto.js';
 export {
+  CreateIntegrationDto,
+  IntegrationDto,
+  IntegrationToolDto,
+  ListIntegrationsQueryDto,
+  UpdateIntegrationDto,
+} from './integration/integration.dto.js';
+export {
   CreateRoutineDto,
   ListRoutinesQueryDto,
   RoutineDto,
