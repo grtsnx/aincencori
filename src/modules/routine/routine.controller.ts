@@ -36,7 +36,7 @@ export class RoutineController {
   constructor(private readonly routineService: RoutineService) {}
 
   @ApiOperation({
-    summary: 'My routines',
+    summary: 'List routines',
     description: 'Lists your routines, newest first. Page with "before".',
   })
   @ApiOkResponse({ type: [RoutineDto] })

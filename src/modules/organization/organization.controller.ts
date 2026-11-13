@@ -20,7 +20,7 @@ export class OrganizationController {
   constructor(private readonly organizationService: OrganizationService) {}
 
   @ApiOperation({
-    summary: 'My organizations',
+    summary: 'List organizations',
     description: 'Lists organizations the user belongs to.',
   })
   @ApiOkResponse({ type: [OrganizationDto] })

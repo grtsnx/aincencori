@@ -74,7 +74,7 @@ export class ChatController {
   }
 
   @ApiOperation({
-    summary: 'My chats',
+    summary: 'List chats',
     description: 'Your chats, newest first. Page with "before".',
   })
   @ApiOkResponse({ type: [ChatSessionDto] })

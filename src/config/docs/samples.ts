@@ -137,3 +137,14 @@ export const sampleErrors: Record<string, string> = {
   '429': 'Too many requests. Try again later.',
   '500': 'Internal server error',
 };
+
+// Sample bodies for the few responses whose shape can't give a good sample,
+// by "METHOD path status".
+export const sampleResponses: Record<string, unknown> = {
+  'POST /v1/auth/organization/delete 200': 'kq3F9aB2xY7pLm1n',
+  'POST /v1/auth/oauth2/revoke 200': {},
+  'GET /v1/auth/oauth2/end-session 200':
+    '<!doctype html><title>Signed out</title><p>You are signed out.</p>',
+  'POST /v1/auth/oauth2/end-session 200':
+    '<!doctype html><title>Signed out</title><p>You are signed out.</p>',
+};

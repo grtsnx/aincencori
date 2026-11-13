@@ -18,7 +18,7 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @ApiOperation({
-    summary: 'My profile',
+    summary: 'Get profile',
     description: "Returns the signed-in user's profile.",
   })
   @ApiOkResponse({ type: UserProfileDto })
@@ -28,7 +28,7 @@ export class UserController {
   }
 
   @ApiOperation({
-    summary: 'My sign-in methods',
+    summary: 'List sign-in methods',
     description: "Lists the user's sign-in methods.",
   })
   @ApiOkResponse({ type: [LinkedAccountDto] })
@@ -40,7 +40,7 @@ export class UserController {
   }
 
   @ApiOperation({
-    summary: 'My sessions',
+    summary: 'List sessions',
     description: "Lists the user's sessions and marks this one.",
   })
   @ApiOkResponse({ type: [UserSessionDto] })

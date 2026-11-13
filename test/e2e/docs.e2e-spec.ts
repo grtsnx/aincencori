@@ -130,6 +130,57 @@ describe('API docs and versioning (e2e)', () => {
       ).toEqual([]);
     });
 
+    it('has a sample on every response', () => {
+      const document = documents[version];
+      const schemas = ((document.components as Schema | undefined)?.schemas ??
+        {}) as Record<string, Schema>;
+      // True when the schema (or each of its fields) carries a sample.
+      const sampled = (node: unknown, depth = 0): boolean => {
+        let schema = node as Schema | undefined;
+        while (schema && typeof schema.$ref === 'string') {
+          schema = schemas[schema.$ref.split('/').pop() ?? ''];
+        }
+        if (!schema || depth > 8) return false;
+        if (schema.example !== undefined) return true;
+        const properties = schema.properties as Schema | undefined;
+        if (properties && Object.keys(properties).length > 0) {
+          return Object.values(properties).every((p) => sampled(p, depth + 1));
+        }
+        if (schema.type === 'array') return sampled(schema.items, depth + 1);
+        return false;
+      };
+
+      const missing: string[] = [];
+      for (const operation of operations()) {
+        const responses = (operation.responses ?? {}) as Record<string, Schema>;
+        for (const [status, response] of Object.entries(responses)) {
+          const code = Number(status);
+          if (code === 204) continue;
+          if (code >= 300 && code < 400) {
+            const headers = response.headers as
+              Record<string, Schema> | undefined;
+            if (headers?.Location?.example === undefined) {
+              missing.push(`${operation.route} ${status}`);
+            }
+            continue;
+          }
+          const content = response.content as
+            Record<string, Schema> | undefined;
+          if (!content || Object.keys(content).length === 0) {
+            missing.push(`${operation.route} ${status}`);
+            continue;
+          }
+          for (const [type, media] of Object.entries(content)) {
+            if (media.example !== undefined || media.examples) continue;
+            if (!sampled(media.schema)) {
+              missing.push(`${operation.route} ${status} ${type}`);
+            }
+          }
+        }
+      }
+      expect(missing).toEqual([]);
+    });
+
     it("shows our routes' real response wrapper and errors", () => {
       for (const operation of operations()) {
         // Only our Nest routes use the wrapper; Better Auth answers raw JSON.

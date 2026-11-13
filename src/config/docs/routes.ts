@@ -210,7 +210,7 @@ export const authRouteDocs: Record<
     description: 'Returns public app details before the user signs in.',
   },
   '/oauth2/get-clients': {
-    title: 'List my apps',
+    title: 'List apps',
     description: 'Lists apps owned by the user or organization.',
   },
   '/oauth2/update-client': {
@@ -254,11 +254,11 @@ export const authRouteDocs: Record<
     description: 'Updates extra details on the current session.',
   },
   '/update-user': {
-    title: 'Update my profile',
+    title: 'Update profile',
     description: "Changes the user's name or picture.",
   },
   '/delete-user': {
-    title: 'Delete my account',
+    title: 'Delete account',
     description: "Deletes the signed-in user's account.",
   },
   '/delete-user/callback': {
@@ -266,7 +266,7 @@ export const authRouteDocs: Record<
     description: 'Finishes deleting the account from the emailed link.',
   },
   '/change-email': {
-    title: 'Change my email',
+    title: 'Change email',
     description: "Starts changing the user's email address.",
   },
   '/email-otp/request-email-change': {
@@ -278,7 +278,7 @@ export const authRouteDocs: Record<
     description: 'Changes the email after checking the code.',
   },
   '/list-sessions': {
-    title: 'List my sessions',
+    title: 'List sessions',
     description: 'Lists every device where the user is signed in.',
   },
   '/revoke-session': {
@@ -318,7 +318,7 @@ export const authRouteDocs: Record<
     description: 'Returns profile details from a linked provider.',
   },
   '/passkey/list-user-passkeys': {
-    title: 'List my passkeys',
+    title: 'List passkeys',
     description: "Lists the user's saved passkeys.",
   },
   '/passkey/delete-passkey': {
@@ -410,7 +410,7 @@ export const authRouteDocs: Record<
     description: 'Deletes the organization and its data.',
   },
   '/organization/list': {
-    title: 'List my organizations',
+    title: 'List organizations',
     description: 'Lists organizations the user belongs to.',
   },
   '/organization/set-active': {
@@ -458,7 +458,7 @@ export const authRouteDocs: Record<
     description: 'Lists invites the organization has sent.',
   },
   '/organization/list-user-invitations': {
-    title: 'List my invites',
+    title: 'List invites',
     description: 'Lists invites the user has received.',
   },
   '/organization/list-members': {
@@ -474,15 +474,15 @@ export const authRouteDocs: Record<
     description: "Changes a member's role.",
   },
   '/organization/get-active-member': {
-    title: 'Get my membership',
+    title: 'Get membership',
     description: "Returns the user's membership in this organization.",
   },
   '/organization/get-active-member-role': {
-    title: 'Get my role',
+    title: 'Get role',
     description: "Returns the user's role in this organization.",
   },
   '/organization/has-permission': {
-    title: 'Check my permission',
+    title: 'Check permission',
     description: 'Checks if the user can do an action.',
   },
   '/organization/create-team': {
@@ -502,7 +502,7 @@ export const authRouteDocs: Record<
     description: "Lists the organization's teams.",
   },
   '/organization/list-user-teams': {
-    title: 'List my teams',
+    title: 'List joined teams',
     description: 'Lists teams the user belongs to.',
   },
   '/organization/set-active-team': {
@@ -530,7 +530,7 @@ export const authRouteDocs: Record<
     description: 'A host registers a new agent for the user.',
   },
   '/agent/list': {
-    title: 'List my agents',
+    title: 'List agents',
     description: 'Lists agents acting for the signed-in user.',
   },
   '/agent/get': {
@@ -626,7 +626,7 @@ export const authRouteDocs: Record<
     description: 'Enrolls a device using a one-time token.',
   },
   '/host/list': {
-    title: 'List my hosts',
+    title: 'List hosts',
     description: 'Lists devices and apps that run agents for the user.',
   },
   '/host/get': {

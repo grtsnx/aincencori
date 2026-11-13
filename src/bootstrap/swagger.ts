@@ -11,7 +11,11 @@ import {
   hiddenPaths,
   userPaths,
 } from '@/config/docs/routes.js';
-import { sampleErrors, sampleValues } from '@/config/docs/samples.js';
+import {
+  sampleErrors,
+  sampleResponses,
+  sampleValues,
+} from '@/config/docs/samples.js';
 import { authBasePath } from '@/config/auth/better-auth.js';
 import type { Environment } from '@/config/index.js';
 import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
@@ -164,9 +168,108 @@ function sampleAuthErrors(operation: Schema): void {
   const responses = (operation.responses ?? {}) as Record<string, Schema>;
   for (const [status, response] of Object.entries(responses)) {
     if (Number(status) < 400) continue;
-    const content = response.content as Record<string, Schema> | undefined;
-    const json = content?.['application/json'];
-    if (json) json.example = { message: sampleErrors[status] ?? 'Error' };
+    const content = (response.content ?? {}) as Record<string, Schema>;
+    content['application/json'] ??= {};
+    content['application/json'].example = {
+      message: sampleErrors[status] ?? 'Error',
+    };
+    response.content = content;
+  }
+}
+
+// A sample value for a whole schema: objects, lists, refs and combinations.
+function sampleOf(
+  schema: Schema | undefined,
+  schemas: Record<string, Schema>,
+  name = '',
+  depth = 0,
+): unknown {
+  if (!schema || depth > 8) return undefined;
+  if (typeof schema.$ref === 'string') {
+    return sampleOf(
+      schemas[schema.$ref.split('/').pop() ?? ''],
+      schemas,
+      name,
+      depth + 1,
+    );
+  }
+  if (schema.example !== undefined) return schema.example;
+  const parts = (schema.allOf ?? schema.oneOf ?? schema.anyOf) as
+    Schema[] | undefined;
+  if (parts) {
+    const samples = (schema.allOf ? parts : parts.slice(0, 1)).map((part) =>
+      sampleOf(part, schemas, name, depth + 1),
+    );
+    return samples.every((value) => value && typeof value === 'object')
+      ? Object.assign({}, ...samples)
+      : samples[0];
+  }
+  const properties = schema.properties as Record<string, Schema> | undefined;
+  if (properties) {
+    return Object.fromEntries(
+      Object.entries(properties).map(([key, value]) => [
+        key,
+        sampleOf(value, schemas, key, depth + 1),
+      ]),
+    );
+  }
+  if (schema.type === 'array') {
+    const item = sampleOf(schema.items as Schema, schemas, name, depth + 1);
+    return item === undefined ? [] : [item];
+  }
+  return sampleFor(name, schema);
+}
+
+// Gives every response a sample body (and every redirect a sample address),
+// so no route in the docs shows an empty answer.
+function sampleAllResponses(document: OpenAPIObject): void {
+  const schemas = (document.components?.schemas ?? {}) as Record<
+    string,
+    Schema
+  >;
+  for (const [path, operations] of Object.entries(document.paths)) {
+    for (const [method, operation] of Object.entries(
+      operations as Record<string, Schema>,
+    )) {
+      const responses = (operation.responses ?? {}) as Record<string, Schema>;
+      for (const [status, response] of Object.entries(responses)) {
+        const code = Number(status);
+        if (code === 204) continue;
+        if (code >= 300 && code < 400) {
+          const headers = (response.headers ?? {}) as Record<string, Schema>;
+          headers.Location ??= { schema: { type: 'string', format: 'uri' } };
+          headers.Location.example ??=
+            'https://app.example.com/callback?code=h4Lz8QmVr2NcY7pK';
+          response.headers = headers;
+          continue;
+        }
+        const content = (response.content ?? {}) as Record<string, Schema>;
+        if (Object.keys(content).length === 0) {
+          content['application/json'] = {};
+        }
+        for (const [type, media] of Object.entries(content)) {
+          const key = `${method.toUpperCase()} ${path} ${status}`;
+          if (key in sampleResponses) {
+            media.example = sampleResponses[key];
+            continue;
+          }
+          if (media.example !== undefined || media.examples) continue;
+          if (code >= 400) {
+            media.example = {
+              message:
+                (response.description as string | undefined) ??
+                sampleErrors[status] ??
+                'Error',
+            };
+            continue;
+          }
+          const sample = sampleOf(media.schema as Schema, schemas);
+          media.example =
+            sample === undefined && type.startsWith('text/') ? '' : sample;
+        }
+        response.content = content;
+      }
+    }
   }
 }
 
@@ -221,6 +324,22 @@ function sampleNestResponses(document: OpenAPIObject): void {
         };
       }
 
+      // Declared errors (403, 404...) get our real error body.
+      for (const [status, response] of Object.entries(responses)) {
+        const code = Number(status);
+        if (code < 400 || response.content) continue;
+        Object.assign(
+          response,
+          errorResponse(
+            code,
+            (response.description as string | undefined) ??
+              sampleErrors[status] ??
+              'Error',
+            path,
+          ),
+        );
+      }
+
       const hasInput = ((operation.parameters as unknown[]) ?? []).length > 0;
       if (hasInput) {
         responses['400'] ??= errorResponse(
@@ -271,6 +390,7 @@ export function configureSwagger(
     if (version === '1') withAuthRoutes(document, betterAuth.openApiDocument());
     fillExamples(document.paths);
     fillExamples(document.components);
+    sampleAllResponses(document);
     return document;
   };
 
