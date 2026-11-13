@@ -78,6 +78,26 @@ function storedFiles(value: unknown): StoredFile[] {
   );
 }
 
+// One message to answer without a browser watching (see ChatService.ask).
+export interface AskInput {
+  message: string;
+  chatId?: string;
+  botId?: string;
+  groupId?: string;
+  title?: string;
+  routineId?: string;
+  stopNote?: string;
+  // The answer will be read aloud (a voice call): short, no formatting.
+  spoken?: boolean;
+}
+
+export interface AskResult {
+  chatId: string;
+  answeredBy: string;
+  answer: string;
+  needsApproval: boolean;
+}
+
 // What the chat needs to run one of a user's bots.
 export interface BotRuntime extends BotParts {
   id: string;
@@ -529,33 +549,48 @@ export class ChatService implements OnModuleInit {
   // For work with no browser watching: routines, and AI apps on our MCP
   // server. Continues a chat when chatId is given; else starts one with the
   // default assistant, a bot or a group.
-  async ask(
+  async ask(userId: string, input: AskInput): Promise<AskResult> {
+    const turn = await this.startAsk(userId, input);
+    const result = await this.cencori.agentRun(
+      turn.agent,
+      input.message,
+      turn.options,
+    );
+    return this.finishAsk(turn, input, result);
+  }
+
+  // The same, but the answer is given piece by piece as it is written, so a
+  // voice call can start speaking at once. The turn is saved when the answer
+  // ends, also when the listener stops early (the user talked over it).
+  async *askStream(
     userId: string,
-    input: {
-      message: string;
-      chatId?: string;
-      botId?: string;
-      groupId?: string;
-      title?: string;
-      routineId?: string;
-      stopNote?: string;
-      // The answer will be read aloud (a voice call): short, no formatting.
-      spoken?: boolean;
-    },
-  ): Promise<{
-    chatId: string;
-    answeredBy: string;
-    answer: string;
-    needsApproval: boolean;
-  }> {
-    const db = this.prisma.db;
-    const user = await db.user.findUnique({ where: { id: userId } });
+    input: AskInput & { onSaved?: (result: AskResult) => void },
+  ): AsyncGenerator<string, void, void> {
+    const turn = await this.startAsk(userId, input);
+    const streamed = this.cencori.agentRunStream(
+      turn.agent,
+      input.message,
+      turn.options,
+    );
+    try {
+      for await (const event of streamed) {
+        if (event.type === 'text_delta' && event.delta) yield event.delta;
+      }
+    } finally {
+      const result = await streamed.completed;
+      input.onSaved?.(await this.finishAsk(turn, input, result));
+    }
+  }
+
+  // Checks who is asking and picks the agent and its run options.
+  private async startAsk(userId: string, input: AskInput) {
+    const user = await this.prisma.db.user.findUnique({
+      where: { id: userId },
+    });
     if (!user) throw new NotFoundException('User not found.');
     if (input.chatId && !(await this.owns(input.chatId, userId))) {
       throw new NotFoundException('Chat not found.');
     }
-    const startedAt = new Date();
-
     const { agent, bot, group } = await this.agentFor(userId, {
       sessionId: input.chatId,
       botId: input.botId,
@@ -572,18 +607,34 @@ export class ChatService implements OnModuleInit {
           widgets: false,
         })
       : agent;
-    const result = await this.cencori.agentRun(speaker, input.message, {
-      context: this.context(user),
-      user: user.id,
-      sessionId: input.chatId,
-      ...(bot || group ? {} : { memory: { userId: user.id } }),
-      metadata: {
-        userId: user.id,
-        ...(input.routineId && { routineId: input.routineId }),
+    return {
+      user,
+      bot,
+      group,
+      startedAt: new Date(),
+      agent: speaker,
+      options: {
+        context: this.context(user),
+        user: user.id,
+        sessionId: input.chatId,
+        ...(bot || group ? {} : { memory: { userId: user.id } }),
+        metadata: {
+          userId: user.id,
+          ...(input.routineId && { routineId: input.routineId }),
+        },
+        maxTurns: maxAgentTurns,
       },
-      maxTurns: maxAgentTurns,
-    });
+    };
+  }
 
+  // Saves the turn in our database and says how it went.
+  private async finishAsk(
+    turn: Awaited<ReturnType<ChatService['startAsk']>>,
+    input: AskInput,
+    result: Awaited<ReturnType<CencoriService['agentRun']>>,
+  ): Promise<AskResult> {
+    const db = this.prisma.db;
+    const { user, bot, group } = turn;
     const needsApproval = result.interruptions.length > 0;
     const answer =
       typeof result.finalOutput === 'string'
@@ -620,18 +671,18 @@ export class ChatService implements OnModuleInit {
             sessionId: result.sessionId,
             role: 'user',
             text: input.message,
-            createdAt: startedAt,
+            createdAt: turn.startedAt,
           },
           // In a group: what each bot said, before the lead's answer.
           ...(group?.said ?? [])
-            .filter((turn) => turn.text)
-            .map((turn) => ({
+            .filter((said) => said.text)
+            .map((said) => ({
               id: randomUUID(),
               sessionId: result.sessionId,
               role: 'agent',
-              agent: turn.bot,
-              text: turn.text,
-              createdAt: turn.at,
+              agent: said.bot,
+              text: said.text,
+              createdAt: said.at,
             })),
           {
             id: randomUUID(),

@@ -11,6 +11,7 @@ import {
   type AgentInput,
   type RunOptions,
   type RunResult,
+  type StreamedRunResult,
   createAgentChatHandler,
   type HumanMessage,
   type HumanStatus,
@@ -1606,6 +1607,19 @@ export class CencoriService {
     return run(agent, input, {
       ...options,
       stream: false,
+      apiKey: this.agentApiKey,
+    });
+  }
+
+  /** Runs an agent and gives the events as they happen (text as it is written). */
+  agentRunStream<Ctx>(
+    agent: Agent<Ctx, unknown>,
+    input: AgentInput,
+    options: Omit<RunOptions<Ctx>, 'stream' | 'apiKey'> = {},
+  ): StreamedRunResult<unknown> {
+    return run(agent, input, {
+      ...options,
+      stream: true,
       apiKey: this.agentApiKey,
     });
   }

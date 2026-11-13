@@ -38,13 +38,8 @@ interface CallDetails {
 }
 
 // Speech has no use for formatting marks.
-const plain = (text: string): string =>
-  text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/[*_#`>|]/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
+// Applied to each small piece as it arrives, so spaces are kept.
+const plain = (text: string): string => text.replace(/[*_#`>|]/g, '');
 
 export default defineAgent({
   // Once per process, before a call arrives: load our app (database, bots).
@@ -65,9 +60,13 @@ export default defineAgent({
     const userId: string = details.userId;
     // The whole call is one chat; it starts with the first thing said.
     let chatId: string | undefined;
+    // The turn before this one, so a new turn waits until it is saved (and
+    // the chat id is known) even when the user talked over the answer.
+    let lastTurn: Promise<void> = Promise.resolve();
 
     // The "think" step of the call. LiveKit would ask a model here; we ask
-    // our own bot instead, so the answer comes from the user's bot.
+    // our own bot instead, and pass its words on as they are written, so
+    // speech starts while the rest of the answer is still coming.
     class Caller extends voice.Agent {
       override async llmNode(
         chatCtx: llm.ChatContext,
@@ -78,28 +77,52 @@ export default defineAgent({
         const message =
           said?.type === 'message' ? said.textContent?.trim() : undefined;
         if (!message) return null;
-        let answer: string;
-        try {
-          const result = await chat.ask(userId, {
-            message,
-            chatId,
-            botId: details.botId,
-            groupId: details.groupId,
-            spoken: true,
-            stopNote: 'I stopped',
-          });
-          chatId = result.chatId;
-          answer = plain(result.answer);
-        } catch {
-          answer = 'Sorry, I could not answer that just now.';
-        }
-        return new ReadableStream<string>({
-          start(controller) {
-            controller.enqueue(
-              answer || 'Sorry, I have nothing to say to that.',
-            );
-            controller.close();
+        await lastTurn;
+
+        let saved: () => void = () => undefined;
+        lastTurn = new Promise((resolve) => (saved = resolve));
+        const words = chat.askStream(userId, {
+          message,
+          chatId,
+          botId: details.botId,
+          groupId: details.groupId,
+          spoken: true,
+          stopNote: 'I stopped',
+          onSaved: (result) => {
+            chatId = result.chatId;
           },
+        });
+        let spoke = false;
+        const finish = async () => {
+          // Lets the bot finish and saves the turn, also when cut short.
+          await words.return().catch(() => undefined);
+          saved();
+        };
+        return new ReadableStream<string>({
+          async pull(controller) {
+            try {
+              const next = await words.next();
+              if (next.done) {
+                if (!spoke)
+                  controller.enqueue('Sorry, I have nothing to say to that.');
+                controller.close();
+                saved();
+                return;
+              }
+              const piece = plain(next.value);
+              if (piece) {
+                spoke = true;
+                controller.enqueue(piece);
+              }
+            } catch {
+              if (!spoke)
+                controller.enqueue('Sorry, I could not answer that just now.');
+              controller.close();
+              saved();
+            }
+          },
+          // The user talked over the answer: stop speaking.
+          cancel: finish,
         });
       }
     }
@@ -110,7 +133,14 @@ export default defineAgent({
       // think step when a model is set.
       llm: new inference.LLM({ model: `openai/${agentModel}` }),
       tts: new inference.TTS({ model: voiceTtsModel, voice: voiceTtsVoice }),
-      turnHandling: { turnDetection: new inference.TurnDetector() },
+      turnHandling: {
+        turnDetection: new inference.TurnDetector(),
+        // LiveKit can start answering before the user has finished, then
+        // drop the guess. Each guess would be a paid run of our bot, and
+        // could save a memory from half a sentence, so we wait for the
+        // whole turn. The answer still streams into speech as it is written.
+        preemptiveGeneration: { enabled: false },
+      },
     });
     await session.start({
       agent: new Caller({ instructions: '' }),
