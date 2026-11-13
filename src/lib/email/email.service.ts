@@ -116,16 +116,21 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
         take: batchSize,
       })) as OutboxRow[];
 
-      for (const row of rows) await this.processOne(row, now);
+      for (const row of rows) await this.processOne(row);
     } finally {
       this.processing = false;
     }
   }
 
-  private async processOne(row: OutboxRow, now: Date): Promise<void> {
+  private async processOne(row: OutboxRow): Promise<void> {
+    const claimedAt = new Date();
     const claimed = await this.prisma.db.emailOutbox.updateMany({
       where: { id: row.id, status: row.status, lockedAt: row.lockedAt },
-      data: { status: 'sending', lockedAt: now, attempts: { increment: 1 } },
+      data: {
+        status: 'sending',
+        lockedAt: claimedAt,
+        attempts: { increment: 1 },
+      },
     });
     if (claimed.count !== 1) return;
 
@@ -138,7 +143,14 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
       });
       message = JSON.parse(plaintext) as OutboundMessage;
     } catch {
-      await this.fail(row.id, now, attempt, 'payload-decryption', true);
+      await this.fail(
+        row.id,
+        claimedAt,
+        new Date(),
+        attempt,
+        'payload-decryption',
+        true,
+      );
       return;
     }
 
@@ -155,22 +167,30 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
         retry: false,
       });
       await this.prisma.db.emailOutbox.updateMany({
-        where: { id: row.id, status: 'sending', lockedAt: now },
+        where: { id: row.id, status: 'sending', lockedAt: claimedAt },
         data: {
           status: 'sent',
-          sentAt: now,
+          sentAt: new Date(),
           lockedAt: null,
           lastErrorCategory: null,
         },
       });
     } catch {
-      await this.fail(row.id, now, attempt, 'provider-failure', false);
+      await this.fail(
+        row.id,
+        claimedAt,
+        new Date(),
+        attempt,
+        'provider-failure',
+        false,
+      );
     }
   }
 
   private async fail(
     id: string,
-    now: Date,
+    claimedAt: Date,
+    failedAt: Date,
     attempt: number,
     category: string,
     permanent: boolean,
@@ -178,10 +198,12 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     const terminal = permanent || attempt >= maxAttempts;
     const delayMs = Math.min(300_000, 1_000 * 2 ** Math.min(attempt - 1, 8));
     await this.prisma.db.emailOutbox.updateMany({
-      where: { id, status: 'sending', lockedAt: now },
+      where: { id, status: 'sending', lockedAt: claimedAt },
       data: {
         status: terminal ? 'failed' : 'pending',
-        availableAt: terminal ? now : new Date(now.getTime() + delayMs),
+        availableAt: terminal
+          ? failedAt
+          : new Date(failedAt.getTime() + delayMs),
         lockedAt: null,
         lastErrorCategory: category,
       },

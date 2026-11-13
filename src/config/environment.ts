@@ -1,7 +1,9 @@
 import { isIP } from 'node:net';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
 const environments = ['development', 'production', 'test'] as const;
+const ephemeralAuthSecret = randomBytes(32).toString('base64');
 
 const booleanValue = (name: string) =>
   z.preprocess(
@@ -290,7 +292,7 @@ export interface Environment {
   OBSERVE_SERVICE_ID?: string;
   SWAGGER_ENABLED: boolean;
   DATABASE_URL?: string;
-  BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
   AUTH_COOKIE_DOMAIN?: string;
   APP_URL: string;
@@ -371,6 +373,7 @@ export function validateEnvironment(
   const smtpPort = parsed.SMTP_PORT ?? (parsed.SMTP_HOST ? 587 : 1025);
   return {
     ...parsed,
+    BETTER_AUTH_SECRET: parsed.BETTER_AUTH_SECRET ?? ephemeralAuthSecret,
     CORS_ORIGINS: origins,
     OBSERVE_ENABLED: parsed.OBSERVE_ENABLED ?? false,
     SWAGGER_ENABLED: parsed.SWAGGER_ENABLED ?? parsed.NODE_ENV !== 'production',

@@ -151,8 +151,16 @@ describe('validateEnvironment', () => {
     });
 
     expect(environment.DATABASE_URL).toBeUndefined();
-    expect(environment.BETTER_AUTH_SECRET).toBeUndefined();
+    expect(environment.BETTER_AUTH_SECRET).toMatch(/^[A-Za-z0-9+/]{43}=$/);
     expect(environment.BETTER_AUTH_URL).toBe('http://localhost:4000');
+  });
+
+  it('reuses the generated development secret across environment reads', () => {
+    const first = validateEnvironment({}).BETTER_AUTH_SECRET;
+    const second = validateEnvironment({}).BETTER_AUTH_SECRET;
+
+    expect(first).toBeTruthy();
+    expect(second).toBe(first);
   });
 
   it('rejects weak secrets and malformed auth settings', () => {

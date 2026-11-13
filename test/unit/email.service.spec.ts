@@ -32,7 +32,10 @@ function createService(rows: unknown[] = [], updateCounts: number[] = [1, 1]) {
 }
 
 describe('EmailService (outbox + @nestjs/mail)', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it('persists an encrypted payload before returning', async () => {
     const { service, create } = createService();
@@ -82,6 +85,36 @@ describe('EmailService (outbox + @nestjs/mail)', () => {
     expect(updateMany.mock.calls[1]?.[0].data).toMatchObject({
       status: 'sent',
     });
+  });
+
+  it('starts each message lease when that message is claimed', async () => {
+    const payload = await (
+      await import('better-auth/crypto')
+    ).symmetricEncrypt({
+      key: secret,
+      data: JSON.stringify(message),
+    });
+    const rows = ['mail_1', 'mail_2'].map((id) => ({
+      id,
+      payload,
+      status: 'pending',
+      attempts: 0,
+      lockedAt: null,
+    }));
+    const start = new Date('2026-11-13T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(start);
+    const { service, sender, updateMany } = createService(rows);
+    sender.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date(start.getTime() + 6 * 60_000));
+    });
+
+    await service.processDueMessages(start);
+
+    const secondClaim = updateMany.mock.calls[2]?.[0].data;
+    expect(secondClaim.lockedAt).toEqual(
+      new Date(start.getTime() + 6 * 60_000),
+    );
   });
 
   it('does not send a message another worker already claimed', async () => {
