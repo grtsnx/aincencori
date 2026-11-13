@@ -17,3 +17,8 @@ export {
   OrganizationDto,
   TeamDto,
 } from './organization/organization.dto.js';
+export {
+  LinkedAccountDto,
+  UserProfileDto,
+  UserSessionDto,
+} from './user/user.dto.js';

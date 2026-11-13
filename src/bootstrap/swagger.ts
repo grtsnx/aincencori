@@ -14,39 +14,34 @@ type ApiVersion = (typeof apiVersions)[number];
 
 // Sections in the order the docs show them.
 const tags: { name: string; description: string }[] = [
-  { name: 'Server', description: 'Status and health.' },
-  { name: 'Auth', description: 'Sign in, sign out, Google.' },
-  { name: 'User', description: 'Profile, email, linked accounts.' },
-  { name: 'Sessions', description: 'Current and other sessions.' },
-  { name: 'Email OTP', description: 'One-time email codes.' },
-  { name: 'Passkey', description: 'Passkey sign-in.' },
-  { name: '2FA', description: 'Two-factor authentication.' },
-  { name: 'Organization', description: 'Organizations, members, invites.' },
-  { name: 'Team', description: 'Teams inside an organization.' },
-  { name: 'Admin', description: 'User management for admins.' },
-  { name: 'OAuth', description: 'OAuth and MCP clients.' },
-];
+  { name: 'Server', description: 'Check server health' },
+  { name: 'Auth', description: 'Sign users in securely' },
+  { name: 'User', description: 'Manage your own account' },
+  { name: 'Organization', description: 'Manage organizations and teams' },
+  { name: 'Admin', description: 'Manage all users' },
+]
 
 const userPaths = [
   '/update-user',
   '/delete-user',
   '/change-email',
+  '/email-otp/request-email-change',
+  '/email-otp/change-email',
   '/list-accounts',
   '/unlink-account',
   '/link-social',
   '/get-access-token',
   '/refresh-token',
   '/account-info',
-  '/verify-email',
-  '/send-verification-email',
-];
-const sessionPaths = [
   '/get-session',
   '/list-sessions',
   '/revoke-session',
   '/revoke-sessions',
   '/revoke-other-sessions',
   '/multi-session',
+  '/passkey/list-user-passkeys',
+  '/passkey/delete-passkey',
+  '/passkey/update-passkey',
 ];
 
 // The docs section for a Better Auth route, or null to leave it out.
@@ -55,30 +50,15 @@ function authTag(path: string): string | null {
     prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 
   if (starts(['/dash'])) return null; // Better Auth dashboard internals.
-  if (path.includes('email-otp')) return 'Email OTP';
-  if (starts(['/passkey'])) return 'Passkey';
-  if (starts(['/two-factor'])) return '2FA';
-  if (starts(sessionPaths)) return 'Sessions';
-  if (starts(userPaths)) return 'User';
   if (starts(['/admin'])) return 'Admin';
-  if (starts(['/organization'])) {
-    return path.includes('team') ? 'Team' : 'Organization';
-  }
-  if (starts(['/oauth2', '/jwks', '/.well-known', '/mcp'])) return 'OAuth';
+  if (starts(['/organization'])) return 'Organization';
+  if (starts(userPaths)) return 'User';
   return 'Auth';
 }
 
 // A short title from the route: /admin/set-role -> "Set role".
 function shortTitle(path: string): string {
-  const groups = new Set([
-    'admin',
-    'organization',
-    'passkey',
-    'two-factor',
-    'multi-session',
-    'email-otp',
-    'oauth2',
-  ]);
+  const groups = new Set(['admin', 'organization']);
   const parts = path.split('/').filter(Boolean);
   const words = (
     groups.has(parts[0]) && parts.length > 1 ? parts.slice(1) : parts

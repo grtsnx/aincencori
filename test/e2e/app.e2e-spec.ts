@@ -126,7 +126,7 @@ describe('AppController (e2e)', () => {
     expect(v1.body.info.version).toBe('v1');
     expect(v1.body.tags).toContainEqual({
       name: 'Server',
-      description: 'Core server status, health, and connectivity endpoints.',
+      description: 'Check server health',
     });
     expect(v1.body.paths).toHaveProperty('/v1');
     expect(v1.body.paths).not.toHaveProperty('/v2');
