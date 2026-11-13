@@ -8,12 +8,16 @@ import type { Cencori, RequestOptions, WebhookPayload } from 'cencori';
 import {
   type Agent,
   type AgentChatHandlerOptions,
+  type AgentInput,
+  type RunOptions,
+  type RunResult,
   createAgentChatHandler,
   type HumanMessage,
   type HumanStatus,
   humanReply,
   humanStatus,
   releaseToAgent,
+  run,
 } from 'cencori/agents';
 import type {
   WebExtractResult,
@@ -1589,6 +1593,19 @@ export class CencoriService {
   ): (request: Request) => Promise<Response> {
     return createAgentChatHandler(agent, {
       ...options,
+      apiKey: this.agentApiKey,
+    });
+  }
+
+  /** Runs an agent to the end (no stream), for background work like routines. */
+  agentRun<Ctx>(
+    agent: Agent<Ctx, unknown>,
+    input: AgentInput,
+    options: Omit<RunOptions<Ctx>, 'stream' | 'apiKey'> = {},
+  ): Promise<RunResult<unknown>> {
+    return run(agent, input, {
+      ...options,
+      stream: false,
       apiKey: this.agentApiKey,
     });
   }

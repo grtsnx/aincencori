@@ -138,6 +138,14 @@ export class ChatSessionDto {
   @ApiProperty({ example: 'Which organizations am I in?' })
   title: string;
 
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Set when a routine started this chat',
+    example: null,
+  })
+  routineId: string | null;
+
   @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
   createdAt: Date;
 

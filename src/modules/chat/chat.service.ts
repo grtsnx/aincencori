@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  type OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { fromNodeHeaders } from 'better-auth/node';
@@ -13,6 +14,7 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Agent } from 'cencori/agents';
 import { type ChatContext, createChatAgent } from '@/config/agents/agents.js';
+import { maxAgentTurns } from '@/config/agents/limits.js';
 import { staffOrganizationSlug } from '@/config/auth/access.js';
 import type {
   ChatHistoryMessageDto,
@@ -27,6 +29,20 @@ import {
 } from '@/lib/better-auth/better-auth.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
+
+// Background job: remove a deleted chat's copy at Cencori (retried if down).
+const deleteAtCencori = 'cencori-session-delete';
+
+interface ChatUser {
+  id: string;
+  name: string;
+  email: string;
+  image?: string | null;
+}
+
+// A routine run's answer: done, or stopped at a step the user must approve.
+export type RoutineRunStatus = 'ok' | 'needs-approval';
 
 // Secrets the agent must never repeat (checked by its answer guardrail).
 const secretSettings = [
@@ -46,7 +62,7 @@ const secretSettings = [
 // events: text, widgets, tool calls, handoffs, approvals. Each chat belongs
 // to the user who started it; staff answer chats the agent handed to a person.
 @Injectable()
-export class ChatService {
+export class ChatService implements OnModuleInit {
   private readonly logger = new Logger(ChatService.name);
   private readonly agent: Agent<ChatContext>;
 
@@ -55,6 +71,7 @@ export class ChatService {
     private readonly cencori: CencoriService,
     private readonly betterAuth: BetterAuthService,
     private readonly prisma: PrismaService,
+    private readonly queue: BullmqService,
   ) {
     this.agent = createChatAgent({
       secrets: secretSettings
@@ -65,6 +82,16 @@ export class ChatService {
       onHumanHandoff: ({ sessionId, reason }) =>
         this.logger.warn(`Chat ${sessionId} needs a person: ${reason}`),
     });
+  }
+
+  onModuleInit(): void {
+    this.queue.handle<{ sessionId: string }>(
+      deleteAtCencori,
+      async ({ sessionId }) => {
+        if (!this.cencori.isConfigured) return;
+        await this.cencori.sessionsDelete(sessionId);
+      },
+    );
   }
 
   // Runs one chat turn and streams it to the browser.
@@ -80,7 +107,7 @@ export class ChatService {
     response.on('close', () => abort.abort());
 
     const handler = this.cencori.agentChatHandler(this.agent, {
-      context: () => this.context(auth, headers),
+      context: () => this.context(auth.user, headers),
       user: () => userId,
       authorizeSession: (sessionId) => this.owns(sessionId, userId),
       // Signs paused runs (approvals) so the browser can't change them.
@@ -88,6 +115,7 @@ export class ChatService {
       // Cencori remembers facts about this user across chats.
       memory: { userId },
       metadata: { userId },
+      maxTurns: maxAgentTurns,
     });
 
     const answer = await handler(
@@ -133,13 +161,13 @@ export class ChatService {
     if (!(await this.owns(sessionId, auth.user.id))) {
       throw new NotFoundException('Chat not found.');
     }
-    // Our copy is the one that counts; Cencori's is removed if it is there.
-    try {
-      await this.cencori.sessionsDelete(sessionId);
-    } catch {
-      this.logger.warn(`Chat ${sessionId} could not be deleted at Cencori.`);
-    }
+    // Our copy goes now; Cencori's in the background, retried if it is down.
     await this.prisma.db.chatSession.delete({ where: { id: sessionId } });
+    await this.queue.add(
+      deleteAtCencori,
+      { sessionId },
+      { jobId: `delete-${sessionId}` },
+    );
   }
 
   // A chat's messages from our own database, newest page first.
@@ -220,18 +248,87 @@ export class ChatService {
     await this.cencori.agentReleaseToAgent(sessionId);
   }
 
-  // What the agent's tools can see and do, as the signed-in user.
-  private context(auth: AuthSession, headers: Headers): ChatContext {
+  // Runs a routine's prompt for its owner and saves the run as a new chat.
+  async runRoutine(routine: {
+    id: string;
+    userId: string;
+    name: string;
+    prompt: string;
+  }): Promise<RoutineRunStatus> {
+    const user = await this.prisma.db.user.findUnique({
+      where: { id: routine.userId },
+    });
+    if (!user) throw new NotFoundException('User not found.');
+    const startedAt = new Date();
+
+    const result = await this.cencori.agentRun(this.agent, routine.prompt, {
+      context: this.context(user),
+      user: user.id,
+      memory: { userId: user.id },
+      metadata: { userId: user.id, routineId: routine.id },
+      maxTurns: maxAgentTurns,
+    });
+
+    const needsApproval = result.interruptions.length > 0;
+    const answer =
+      typeof result.finalOutput === 'string'
+        ? result.finalOutput
+        : result.newItems
+            .flatMap((item) => (item.type === 'message' ? [item.text] : []))
+            .join('\n\n');
+    const widgets = result.newItems.flatMap((item) =>
+      item.type === 'widget' ? [item.widget] : [],
+    );
+    const waiting = result.interruptions.map((item) => item.toolName);
+    const text = needsApproval
+      ? `${answer}\n\nThis routine stopped: ${waiting.join(', ')} needs your approval. Ask for it in a chat.`.trim()
+      : answer;
+
+    await this.prisma.db.$transaction([
+      this.prisma.db.chatSession.create({
+        data: {
+          id: result.sessionId,
+          userId: user.id,
+          title: routine.name.slice(0, 80),
+          routineId: routine.id,
+        },
+      }),
+      this.prisma.db.chatMessage.createMany({
+        data: [
+          {
+            id: randomUUID(),
+            sessionId: result.sessionId,
+            role: 'user',
+            text: routine.prompt,
+            createdAt: startedAt,
+          },
+          {
+            id: randomUUID(),
+            sessionId: result.sessionId,
+            role: 'agent',
+            agent: result.lastAgent.name,
+            text,
+            widgets: widgets as never,
+          },
+        ],
+      }),
+    ]);
+    return needsApproval ? 'needs-approval' : 'ok';
+  }
+
+  // What the agent's tools can see and do, as the user. Without headers (a
+  // routine, no browser) changes that need the user's session are refused.
+  private context(user: ChatUser, headers?: Headers): ChatContext {
     return {
       user: {
-        id: auth.user.id,
-        name: auth.user.name,
-        email: auth.user.email,
-        image: auth.user.image,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image,
       },
       organizations: async () => {
         const members = await this.prisma.db.member.findMany({
-          where: { userId: auth.user.id },
+          where: { userId: user.id },
           include: { organization: true },
         });
         return members.map((member) => ({
@@ -243,6 +340,8 @@ export class ChatService {
       },
       // Through Better Auth as the user, so its own checks apply.
       rename: async (name) => {
+        if (!headers)
+          throw new Error('Name changes need a chat, not a routine.');
         await this.betterAuth.auth.api.updateUser({ headers, body: { name } });
       },
     };

@@ -93,9 +93,11 @@ export class BetterAuthService implements OnModuleInit {
         email.enqueue(template, to, variables),
       passwordHasher: { hash: hashValue, verify: verifyHash },
       // Tests never call Gravatar; they get the DiceBear avatar directly.
-      // A deleted user's chats go too (their messages follow the chat).
+      // A deleted user's chats and routines go too (messages follow their
+      // chat; a routine's timetable stops itself on its next run).
       onUserDeleted: async (userId) => {
         await prisma.db.chatSession.deleteMany({ where: { userId } });
+        await prisma.db.routine.deleteMany({ where: { userId } });
       },
       profileImage: (address) =>
         nodeEnv === 'test'

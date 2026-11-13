@@ -106,6 +106,7 @@ describe('saving a chat turn', () => {
       {} as never,
       {} as never,
       { db: { chatSession: { upsert }, chatMessage: { createMany } } } as never,
+      { handle: vi.fn(), add: vi.fn() } as never,
     );
     return { service, upsert, createMany };
   };

@@ -8,6 +8,7 @@ import {
 const production = {
   NODE_ENV: 'production',
   DATABASE_URL: 'postgresql://user:pass@db.example.com:5432/app',
+  REDIS_URL: 'rediss://default:pass@redis.example.com:6379',
   BETTER_AUTH_SECRET: 'a'.repeat(32),
   BETTER_AUTH_URL: 'https://api.example.com',
   APP_URL: 'https://app.example.com',
@@ -52,6 +53,13 @@ describe('validateEnvironment', () => {
     ).toThrow(/CORS_ORIGINS/);
   });
 
+  it('uses the local Valkey for jobs unless REDIS_URL is set', () => {
+    expect(validateEnvironment({}).REDIS_URL).toBe('redis://localhost:6380');
+    expect(() =>
+      validateEnvironment({ REDIS_URL: 'http://localhost:6379' }),
+    ).toThrow(/REDIS_URL/);
+  });
+
   it('disables Swagger by default in production', () => {
     expect(validateEnvironment(production).SWAGGER_ENABLED).toBe(false);
   });
@@ -59,6 +67,7 @@ describe('validateEnvironment', () => {
   it('requires the database and Better Auth settings in production', () => {
     for (const key of [
       'DATABASE_URL',
+      'REDIS_URL',
       'BETTER_AUTH_SECRET',
       'BETTER_AUTH_URL',
       'APP_URL',

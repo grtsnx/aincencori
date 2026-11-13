@@ -35,6 +35,12 @@ export {
   ChatStatusDto,
 } from './chat/chat.dto.js';
 export {
+  CreateRoutineDto,
+  ListRoutinesQueryDto,
+  RoutineDto,
+  UpdateRoutineDto,
+} from './routine/routine.dto.js';
+export {
   SessionDto,
   SessionInfoDto,
   SessionUserDto,
