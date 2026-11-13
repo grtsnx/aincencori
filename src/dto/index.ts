@@ -87,3 +87,9 @@ export {
   UserProfileDto,
   UserSessionDto,
 } from './user/user.dto.js';
+export {
+  SpeakDto,
+  TranscribeDto,
+  TranscriptDto,
+  VoiceListDto,
+} from './voice/voice.dto.js';

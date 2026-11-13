@@ -10,6 +10,7 @@ import { McpModule } from './mcp/mcp.module.js';
 import { OrganizationModule } from './organization/organization.module.js';
 import { RoutineModule } from './routine/routine.module.js';
 import { UserModule } from './user/user.module.js';
+import { VoiceModule } from './voice/voice.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { UserModule } from './user/user.module.js';
     BotModule,
     GroupModule,
     McpModule,
+    VoiceModule,
   ],
   exports: [],
 })

@@ -44,3 +44,11 @@ export const maxBotsPerGroup = 6;
 export const maxGroupAsks = 8;
 // Steps one bot may take to answer a question inside a group.
 export const maxGroupBotTurns = 4;
+
+// Voice messages: the speech models (from Cencori's voice catalog), the
+// default voice, and the biggest recording we accept.
+export const speechToTextModel = 'whisper-1';
+export const textToSpeechModel = 'tts-1';
+export const defaultVoice = 'alloy';
+export const maxAudioBytes = 10 * 1_048_576;
+export const maxSpokenChars = 4_000;

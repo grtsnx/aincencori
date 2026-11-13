@@ -231,8 +231,8 @@ describe('API docs and versioning (e2e)', () => {
         const ok = responses['200'] as {
           content: Record<string, { schema: Schema }>;
         };
-        // Streams (the chat) send events, not the JSON wrapper.
-        if (ok.content['text/event-stream']) {
+        // Streams (the chat) and audio are not JSON, so no wrapper.
+        if (!ok.content['application/json']) {
           expect(Object.keys(responses)).toEqual(
             expect.arrayContaining(['429', '500']),
           );
