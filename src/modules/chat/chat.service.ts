@@ -7,13 +7,20 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { fromNodeHeaders } from 'better-auth/node';
 import type { Request as ExpressRequest, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Agent } from 'cencori/agents';
 import { type ChatContext, createChatAgent } from '@/config/agents/agents.js';
 import { staffOrganizationSlug } from '@/config/auth/access.js';
-import type { ChatRequestDto, ChatSessionDto, ChatStatusDto } from '@/dto';
+import type {
+  ChatHistoryMessageDto,
+  ChatHistoryQueryDto,
+  ChatRequestDto,
+  ChatSessionDto,
+  ChatStatusDto,
+} from '@/dto';
 import {
   type AuthSession,
   BetterAuthService,
@@ -98,21 +105,27 @@ export class ChatService {
       response.end();
       return;
     }
-    const title = (body.message ?? body.action?.label ?? 'New chat')
-      .trim()
-      .slice(0, 80);
-    const tracked = answer.body.pipeThrough(
-      this.recordSessions(userId, title || 'New chat'),
-    );
-    Readable.fromWeb(tracked as NodeReadableStream).pipe(response);
+    // Polls and errors answer JSON; only real chat turns are saved.
+    const isStream = answer.headers
+      .get('content-type')
+      ?.includes('text/event-stream');
+    const stream = isStream
+      ? answer.body.pipeThrough(this.recordTurn(userId, body))
+      : answer.body;
+    Readable.fromWeb(stream as NodeReadableStream).pipe(response);
   }
 
-  // The user's chats, newest first.
-  list(auth: AuthSession): Promise<ChatSessionDto[]> {
+  // The user's chats, newest first, one small page at a time. Paging
+  // follows the index, so it stays fast however many chats there are.
+  list(
+    auth: AuthSession,
+    query: ChatHistoryQueryDto,
+  ): Promise<ChatSessionDto[]> {
     return this.prisma.db.chatSession.findMany({
       where: { userId: auth.user.id },
-      orderBy: { updatedAt: 'desc' },
-      take: 100,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: query.limit ?? 50,
+      ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
     });
   }
 
@@ -120,8 +133,50 @@ export class ChatService {
     if (!(await this.owns(sessionId, auth.user.id))) {
       throw new NotFoundException('Chat not found.');
     }
-    await this.cencori.sessionsDelete(sessionId);
+    // Our copy is the one that counts; Cencori's is removed if it is there.
+    try {
+      await this.cencori.sessionsDelete(sessionId);
+    } catch {
+      this.logger.warn(`Chat ${sessionId} could not be deleted at Cencori.`);
+    }
     await this.prisma.db.chatSession.delete({ where: { id: sessionId } });
+  }
+
+  // A chat's messages from our own database, newest page first.
+  async messages(
+    sessionId: string,
+    auth: AuthSession,
+    headers: IncomingHttpHeaders,
+    query: ChatHistoryQueryDto,
+  ): Promise<ChatHistoryMessageDto[]> {
+    if (!(await this.owns(sessionId, auth.user.id))) {
+      await this.authorizeStaff(auth, headers, 'read');
+      await this.exists(sessionId);
+    }
+    // The cursor makes sure "before" is a message of this chat.
+    if (query.before) {
+      const cursor = await this.prisma.db.chatMessage.findFirst({
+        where: { id: query.before, sessionId },
+        select: { id: true },
+      });
+      if (!cursor) throw new NotFoundException('Message not found.');
+    }
+    const rows = await this.prisma.db.chatMessage.findMany({
+      where: { sessionId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit ?? 50,
+      ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
+    });
+    // Oldest first, ready to show.
+    return rows.reverse().map((row) => ({
+      id: row.id,
+      role: row.role as ChatHistoryMessageDto['role'],
+      agent: row.agent,
+      text: row.text,
+      widgets: (row.widgets as Record<string, unknown>[] | null) ?? [],
+      attachments: (row.attachments as string[] | null) ?? [],
+      createdAt: row.createdAt,
+    }));
   }
 
   // Who handles the chat, and what a person said. The owner or staff.
@@ -147,7 +202,11 @@ export class ChatService {
   ): Promise<ChatStatusDto['messages'][number]> {
     await this.authorizeStaff(auth, headers, 'reply');
     await this.exists(sessionId);
-    return this.cencori.agentHumanReply(sessionId, text);
+    const message = await this.cencori.agentHumanReply(sessionId, text);
+    await this.prisma.db.chatMessage.create({
+      data: { id: randomUUID(), sessionId, role: 'human', text },
+    });
+    return message;
   }
 
   // Staff hand the chat back to the agent.
@@ -203,31 +262,102 @@ export class ChatService {
     if (!chat) throw new NotFoundException('Chat not found.');
   }
 
-  // Saves each chat's owner when the stream reports its session id, before
-  // the browser sees it (so its next message is already allowed).
-  private recordSessions(
+  // Reads the stream as it passes and saves the turn in our database: who
+  // owns the chat, what the user sent and what the agent answered. Saved
+  // before the browser sees the end, so its next request already finds it.
+  private recordTurn(
     userId: string,
-    title: string,
+    body: ChatRequestDto,
   ): TransformStream<Uint8Array, Uint8Array> {
     const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    const startedAt = new Date();
+    const userText = (body.message ?? body.action?.label ?? '').trim();
+    const attachments = (body.attachments ?? []).map((file) => file.name);
     let buffer = '';
-    const record = async (sessionId: string) => {
-      await this.prisma.db.chatSession.upsert({
+    let text = '';
+    let agent: string | undefined;
+    const widgets: unknown[] = [];
+    let saved = false;
+
+    const save = async (sessionId: string) => {
+      if (saved) return;
+      saved = true;
+      const db = this.prisma.db;
+      await db.chatSession.upsert({
         where: { id: sessionId },
-        create: { id: sessionId, userId, title },
+        create: {
+          id: sessionId,
+          userId,
+          title: userText.slice(0, 80) || 'New chat',
+        },
         update: { updatedAt: new Date() },
       });
+      const rows = [];
+      if (userText || attachments.length > 0) {
+        rows.push({
+          id: randomUUID(),
+          sessionId,
+          role: 'user',
+          text: userText,
+          attachments,
+          createdAt: startedAt,
+        });
+      }
+      if (text || widgets.length > 0) {
+        rows.push({
+          id: randomUUID(),
+          sessionId,
+          role: 'agent',
+          agent,
+          text,
+          widgets: widgets as never,
+        });
+      }
+      if (rows.length > 0) await db.chatMessage.createMany({ data: rows });
     };
+
+    const read = async (event: string) => {
+      const { name, data } = parseEvent(event);
+      if (name === 'text' && typeof data.delta === 'string') {
+        text += data.delta;
+        if (typeof data.agent === 'string') agent = data.agent;
+      } else if (name === 'widget' && data.widget) {
+        widgets.push(data.widget);
+      } else if (
+        (name === 'done' || name === 'approval') &&
+        typeof data.sessionId === 'string'
+      ) {
+        await save(data.sessionId);
+      }
+    };
+
     return new TransformStream({
       transform: async (chunk, controller) => {
         buffer += decoder.decode(chunk, { stream: true });
         const events = buffer.split('\n\n');
         buffer = events.pop() ?? '';
+        // Each finished event goes to the browser right away. Only the final
+        // "done" waits for the save (a few ms, after all text is shown).
         for (const event of events) {
-          const sessionId = sessionIdOf(event);
-          if (sessionId) await record(sessionId);
+          try {
+            await read(event);
+          } catch {
+            this.logger.error('A chat turn could not be saved.');
+          }
+          controller.enqueue(encoder.encode(`${event}\n\n`));
         }
-        controller.enqueue(chunk);
+      },
+      // The stream ended early (an error, or a person has the chat): keep
+      // what we have when we know which chat it is.
+      flush: async (controller) => {
+        if (buffer) controller.enqueue(encoder.encode(buffer));
+        if (!body.sessionId) return;
+        try {
+          await save(body.sessionId);
+        } catch {
+          this.logger.error('A chat turn could not be saved.');
+        }
       },
     });
   }
@@ -260,16 +390,23 @@ export class ChatService {
   }
 }
 
-// The session id in a "done" or "approval" stream event, if any.
-export function sessionIdOf(event: string): string | undefined {
+// One stream event: its name and its JSON data.
+export function parseEvent(event: string): {
+  name?: string;
+  data: Record<string, unknown>;
+} {
   const name = /^event: (\w+)$/m.exec(event)?.[1];
-  if (name !== 'done' && name !== 'approval') return undefined;
-  const data = /^data: (.*)$/m.exec(event)?.[1];
-  if (!data) return undefined;
+  const raw = /^data: (.*)$/m.exec(event)?.[1];
   try {
-    const parsed = JSON.parse(data) as { sessionId?: unknown };
-    return typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined;
+    const data: unknown = raw ? JSON.parse(raw) : {};
+    return {
+      name,
+      data:
+        data && typeof data === 'object'
+          ? (data as Record<string, unknown>)
+          : {},
+    };
   } catch {
-    return undefined;
+    return { name, data: {} };
   }
 }

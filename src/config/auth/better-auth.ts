@@ -68,6 +68,8 @@ export interface AuthSettings {
   sendEmail: AuthMailer;
   // A profile picture for a new user without one (Gravatar, else DiceBear).
   profileImage: (email: string) => Promise<string>;
+  // Removes what we keep for a user (their chats) when the user is deleted.
+  onUserDeleted?: (userId: string) => Promise<void>;
   // Argon2id, from lib/hash. Used for every password Better Auth stores.
   passwordHasher: {
     hash(value: string): Promise<string>;
@@ -111,6 +113,11 @@ export function createAuthOptions(settings: AuthSettings) {
                     image: await settings.profileImage(user.email),
                   },
                 },
+        },
+        delete: {
+          after: async (user) => {
+            await settings.onUserDeleted?.(user.id);
+          },
         },
       },
     },

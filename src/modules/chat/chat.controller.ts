@@ -23,6 +23,8 @@ import {
 import type { Request, Response } from 'express';
 import type { IncomingHttpHeaders } from 'node:http';
 import {
+  ChatHistoryMessageDto,
+  ChatHistoryQueryDto,
   ChatMessageDto,
   ChatPollDto,
   ChatReplyDto,
@@ -73,12 +75,15 @@ export class ChatController {
 
   @ApiOperation({
     summary: 'My chats',
-    description: "Lists the user's chats, newest first.",
+    description: 'Your chats, newest first. Page with "before".',
   })
   @ApiOkResponse({ type: [ChatSessionDto] })
   @Get()
-  list(@CurrentSession() auth: AuthSession): Promise<ChatSessionDto[]> {
-    return this.chatService.list(auth);
+  list(
+    @CurrentSession() auth: AuthSession,
+    @Query() query: ChatHistoryQueryDto,
+  ): Promise<ChatSessionDto[]> {
+    return this.chatService.list(auth, query);
   }
 
   @ApiOperation({
@@ -93,6 +98,22 @@ export class ChatController {
     @CurrentSession() auth: AuthSession,
   ): Promise<void> {
     return this.chatService.remove(sessionId, auth);
+  }
+
+  @ApiOperation({
+    summary: 'Chat messages',
+    description: 'Saved messages of one chat. Page with "before".',
+  })
+  @ApiOkResponse({ type: [ChatHistoryMessageDto] })
+  @ApiForbiddenResponse({ description: 'Not allowed for this user' })
+  @Get(':sessionId/messages')
+  messages(
+    @Param('sessionId') sessionId: string,
+    @Query() query: ChatHistoryQueryDto,
+    @CurrentSession() auth: AuthSession,
+    @Headers() headers: IncomingHttpHeaders,
+  ): Promise<ChatHistoryMessageDto[]> {
+    return this.chatService.messages(sessionId, auth, headers, query);
   }
 
   @ApiOperation({

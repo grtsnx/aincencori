@@ -25,6 +25,8 @@ export {
   ChatApprovalDto,
   ChatAttachmentDto,
   ChatHandoffDto,
+  ChatHistoryMessageDto,
+  ChatHistoryQueryDto,
   ChatMessageDto,
   ChatPollDto,
   ChatReplyDto,

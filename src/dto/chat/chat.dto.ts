@@ -4,10 +4,13 @@ import {
   ArrayMaxSize,
   IsArray,
   IsIn,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -180,4 +183,55 @@ export class ChatReplyDto {
   @IsString()
   @MaxLength(4_000)
   text: string;
+}
+
+export class ChatHistoryQueryDto {
+  @ApiPropertyOptional({ default: 50, minimum: 1, maximum: 100, example: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @ApiPropertyOptional({
+    description: 'For the next page: the id of the last item you have',
+    example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  before?: string;
+}
+
+export class ChatHistoryMessageDto {
+  @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
+  id: string;
+
+  @ApiProperty({ enum: ['user', 'agent', 'human'], example: 'agent' })
+  role: 'user' | 'agent' | 'human';
+
+  @ApiProperty({ type: String, nullable: true, example: 'Agentic' })
+  agent: string | null;
+
+  @ApiProperty({ example: 'You are in Acme.' })
+  text: string;
+
+  @ApiProperty({
+    description: 'Widgets the agent showed',
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+    example: [{ type: 'Card', title: 'Acme', children: [] }],
+  })
+  widgets: Record<string, unknown>[];
+
+  @ApiProperty({
+    description: 'Names of attached files',
+    type: [String],
+    example: ['receipt.png'],
+  })
+  attachments: string[];
+
+  @ApiProperty({ example: '2026-11-13T09:31:00.000Z' })
+  createdAt: Date;
 }

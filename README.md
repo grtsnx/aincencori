@@ -49,6 +49,7 @@ Then open the API docs:
 - Tools that change data (like changing your name) wait for the user to approve them in the chat.
 - Images and files can be attached. Cencori remembers facts about each user across chats.
 - Guardrails block pasted keys and passwords, and any answer that contains one of our secrets.
+- Every message is saved in our own database (`chatMessage`), so the history is ours and we can switch AI providers without losing it. Chats and messages load in small pages.
 - Each chat belongs to the user who started it. Staff with the `chat` permission can read and reply to chats handed to a person, then hand them back.
 - Agents live in `src/config/agents/agents.ts`. Optional: `CENCORI_AGENT_ID` runs an agent built in the Cencori dashboard, `AGENT_MCP_URL` adds an MCP server's tools.
 

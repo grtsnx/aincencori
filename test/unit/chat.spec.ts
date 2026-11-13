@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { type ChatContext, createChatAgent } from '@/config/agents/agents.js';
-import { sessionIdOf } from '@/modules/chat/chat.service.js';
+import { ChatService, parseEvent } from '@/modules/chat/chat.service.js';
 
 const settings = {
   secrets: ['super-secret-value'],
@@ -81,17 +81,114 @@ describe('chat agents', () => {
   });
 });
 
-describe('sessionIdOf', () => {
-  it('reads the session id from done and approval events only', () => {
-    expect(sessionIdOf('event: done\ndata: {"sessionId":"ses_1"}')).toBe(
-      'ses_1',
+describe('parseEvent', () => {
+  it('reads the name and data of a stream event', () => {
+    expect(parseEvent('event: done\ndata: {"sessionId":"ses_1"}')).toEqual({
+      name: 'done',
+      data: { sessionId: 'ses_1' },
+    });
+    expect(parseEvent('event: text\ndata: {"delta":"Hi"}').data.delta).toBe(
+      'Hi',
     );
-    expect(
-      sessionIdOf('event: approval\ndata: {"sessionId":"ses_2","state":"x"}'),
-    ).toBe('ses_2');
-    expect(sessionIdOf('event: text\ndata: {"sessionId":"ses_3"}')).toBe(
-      undefined,
+    expect(parseEvent('event: done\ndata: not json')).toEqual({
+      name: 'done',
+      data: {},
+    });
+  });
+});
+
+describe('saving a chat turn', () => {
+  const build = () => {
+    const upsert = vi.fn().mockResolvedValue({});
+    const createMany = vi.fn().mockResolvedValue({});
+    const service = new ChatService(
+      { get: () => undefined } as never,
+      {} as never,
+      {} as never,
+      { db: { chatSession: { upsert }, chatMessage: { createMany } } } as never,
     );
-    expect(sessionIdOf('event: done\ndata: not json')).toBe(undefined);
+    return { service, upsert, createMany };
+  };
+
+  // Sends stream text through the recorder, split in odd places like a network would.
+  const pass = async (
+    service: ChatService,
+    body: object,
+    stream: string,
+  ): Promise<string> => {
+    const recorder = (
+      service as unknown as {
+        recordTurn: (
+          userId: string,
+          body: object,
+        ) => TransformStream<Uint8Array, Uint8Array>;
+      }
+    ).recordTurn('u1', body);
+    const bytes = new TextEncoder().encode(stream);
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < bytes.length; i += 7) {
+          controller.enqueue(bytes.slice(i, i + 7));
+        }
+        controller.close();
+      },
+    });
+    return new Response(source.pipeThrough(recorder)).text();
+  };
+
+  it('saves the question, the answer and its widgets in our database', async () => {
+    const { service, upsert, createMany } = build();
+    const stream =
+      'event: agent\ndata: {"name":"Agentic"}\n\n' +
+      'event: text\ndata: {"delta":"You are ","agent":"Agentic"}\n\n' +
+      'event: widget\ndata: {"id":"w1","widget":{"type":"Card","children":[]}}\n\n' +
+      'event: text\ndata: {"delta":"in Acme.","agent":"Agentic"}\n\n' +
+      'event: done\ndata: {"sessionId":"ses_1"}\n\n';
+
+    const out = await pass(
+      service,
+      { message: 'Which organizations am I in?' },
+      stream,
+    );
+
+    expect(out).toBe(stream); // The browser gets the stream unchanged.
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ses_1' },
+        create: {
+          id: 'ses_1',
+          userId: 'u1',
+          title: 'Which organizations am I in?',
+        },
+      }),
+    );
+    const rows = createMany.mock.calls[0][0].data;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      sessionId: 'ses_1',
+      role: 'user',
+      text: 'Which organizations am I in?',
+    });
+    expect(rows[1]).toMatchObject({
+      sessionId: 'ses_1',
+      role: 'agent',
+      agent: 'Agentic',
+      text: 'You are in Acme.',
+      widgets: [{ type: 'Card', children: [] }],
+    });
+  });
+
+  it('keeps the message when the stream ends early in a known chat', async () => {
+    const { service, createMany } = build();
+
+    await pass(
+      service,
+      { sessionId: 'ses_2', message: 'Hello?' },
+      'event: with_human\ndata: {}\n\n',
+    );
+
+    const rows = createMany.mock.calls[0][0].data;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ sessionId: 'ses_2', role: 'user' });
   });
 });

@@ -93,10 +93,62 @@ describe('Chat (e2e)', () => {
         .expect(503);
     });
 
+    it('reads my saved messages from our database, in pages', async () => {
+      const db = app.get(PrismaService).db;
+      const user = await db.user.findUniqueOrThrow({ where: { email } });
+      const id = `ses_${randomUUID()}`;
+      await db.chatSession.create({
+        data: { id, userId: user.id, title: 'Mine' },
+      });
+      await db.chatMessage.createMany({
+        data: [1, 2, 3].map((n) => ({
+          id: `${id}-m${n}`,
+          sessionId: id,
+          role: n % 2 ? 'user' : 'agent',
+          text: `message ${n}`,
+          createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, n)),
+        })),
+      });
+      const server = app.getHttpServer();
+
+      const chats = await request(server)
+        .get('/v1/chat')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(chats.body.data.map((chat: { id: string }) => chat.id)).toEqual([
+        id,
+      ]);
+
+      const latest = await request(server)
+        .get(`/v1/chat/${id}/messages?limit=2`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(latest.body.data.map((m: { text: string }) => m.text)).toEqual([
+        'message 2',
+        'message 3',
+      ]);
+
+      const older = await request(server)
+        .get(`/v1/chat/${id}/messages?limit=2&before=${id}-m2`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(older.body.data.map((m: { text: string }) => m.text)).toEqual([
+        'message 1',
+      ]);
+
+      // Deleting the user's chat removes its messages too.
+      await db.chatSession.delete({ where: { id } });
+      expect(await db.chatMessage.count({ where: { sessionId: id } })).toBe(0);
+    });
+
     it("keeps other people's chats private", async () => {
       const server = app.getHttpServer();
       await request(server)
         .get(`/v1/chat/${foreignChat}/status`)
+        .set('Cookie', cookies)
+        .expect(403);
+      await request(server)
+        .get(`/v1/chat/${foreignChat}/messages`)
         .set('Cookie', cookies)
         .expect(403);
       await request(server)

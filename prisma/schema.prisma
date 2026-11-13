@@ -445,9 +445,31 @@ model ChatSession {
   title     String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  messages  ChatMessage[]
 
   @@index([userId, updatedAt])
   @@map("chatSession")
+}
+
+// Every message of a chat, kept by us. Cencori only answers; the history is
+// ours, so we can switch AI providers without losing it.
+model ChatMessage {
+  id          String      @id
+  sessionId   String
+  session     ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  // "user", "agent" or "human" (a person on our team).
+  role        String
+  // Which agent answered, for example "Agentic".
+  agent       String?
+  text        String
+  // Widgets the agent showed (cards, lists, charts).
+  widgets     Json?
+  // Names of attached files. The files themselves are not kept.
+  attachments Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([sessionId, createdAt])
+  @@map("chatMessage")
 }
 
 model OrganizationRole {
