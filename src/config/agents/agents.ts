@@ -1,6 +1,7 @@
 import {
   Agent,
   type FunctionTool,
+  type ToolOptions,
   humanHandoff,
   type InputGuardrail,
   type MCPServer,
@@ -12,6 +13,7 @@ import {
 } from 'cencori/agents';
 import { z } from 'zod';
 import { agentModel, agentThinking, maxPlanSteps } from './limits.js';
+import { deniedToolMessage, type ToolDecision, untrusted } from './policy.js';
 
 // What every tool gets for the signed-in user. ChatService fills it in.
 export interface ChatContext {
@@ -31,6 +33,8 @@ export interface ChatContext {
   searchDocuments: (query: string) => Promise<string>;
   // Starts a plan: a big goal worked through step by step in the background.
   startPlan: (goal: string) => Promise<{ id: string }>;
+  // The user's standing answer for a risky tool here (see policy.ts).
+  toolDecision: (tool: string) => ToolDecision;
 }
 
 export interface RoutineSummary {
@@ -145,12 +149,27 @@ const myOrganizations = tool<z.ZodObject, ChatContext>({
   },
 });
 
+// A tool that changes something. The user's rules decide: run it, ask
+// first (the default), or refuse it without asking.
+function guarded<S extends z.ZodObject>(
+  options: ToolOptions<S, ChatContext>,
+): FunctionTool<ChatContext> {
+  const { execute } = options;
+  return tool<S, ChatContext>({
+    ...options,
+    needsApproval: ({ context }) => context.toolDecision(options.name) === 'ask',
+    execute: (args, runContext, details) =>
+      runContext.context.toolDecision(options.name) === 'deny'
+        ? deniedToolMessage
+        : execute(args, runContext, details),
+  }) as FunctionTool<ChatContext>;
+}
+
 // Changes data, so the user must approve it in the chat first.
-const renameMe = tool({
+const renameMe = guarded({
   name: 'change_my_name',
   description: "Change the signed-in user's display name.",
   parameters: z.object({ name: z.string().min(1).max(100) }),
-  needsApproval: true,
   execute: async ({ name }, { context }: { context: ChatContext }) => {
     await context.rename(name);
     return `Name changed to ${name}.`;
@@ -183,7 +202,7 @@ const listRoutines = tool({
 });
 
 // The three below change data, so the user approves each one in the chat.
-const createRoutine = tool({
+const createRoutine = guarded({
   name: 'create_routine',
   description:
     'Create a routine: a prompt the agent runs on a schedule. ' +
@@ -195,27 +214,24 @@ const createRoutine = tool({
     cron: z.string().max(100),
     timezone: z.string().max(100),
   }),
-  needsApproval: true,
   execute: async (input, { context }: { context: ChatContext }) =>
     `Created: ${routineLine(await context.routines.create(input))}.`,
 });
 
-const setRoutineEnabled = tool({
+const setRoutineEnabled = guarded({
   name: 'set_routine_enabled',
   description: 'Pause (false) or resume (true) a routine, by its id.',
   parameters: z.object({ id: z.string(), enabled: z.boolean() }),
-  needsApproval: true,
   execute: async ({ id, enabled }, { context }: { context: ChatContext }) => {
     const routine = await context.routines.setEnabled(id, enabled);
     return `${routine.name} is now ${routine.enabled ? 'on' : 'paused'}.`;
   },
 });
 
-const deleteRoutine = tool({
+const deleteRoutine = guarded({
   name: 'delete_routine',
   description: 'Delete a routine, by its id.',
   parameters: z.object({ id: z.string() }),
-  needsApproval: true,
   execute: async ({ id }, { context }: { context: ChatContext }) => {
     await context.routines.remove(id);
     return 'Routine deleted.';
@@ -228,19 +244,18 @@ const searchMyDocuments = tool({
     "Search the user's own documents (files they added to their " +
     'knowledge). Use key words, not a whole question.',
   parameters: z.object({ query: z.string().min(1).max(500) }),
-  execute: ({ query }, { context }: { context: ChatContext }) =>
-    context.searchDocuments(query),
+  execute: async ({ query }, { context }: { context: ChatContext }) =>
+    untrusted('the user’s documents', await context.searchDocuments(query)),
 });
 
 // Spends time and money in the background, so the user approves it first.
-const startPlan = tool({
+const startPlan = guarded({
   name: 'start_plan',
   description:
     'Start a plan for a big goal that needs several steps (research, then ' +
     'compare, then write...). It runs in the background, one step at a ' +
     'time, and the user can watch the steps. Not for quick questions.',
   parameters: z.object({ goal: z.string().min(1).max(4000) }),
-  needsApproval: true,
   execute: async ({ goal }, { context }: { context: ChatContext }) => {
     const plan = await context.startPlan(goal);
     return `Plan started (id ${plan.id}). It runs in the background; the steps show up in Plans.`;
@@ -395,19 +410,18 @@ export function createBotAgent(
     if (team.others.length > 0) tools.push(askBotTool(team.others, team.ask));
   } else {
     tools.push(
-      tool({
+      guarded({
         name: 'update_my_instructions',
         description:
           'Rewrite your own instructions when the user asks you to change ' +
           'how you behave. Send the full new instructions, not just the change.',
         parameters: z.object({ instructions: z.string().min(1).max(8000) }),
         // Changes how the bot behaves from now on, so the user approves it.
-        needsApproval: true,
         execute: async ({ instructions }) => {
           await bot.updateInstructions(instructions);
           return 'Instructions updated. They apply from the next message.';
         },
-      }) as FunctionTool<ChatContext>,
+      }),
     );
   }
   if (bot.documents.length > 0) {
@@ -417,7 +431,8 @@ export function createBotAgent(
         description:
           'Search your documents for facts. Use key words, not a whole question.',
         parameters: z.object({ query: z.string().min(1).max(500) }),
-        execute: ({ query }) => bot.searchDocuments(query),
+        execute: async ({ query }) =>
+          untrusted('your documents', await bot.searchDocuments(query)),
       }) as FunctionTool<ChatContext>,
     );
   }

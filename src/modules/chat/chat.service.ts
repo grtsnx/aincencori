@@ -37,6 +37,7 @@ import type {
   ChatRequestDto,
   ChatSessionDto,
   ChatStatusDto,
+  PendingApprovalItemDto,
 } from '@/dto';
 import {
   type AuthSession,
@@ -48,7 +49,8 @@ import { ActivityService } from '../activity/activity.service.js';
 import { ApprovalService } from '../approval/approval.service.js';
 import { UsageService } from '../usage/usage.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
-import { assertStaff, readableImage } from '@/middleware';
+import { assertStaff, readableImage, signRunState } from '@/middleware';
+import { decideTool, type ToolRuleView } from '@/config/agents/policy.js';
 import { R2Service } from '@/lib/r2/r2.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 
