@@ -125,6 +125,7 @@ export class BetterAuthService implements OnModuleInit {
         ]);
         await db.chatSession.deleteMany({ where: { userId } });
         await db.routine.deleteMany({ where: { userId } });
+        await db.botGroup.deleteMany({ where: { userId } });
         await db.bot.deleteMany({ where: { userId } });
         await db.integration.deleteMany({ where: { userId } });
         await db.agentWorkspace.deleteMany({ where: { userId } });

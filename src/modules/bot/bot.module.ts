@@ -8,5 +8,7 @@ import { BotService } from './bot.service.js';
   imports: [ChatModule, IntegrationModule],
   controllers: [BotController],
   providers: [BotService],
+  // Groups put several bots on one chat.
+  exports: [BotService],
 })
 export class BotModule {}

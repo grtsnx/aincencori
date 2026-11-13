@@ -4,6 +4,7 @@ import {
   type ChatContext,
   createBotAgent,
   createChatAgent,
+  createGroupAgent,
 } from '@/config/agents/agents.js';
 import { ChatService, parseEvent } from '@/modules/chat/chat.service.js';
 
@@ -157,6 +158,65 @@ describe('bot agents', () => {
     expect(
       (call(agent, 'save_memory') as { needsApproval?: unknown }).needsApproval,
     ).toBeFalsy();
+  });
+});
+
+describe('groups of bots', () => {
+  const member = {
+    name: 'Sales Bot',
+    description: 'Writes sales emails.',
+    instructions: 'Write sales emails.',
+    memories: [],
+    skills: [],
+    mcpServers: [],
+    saveMemory: vi.fn(),
+    updateInstructions: vi.fn(),
+  };
+  const others = [{ name: 'Prospector', description: 'Finds leads.' }];
+
+  it('gives the lead one tool to ask the bots, by name', async () => {
+    const ask = vi.fn().mockResolvedValue('Lead: Chidi at Acme.');
+    const lead = createGroupAgent(
+      settings,
+      {
+        name: 'Sales team',
+        instructions: 'Prospector goes first.',
+        members: [member, ...others],
+      },
+      ask,
+    );
+
+    expect(lead.tools.map((t) => t.name)).toEqual(['ask_bot']);
+    const text = await lead.resolveInstructions(runContext);
+    expect(text).toContain('You lead "Sales team"');
+    expect(text).toContain('Prospector goes first.');
+
+    const [tool] = lead.tools as unknown as {
+      description: string;
+      invoke: (ctx: unknown, input: string) => Promise<unknown>;
+      execute?: (args: unknown, ctx: unknown) => Promise<unknown>;
+    }[];
+    expect(tool.description).toContain('- Prospector: Finds leads.');
+  });
+
+  it('lets a bot in a group ask the others, but not rewrite itself', () => {
+    const inGroup = createBotAgent(settings, member, { others, ask: vi.fn() });
+    expect(inGroup.tools.map((t) => t.name)).toEqual([
+      'web_search',
+      'web_fetch',
+      'save_memory',
+      'ask_bot',
+    ]);
+
+    // Asked by another bot: nobody left to ask, so no circles.
+    const asked = createBotAgent(settings, member, {
+      others: [],
+      ask: vi.fn(),
+    });
+    expect(asked.tools.map((t) => t.name)).not.toContain('ask_bot');
+    expect(asked.tools.map((t) => t.name)).not.toContain(
+      'update_my_instructions',
+    );
   });
 });
 

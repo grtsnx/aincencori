@@ -12,6 +12,7 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Chat', description: 'Talk to AI agents' },
   { name: 'Routines', description: 'Scheduled agent tasks' },
   { name: 'Bots', description: 'Your own AI bots' },
+  { name: 'Groups', description: 'Bots working together' },
   { name: 'Integrations', description: 'Apps your bots use' },
   { name: 'MCP', description: 'For outside AI apps' },
   { name: 'Admin', description: 'Manage all users' },

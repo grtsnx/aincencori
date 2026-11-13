@@ -155,6 +155,7 @@ describe('Better Auth (e2e)', () => {
       'Chat',
       'Routines',
       'Bots',
+      'Groups',
       'Integrations',
       'MCP',
       'Admin',

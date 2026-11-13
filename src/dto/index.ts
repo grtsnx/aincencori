@@ -48,6 +48,13 @@ export {
   ChatStatusDto,
 } from './chat/chat.dto.js';
 export {
+  CreateGroupDto,
+  GroupBotDto,
+  GroupDto,
+  ListGroupsQueryDto,
+  UpdateGroupDto,
+} from './group/group.dto.js';
+export {
   CreateIntegrationDto,
   IntegrationAppDto,
   IntegrationConnectDto,

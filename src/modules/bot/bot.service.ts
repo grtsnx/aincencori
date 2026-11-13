@@ -376,6 +376,16 @@ export class BotService implements OnModuleInit {
     return Promise.all(bots.map((bot) => this.toRuntime(bot, false)));
   }
 
+  // The user's bots among these that are on, ready to work in a group.
+  async forGroup(userId: string, botIds: string[]): Promise<BotRuntime[]> {
+    const bots = await this.prisma.db.bot.findMany({
+      where: { userId, enabled: true, id: { in: botIds } },
+      include: withIntegrations,
+      orderBy: { createdAt: 'asc' },
+    });
+    return Promise.all(bots.map((bot) => this.toRuntime(bot, false)));
+  }
+
   private async toRuntime(
     bot: BotWithIntegrations,
     linkApps: boolean,
