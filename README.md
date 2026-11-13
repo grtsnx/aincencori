@@ -78,7 +78,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*` | Sign-in providers. Set both ID and secret, or leave both empty |
 | `RECAPTCHA_SECRET_KEY`               | Turns on reCAPTCHA                                             |
 
-Without `BETTER_AUTH_API_KEY`, development prints sign-in codes in the server log instead of emailing them. Rate limits read the visitor's real IP from the usual proxy headers (Cloudflare, Vercel, Amazon and others) with no setting needed. The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
+Configure `BETTER_AUTH_API_KEY` to deliver sign-in emails in development; OTP values are never written to application logs. Development infers a default client-IP header from the hosting platform, while production requires an explicit `AUTH_IP_HEADERS` setting. The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
 
 ## Changing the database
 

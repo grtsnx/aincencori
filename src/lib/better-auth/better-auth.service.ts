@@ -120,8 +120,8 @@ export class BetterAuthService implements OnModuleInit {
     return this.openApi;
   }
 
-  // Emails go through Better Auth Infrastructure. Without its API key
-  // (development only), the message is logged so you can still sign in.
+  // Emails go through Better Auth Infrastructure. Without its API key in
+  // development, delivery is skipped and only the template name is logged.
   private async sendEmail(
     template: EmailTemplateId,
     to: string,
