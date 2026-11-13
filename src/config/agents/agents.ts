@@ -249,6 +249,25 @@ const noSecretsOut = (secrets: string[]): OutputGuardrail<ChatContext> => ({
 // The chat starts with the main agent. It answers itself, hands the chat to a
 // specialist (Account, Research, Routines), asks the Writer for drafts, or hands it to a
 // person on our team.
+// A bot a user made: their instructions, plus the integrations they picked
+// for it (none is fine). Same guardrails as the default assistant.
+export function createBotAgent(
+  settings: Pick<AgentSettings, 'secrets'>,
+  bot: { name: string; instructions: string; mcpServers: MCPServer[] },
+): Agent<ChatContext> {
+  return new Agent<ChatContext>({
+    name: bot.name,
+    instructions: ({ context }) =>
+      `${bot.instructions}\n\nThe user is ${context.user.name}. ` +
+      'Show data as widgets when it helps.',
+    tools: [webSearch(), webFetch()],
+    inputGuardrails: [noSecretsIn],
+    outputGuardrails: [noSecretsOut(settings.secrets)],
+    widgets: true,
+    mcpServers: bot.mcpServers,
+  });
+}
+
 export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
   const account = new Agent<ChatContext>({
     name: 'Account',

@@ -15,6 +15,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Agent, MCPServer } from 'cencori/agents';
 import {
   type ChatContext,
+  createBotAgent,
   createChatAgent,
   type RoutineActions,
 } from '@/config/agents/agents.js';
@@ -45,6 +46,17 @@ interface ChatUser {
   image?: string | null;
 }
 
+// What the chat needs to run one of a user's bots.
+export interface BotRuntime {
+  id: string;
+  name: string;
+  instructions: string;
+  // The bot's own-MCP integrations.
+  mcpServers: MCPServer[];
+  // Set when the bot has signed-in app connections (Gmail, Slack...).
+  cencori?: { agentId: string; tenantId: string; installationId: string };
+}
+
 // A routine run's answer: done, or stopped at a step the user must approve.
 export type RoutineRunStatus = 'ok' | 'needs-approval';
 
@@ -71,8 +83,9 @@ export class ChatService implements OnModuleInit {
   private readonly agent: Agent<ChatContext>;
   // Set by the routine module when the app starts.
   private routineActions?: RoutineActions;
-  // Set by the integration module: a user's own MCP servers.
-  private integrations?: (userId: string) => Promise<MCPServer[]>;
+  // Set by the bot module: loads one of the user's bots for a chat.
+  private bots?: (userId: string, botId: string) => Promise<BotRuntime>;
+  private readonly secrets: string[];
 
   constructor(
     private readonly config: ConfigService,
@@ -81,10 +94,11 @@ export class ChatService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly bullmq: BullmqService,
   ) {
+    this.secrets = secretSettings
+      .map((key) => this.config.get<string>(key))
+      .filter((value): value is string => Boolean(value));
     this.agent = createChatAgent({
-      secrets: secretSettings
-        .map((key) => this.config.get<string>(key))
-        .filter((value): value is string => Boolean(value)),
+      secrets: this.secrets,
       onHumanHandoff: ({ sessionId, reason }) =>
         this.logger.warn(`Chat ${sessionId} needs a person: ${reason}`),
     });
@@ -95,17 +109,31 @@ export class ChatService implements OnModuleInit {
     this.routineActions = actions;
   }
 
-  // The integration module hands over how to load a user's MCP servers.
-  useIntegrations(load: (userId: string) => Promise<MCPServer[]>): void {
-    this.integrations = load;
+  // The bot module hands over how to load a user's bot.
+  useBots(load: (userId: string, botId: string) => Promise<BotRuntime>): void {
+    this.bots = load;
   }
 
-  // The agent for one user: the shared agent plus that user's MCP servers.
-  private async agentFor(userId: string): Promise<Agent<ChatContext>> {
-    const servers = (await this.integrations?.(userId)) ?? [];
-    return servers.length > 0
-      ? this.agent.clone({ mcpServers: servers })
-      : this.agent;
+  // Which agent answers: the user's bot when the chat is with one, else the
+  // default assistant. A chat keeps the bot it started with.
+  private async agentFor(
+    userId: string,
+    body: ChatRequestDto,
+  ): Promise<{ agent: Agent<ChatContext>; bot?: BotRuntime }> {
+    let botId = body.botId;
+    if (body.sessionId) {
+      const chat = await this.prisma.db.chatSession.findUnique({
+        where: { id: body.sessionId },
+      });
+      if (chat?.userId === userId) botId = chat.botId ?? undefined;
+    }
+    if (!botId) return { agent: this.agent };
+    if (!this.bots) throw new NotFoundException('Bot not found.');
+    const bot = await this.bots(userId, botId);
+    return {
+      agent: createBotAgent({ secrets: this.secrets }, bot),
+      bot,
+    };
   }
 
   onModuleInit(): void {
@@ -130,7 +158,13 @@ export class ChatService implements OnModuleInit {
     const abort = new AbortController();
     response.on('close', () => abort.abort());
 
-    const agent = await this.agentFor(userId);
+    const { agent, bot } = await this.agentFor(userId, body);
+    const { botId: _botId, ...turn } = body;
+    // A bot with app connections (Gmail...) starts its chat in a session
+    // that carries them, so Cencori can offer those tools.
+    if (bot?.cencori && !turn.sessionId && !turn.approval && !turn.poll) {
+      turn.sessionId = await this.startBotSession(userId, bot, turn);
+    }
     const handler = this.cencori.agentChatHandler(agent, {
       context: () => this.context(auth.user, headers),
       user: () => userId,
@@ -147,7 +181,7 @@ export class ChatService implements OnModuleInit {
       new Request(new URL(request.originalUrl, 'http://localhost'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(turn),
         signal: abort.signal,
       }),
     );
@@ -163,7 +197,7 @@ export class ChatService implements OnModuleInit {
       .get('content-type')
       ?.includes('text/event-stream');
     const stream = isStream
-      ? answer.body.pipeThrough(this.recordTurn(userId, body))
+      ? answer.body.pipeThrough(this.recordTurn(userId, turn, bot?.id))
       : answer.body;
     Readable.fromWeb(stream as NodeReadableStream).pipe(response);
   }
@@ -286,8 +320,7 @@ export class ChatService implements OnModuleInit {
     if (!user) throw new NotFoundException('User not found.');
     const startedAt = new Date();
 
-    const agent = await this.agentFor(user.id);
-    const result = await this.cencori.agentRun(agent, routine.prompt, {
+    const result = await this.cencori.agentRun(this.agent, routine.prompt, {
       context: this.context(user),
       user: user.id,
       memory: { userId: user.id },
@@ -374,6 +407,38 @@ export class ChatService implements OnModuleInit {
     };
   }
 
+  // Opens the Cencori session a bot chat runs in, tied to the bot's
+  // connections, and records the chat as the user's before the first turn.
+  private async startBotSession(
+    userId: string,
+    bot: BotRuntime,
+    body: ChatRequestDto,
+  ): Promise<string | undefined> {
+    if (!bot.cencori) return undefined;
+    try {
+      const session = await this.cencori.sessionsCreate({
+        agent_id: bot.cencori.agentId,
+        tenant_id: bot.cencori.tenantId,
+        external_user_id: userId,
+        installation_id: bot.cencori.installationId,
+      });
+      const title = (body.message ?? body.action?.label ?? '').trim();
+      await this.prisma.db.chatSession.create({
+        data: {
+          id: session.id,
+          userId,
+          title: title.slice(0, 80) || 'New chat',
+          botId: bot.id,
+        },
+      });
+      return session.id;
+    } catch {
+      // The chat still works, without the app tools.
+      this.logger.warn(`Bot ${bot.id} could not open its app session.`);
+      return undefined;
+    }
+  }
+
   private routinesFor(userId: string): ChatContext['routines'] {
     const actions = () => {
       if (!this.routineActions) throw new Error('Routines are not available.');
@@ -407,6 +472,7 @@ export class ChatService implements OnModuleInit {
   private recordTurn(
     userId: string,
     body: ChatRequestDto,
+    botId?: string,
   ): TransformStream<Uint8Array, Uint8Array> {
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -429,6 +495,7 @@ export class ChatService implements OnModuleInit {
           id: sessionId,
           userId,
           title: userText.slice(0, 80) || 'New chat',
+          botId,
         },
         update: { updatedAt: new Date() },
       });

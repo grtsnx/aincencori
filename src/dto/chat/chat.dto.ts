@@ -90,6 +90,17 @@ export class ChatApprovalDto {
 // decisions, or a poll while a person handles the chat.
 export class ChatRequestDto {
   @ApiPropertyOptional({
+    description:
+      'Chat with one of your bots. Leave out for the default assistant. ' +
+      'Send it with every message of a bot chat',
+    example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  botId?: string;
+
+  @ApiPropertyOptional({
     description: 'Leave out to start a new chat',
     example: 'ses_3f9aB2xY7pLm1n',
   })
@@ -145,6 +156,14 @@ export class ChatSessionDto {
     example: null,
   })
   routineId: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'The bot this chat is with; null for the default assistant',
+    example: null,
+  })
+  botId: string | null;
 
   @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
   createdAt: Date;

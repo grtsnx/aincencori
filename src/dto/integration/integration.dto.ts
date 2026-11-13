@@ -17,8 +17,8 @@ const nameMessage = 'name: use lowercase letters, numbers and dashes';
 
 export class CreateIntegrationDto {
   @ApiProperty({
-    description: 'Short name; goes in front of the tool names',
-    example: 'github',
+    description: 'Your label for it, like work-gmail',
+    example: 'work-gmail',
   })
   @IsString()
   @MinLength(1)
@@ -26,16 +26,28 @@ export class CreateIntegrationDto {
   @Matches(namePattern, { message: nameMessage })
   name: string;
 
-  @ApiProperty({
-    description: "The MCP server's address (https)",
-    example: 'https://mcp.example.com/mcp',
+  @ApiPropertyOptional({
+    description:
+      'Which app, from "List apps". Leave out (or "mcp") for your own MCP server',
+    default: 'mcp',
+    example: 'gmail',
   })
+  @IsOptional()
   @IsString()
-  @MaxLength(2_000)
-  url: string;
+  @MaxLength(60)
+  app?: string;
 
   @ApiPropertyOptional({
-    description: 'Access token for the server, if it needs one',
+    description: "Your own MCP server's address (https). Only for app mcp",
+    example: 'https://mcp.example.com/mcp',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2_000)
+  url?: string;
+
+  @ApiPropertyOptional({
+    description: 'Access token for your own MCP server, if it needs one',
     example: 'ghp_9Wd2Hs7QmVr2NcY7pKs1',
   })
   @IsOptional()
@@ -102,15 +114,30 @@ export class IntegrationDto {
   @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
   id: string;
 
-  @ApiProperty({ example: 'github' })
+  @ApiProperty({ example: 'work-gmail' })
   name: string;
 
-  @ApiProperty({ example: 'https://mcp.example.com/mcp' })
-  url: string;
+  @ApiProperty({ description: 'The app, or mcp', example: 'gmail' })
+  app: string;
+
+  @ApiProperty({
+    description: 'pending: sign in with "Connect". active: ready to use',
+    enum: ['pending', 'active', 'error', 'revoked', 'unknown'],
+    example: 'active',
+  })
+  status: string;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Only for your own MCP servers',
+    example: null,
+  })
+  url: string | null;
 
   @ApiProperty({
     description: 'Whether a token is saved. The token itself is never shown',
-    example: true,
+    example: false,
   })
   hasToken: boolean;
 
@@ -122,6 +149,29 @@ export class IntegrationDto {
 
   @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
   updatedAt: Date;
+}
+
+export class IntegrationAppDto {
+  @ApiProperty({ example: 'gmail' })
+  slug: string;
+
+  @ApiProperty({ example: 'Gmail' })
+  name: string;
+
+  @ApiProperty({
+    description: 'oauth: the user signs in. none: an address is enough',
+    enum: ['oauth', 'none'],
+    example: 'oauth',
+  })
+  signIn: 'oauth' | 'none';
+}
+
+export class IntegrationConnectDto {
+  @ApiProperty({
+    description: 'Send the user here to sign in to the app',
+    example: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=example',
+  })
+  authorizeUrl: string;
 }
 
 export class IntegrationToolDto {

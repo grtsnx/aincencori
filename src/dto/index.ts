@@ -36,6 +36,8 @@ export {
 } from './chat/chat.dto.js';
 export {
   CreateIntegrationDto,
+  IntegrationAppDto,
+  IntegrationConnectDto,
   IntegrationDto,
   IntegrationToolDto,
   ListIntegrationsQueryDto,

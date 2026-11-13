@@ -12,3 +12,6 @@ export const routineConcurrency = 5;
 
 // MCP servers each user may connect.
 export const maxIntegrationsPerUser = 10;
+
+// Bots each user may create.
+export const maxBotsPerUser = 50;

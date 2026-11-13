@@ -445,6 +445,8 @@ model ChatSession {
   title     String
   // Set when a routine started this chat (one chat per run).
   routineId String?
+  // The bot this chat is with. Empty: the default assistant.
+  botId     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   messages  ChatMessage[]
@@ -497,23 +499,69 @@ model Routine {
   @@map("routine")
 }
 
-// An MCP server a user connected, so the chat agent can use its tools.
-// A user can have many.
+// Something a user connected so their bots can use its tools. A user can have
+// many, including several of the same app (two Gmail accounts).
+// - app "mcp": the user's own MCP server (url, token kept by us, encrypted).
+// - any other app (gmail, slack...): a Cencori connection; Cencori keeps the
+//   sign-in, we keep its id.
 model Integration {
-  id        String   @id
-  userId    String
-  // Shown to the user and put in front of the server's tool names.
-  name      String
-  url       String
-  // The server's access token, encrypted. Never sent back to the browser.
-  token     String?
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String           @id
+  userId       String
+  // The user's label, like "Work Gmail".
+  name         String
+  app          String           @default("mcp")
+  url          String?
+  token        String?
+  connectionId String?
+  enabled      Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  bots         BotIntegration[]
 
   @@unique([userId, name])
   @@index([userId, createdAt])
   @@map("integration")
+}
+
+// A user's space at Cencori (a "tenant"), made the first time they connect an app.
+model AgentWorkspace {
+  userId    String   @id
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  @@map("agentWorkspace")
+}
+
+// A bot a user made: a name and instructions. Integrations are optional.
+model Bot {
+  id             String           @id
+  userId         String
+  name           String
+  instructions   String
+  enabled        Boolean          @default(true)
+  // Set once the bot uses a Cencori app connection (Gmail, Slack...).
+  cencoriAgentId String?
+  installationId String?
+  // The connections that installation was made with, to spot changes.
+  linkedConnections String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  integrations   BotIntegration[]
+
+  @@index([userId, createdAt])
+  @@map("bot")
+}
+
+// Which integrations a bot may use.
+model BotIntegration {
+  botId         String
+  bot           Bot         @relation(fields: [botId], references: [id], onDelete: Cascade)
+  integrationId String
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@id([botId, integrationId])
+  @@index([integrationId])
+  @@map("botIntegration")
 }
 
 model OrganizationRole {

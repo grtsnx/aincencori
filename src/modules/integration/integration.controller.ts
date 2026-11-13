@@ -19,6 +19,8 @@ import {
 } from '@nestjs/swagger';
 import {
   CreateIntegrationDto,
+  IntegrationAppDto,
+  IntegrationConnectDto,
   IntegrationDto,
   IntegrationToolDto,
   ListIntegrationsQueryDto,
@@ -36,8 +38,18 @@ export class IntegrationController {
   constructor(private readonly integrationService: IntegrationService) {}
 
   @ApiOperation({
+    summary: 'List apps',
+    description: 'Apps you can connect: Gmail, Slack, your own MCP server.',
+  })
+  @ApiOkResponse({ type: [IntegrationAppDto] })
+  @Get('apps')
+  apps(): Promise<IntegrationAppDto[]> {
+    return this.integrationService.apps();
+  }
+
+  @ApiOperation({
     summary: 'List integrations',
-    description: 'Lists your connected MCP servers. Page with "before".',
+    description: 'Lists what you connected, with status. Page with "before".',
   })
   @ApiOkResponse({ type: [IntegrationDto] })
   @Get()
@@ -50,7 +62,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'Connect an integration',
-    description: 'Connects an MCP server whose tools the agent can use.',
+    description: 'Adds an app or MCP server. Apps then need "Connect".',
   })
   @ApiOkResponse({ type: IntegrationDto })
   @Post()
@@ -64,7 +76,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'Update an integration',
-    description: 'Changes the name, address, token, or turns it on/off.',
+    description: 'Changes the label, address, token, or turns it on/off.',
   })
   @ApiOkResponse({ type: IntegrationDto })
   @Patch(':id')
@@ -78,7 +90,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'Remove an integration',
-    description: 'Disconnects an MCP server and deletes its token.',
+    description: 'Disconnects it, removes it from bots, deletes its sign-in.',
   })
   @ApiNoContentResponse({ description: 'Removed' })
   @Delete(':id')
@@ -91,8 +103,22 @@ export class IntegrationController {
   }
 
   @ApiOperation({
+    summary: 'Sign in to app',
+    description: 'Returns the link where the user signs in to the app.',
+  })
+  @ApiOkResponse({ type: IntegrationConnectDto })
+  @Post(':id/connect')
+  @HttpCode(200)
+  connect(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+  ): Promise<IntegrationConnectDto> {
+    return this.integrationService.connect(id, auth);
+  }
+
+  @ApiOperation({
     summary: 'List integration tools',
-    description: 'Connects now and lists the tools the server offers.',
+    description: 'Own MCP servers only: connects now and lists the tools.',
   })
   @ApiOkResponse({ type: [IntegrationToolDto] })
   @Get(':id/tools')
