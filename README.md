@@ -77,7 +77,7 @@ Then open the API docs:
 - Deploying the voice worker: LiveKit Cloud runs it for us (about $0.01 per call minute, nothing when idle). It builds the `Dockerfile`'s last stage on its own machines, so your Mac never builds it. Install the `lk` CLI and sign in (`lk cloud auth`), then:
   - First time: `lk agent create --region us-east --secrets-file .env.production`. This saves the agent's id in `livekit.toml`; commit that file.
   - Each update: `lk agent deploy`.
-  - The worker needs to reach your production database, Redis and Cencori, so they must be reachable from the internet (with TLS and passwords).
+  - The worker makes outbound connections to production Postgres, Redis and Cencori. Keep Postgres and Redis private where possible; use LiveKit Private Links for supported AWS or Azure services, or a private tunnel. If a public endpoint is necessary, require TLS, unique strong credentials and the narrowest available firewall rules. Never expose Postgres or Redis without authentication.
   - LiveKit gives the worker its own `LIVEKIT_*` settings; don't put them in the secrets file.
 - Groups (`/v1/groups`): 2 to 6 of a user's bots on one chat (`POST /v1/chat` with `groupId`). A built-in lead reads each message and asks the bots that fit; the bots can ask each other too. The history shows what each bot said. Bots are asked at most 8 times per message, which keeps cost in check and stops them talking in circles.
 - A bot can rewrite its own instructions when asked; the user approves the change in the chat first.
