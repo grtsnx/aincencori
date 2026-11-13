@@ -8,5 +8,7 @@ import { GroupService } from './group.service.js';
   imports: [ChatModule, BotModule],
   controllers: [GroupController],
   providers: [GroupService],
+  // The MCP server offers groups to outside AI apps.
+  exports: [GroupService],
 })
 export class GroupModule {}

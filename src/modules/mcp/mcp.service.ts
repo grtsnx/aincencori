@@ -15,7 +15,10 @@ import {
   BetterAuthService,
 } from '@/lib/better-auth/better-auth.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { BotService } from '../bot/bot.service.js';
 import { ChatService } from '../chat/chat.service.js';
+import { GroupService } from '../group/group.service.js';
+import { IntegrationService } from '../integration/integration.service.js';
 import { RoutineService } from '../routine/routine.service.js';
 
 type ToolResult = {
@@ -33,8 +36,10 @@ const page = {
 };
 
 // Our MCP server: outside AI apps (Claude, Cursor, any MCP client) use the
-// signed-in user's own services through it: profile, organizations, routines
-// and chats. Admin and staff features are never offered here.
+// signed-in user's own services through it: profile, organizations, chats
+// (including sending a message), bots with their memories and skills,
+// groups, routines and integrations. Admin and staff features are never
+// offered here.
 // A user signs the app in through Better Auth (OAuth); each call then runs
 // as that user, so it can only touch that user's data.
 @Injectable()
@@ -48,6 +53,9 @@ export class McpService {
     private readonly prisma: PrismaService,
     private readonly routines: RoutineService,
     private readonly chats: ChatService,
+    private readonly bots: BotService,
+    private readonly groups: GroupService,
+    private readonly integrations: IntegrationService,
   ) {
     // Checks the access token; without a valid one the app is told where to
     // sign in (401 with a WWW-Authenticate header).
@@ -190,6 +198,12 @@ export class McpService {
         prompt: z.string().min(1).max(4000),
         cron: z.string().max(100).describe('For example "0 8 * * *"'),
         timezone: z.string().max(100).describe('IANA name, like Africa/Lagos'),
+        botId: z
+          .string()
+          .optional()
+          .describe(
+            'The bot that runs it; leave out for the default assistant',
+          ),
         enabled: z.boolean().optional(),
       },
       {},
@@ -259,6 +273,259 @@ export class McpService {
         }
         return this.chats.messages(chatId, auth, {}, query);
       },
+    );
+
+    tool(
+      'send_message',
+      'Send a message and get the answer. Without botId or groupId the ' +
+        'default assistant answers. Pass chatId to continue a chat.',
+      {
+        message: z.string().min(1).max(32_000),
+        chatId: z.string().optional(),
+        botId: z.string().optional(),
+        groupId: z.string().optional(),
+      },
+      {},
+      (input) => this.chats.ask(userId, input),
+    );
+
+    tool(
+      'delete_chat',
+      "Delete one of the user's chats, its history and its files.",
+      { chatId: z.string() },
+      { destructiveHint: true },
+      ({ chatId }) => this.chats.remove(chatId, auth),
+    );
+
+    // ── Bots ───────────────────────────────────────────────────────────
+
+    tool(
+      'list_bots',
+      "The user's bots, newest first.",
+      page,
+      readOnly,
+      (input) => this.bots.list(owner, input),
+    );
+
+    tool(
+      'get_bot',
+      'One bot with its integrations.',
+      { id: z.string() },
+      readOnly,
+      ({ id }) => this.bots.get(id, owner),
+    );
+
+    tool(
+      'create_bot',
+      'Create a bot. Only name and instructions are needed.',
+      {
+        name: z.string().min(1).max(60),
+        instructions: z.string().min(1).max(8000),
+        description: z.string().max(300).optional(),
+        integrationIds: z.array(z.string()).max(10).optional(),
+      },
+      {},
+      (input) => this.bots.create(owner, input),
+    );
+
+    tool(
+      'update_bot',
+      'Change a bot: name, description, instructions, integrations, or on/off.',
+      {
+        id: z.string(),
+        name: z.string().min(1).max(60).optional(),
+        description: z.string().max(300).optional(),
+        instructions: z.string().min(1).max(8000).optional(),
+        integrationIds: z.array(z.string()).max(10).optional(),
+        enabled: z.boolean().optional(),
+      },
+      { idempotentHint: true },
+      ({ id, ...changes }) => this.bots.update(id, owner, changes),
+    );
+
+    tool(
+      'delete_bot',
+      'Delete a bot with its memories, skills and routines.',
+      { id: z.string() },
+      { destructiveHint: true },
+      ({ id }) => this.bots.remove(id, owner),
+    );
+
+    tool(
+      'list_bot_memories',
+      'Facts a bot knows, newest first.',
+      { botId: z.string(), ...page },
+      readOnly,
+      ({ botId, ...query }) => this.bots.memories(botId, owner, query),
+    );
+
+    tool(
+      'add_bot_memory',
+      'Teach a bot a fact it uses in every chat.',
+      { botId: z.string(), text: z.string().min(1).max(500) },
+      {},
+      ({ botId, text }) => this.bots.addMemory(botId, owner, { text }),
+    );
+
+    tool(
+      'delete_bot_memory',
+      'Make a bot forget one fact.',
+      { botId: z.string(), memoryId: z.string() },
+      { destructiveHint: true },
+      ({ botId, memoryId }) => this.bots.removeMemory(botId, memoryId, owner),
+    );
+
+    tool(
+      'list_bot_skills',
+      'Playbooks a bot can follow.',
+      { botId: z.string() },
+      readOnly,
+      ({ botId }) => this.bots.skills(botId, owner),
+    );
+
+    tool(
+      'add_bot_skill',
+      'Give a bot a playbook: when to use it, and the steps.',
+      {
+        botId: z.string(),
+        name: z.string().min(1).max(60),
+        description: z.string().min(1).max(300),
+        instructions: z.string().min(1).max(20_000),
+      },
+      {},
+      ({ botId, ...skill }) => this.bots.addSkill(botId, owner, skill),
+    );
+
+    tool(
+      'update_bot_skill',
+      'Change a playbook. Each change is a new version.',
+      {
+        botId: z.string(),
+        skillId: z.string(),
+        name: z.string().min(1).max(60).optional(),
+        description: z.string().min(1).max(300).optional(),
+        instructions: z.string().min(1).max(20_000).optional(),
+      },
+      { idempotentHint: true },
+      ({ botId, skillId, ...changes }) =>
+        this.bots.updateSkill(botId, skillId, owner, changes),
+    );
+
+    tool(
+      'delete_bot_skill',
+      'Remove a playbook from a bot.',
+      { botId: z.string(), skillId: z.string() },
+      { destructiveHint: true },
+      ({ botId, skillId }) => this.bots.removeSkill(botId, skillId, owner),
+    );
+
+    // ── Groups ─────────────────────────────────────────────────────────
+
+    tool('list_groups', "The user's teams of bots.", page, readOnly, (input) =>
+      this.groups.list(owner, input),
+    );
+
+    tool(
+      'create_group',
+      "Put 2 to 6 of the user's bots on one team.",
+      {
+        name: z.string().min(1).max(60),
+        botIds: z.array(z.string()).min(2).max(6),
+        description: z.string().max(300).optional(),
+        instructions: z.string().max(4000).optional(),
+      },
+      {},
+      (input) => this.groups.create(owner, input),
+    );
+
+    tool(
+      'update_group',
+      'Change a team: name, bots, or how they work together.',
+      {
+        id: z.string(),
+        name: z.string().min(1).max(60).optional(),
+        botIds: z.array(z.string()).min(2).max(6).optional(),
+        description: z.string().max(300).optional(),
+        instructions: z.string().max(4000).optional(),
+      },
+      { idempotentHint: true },
+      ({ id, ...changes }) => this.groups.update(id, owner, changes),
+    );
+
+    tool(
+      'delete_group',
+      'Delete a team. Its bots are kept.',
+      { id: z.string() },
+      { destructiveHint: true },
+      ({ id }) => this.groups.remove(id, owner),
+    );
+
+    // ── Integrations ───────────────────────────────────────────────────
+
+    tool(
+      'list_integration_apps',
+      'Apps the user can connect, like Gmail and Slack.',
+      {},
+      readOnly,
+      () => this.integrations.apps(),
+    );
+
+    tool(
+      'list_integrations',
+      'What the user connected, and whether each is ready.',
+      page,
+      readOnly,
+      (input) => this.integrations.list(owner, input),
+    );
+
+    tool(
+      'create_integration',
+      'Add an app (then the user signs in with connect_integration) or ' +
+        'the user\'s own MCP server (app "mcp", with url).',
+      {
+        name: z
+          .string()
+          .regex(/^[a-z0-9][a-z0-9-]*$/)
+          .max(40)
+          .describe('A label like work-gmail'),
+        app: z.string().max(60).optional(),
+        url: z.string().max(2000).optional(),
+        token: z.string().max(4000).optional(),
+      },
+      {},
+      (input) => this.integrations.create(owner, input),
+    );
+
+    tool(
+      'connect_integration',
+      'Get the link where the user signs in to a connected app. Show it to the user.',
+      { id: z.string() },
+      {},
+      ({ id }) => this.integrations.connect(id, owner),
+    );
+
+    tool(
+      'update_integration',
+      'Rename an integration, or turn it on or off.',
+      {
+        id: z.string(),
+        name: z
+          .string()
+          .regex(/^[a-z0-9][a-z0-9-]*$/)
+          .max(40)
+          .optional(),
+        enabled: z.boolean().optional(),
+      },
+      { idempotentHint: true },
+      ({ id, ...changes }) => this.integrations.update(id, owner, changes),
+    );
+
+    tool(
+      'delete_integration',
+      'Disconnect an app and remove it from every bot.',
+      { id: z.string() },
+      { destructiveHint: true },
+      ({ id }) => this.integrations.remove(id, owner),
     );
 
     return server;

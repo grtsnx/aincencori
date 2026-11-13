@@ -701,9 +701,9 @@ export const mcpRouteDoc = {
   responses: {
     '200': {
       description:
-        'Tools: get_profile, list_organizations, list_routines, ' +
-        'create_routine, update_routine, delete_routine, run_routine, ' +
-        'list_routine_runs, list_chats, get_chat_messages. No admin tools.',
+        'Tools for your profile, organizations, chats (and sending a ' +
+        'message), bots with their memories and skills, groups, routines ' +
+        'and integrations. No admin tools.',
       content: {
         'application/json': {
           example: {
