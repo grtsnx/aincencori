@@ -83,8 +83,12 @@ export function userMcpServer(options: {
   url: string;
   token?: string;
   fetch: typeof fetch;
+  // false: errors are thrown (used to test a connection).
+  quiet?: boolean;
 }): MCPServer {
-  return new UserMcpServer({
+  const Server =
+    options.quiet === false ? MCPServerStreamableHttp : UserMcpServer;
+  return new Server({
     name: options.name,
     url: options.url,
     headers: options.token

@@ -67,6 +67,7 @@ Then open the API docs:
 
 - `/mcp` lets any MCP app (Claude, Cursor, other agents) use a user's own services: profile, organizations, routines and chats. Admin and staff features are never offered.
 - The user signs the app in through Better Auth (OAuth). Every call runs as that user.
+- Integrations (`/v1/integrations`): each user connects their own MCP servers (GitHub, Notion, their own...), as many as 10. The chat agent then uses that user's tools, asking before every call. Tokens are stored encrypted and never shown again. Addresses must be https and on the public internet (local development also allows localhost).
 - Our own chat agent can manage routines too ("remind me every morning at 8"). Creating, pausing or deleting one asks the user to approve first.
 
 **Built for heavy traffic**
@@ -90,7 +91,7 @@ Then open the API docs:
 
 ## API docs
 
-The docs are grouped into Auth, Agent Auth, User, Organization, Chat, Routines and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
+The docs are grouped into Auth, Agent Auth, User, Organization, Chat, Routines, Integrations and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
 
 There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under `/v1/auth` (v2 gets its own when we start v2).
 

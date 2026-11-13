@@ -107,6 +107,7 @@ export class BetterAuthService implements OnModuleInit {
       onUserDeleted: async (userId) => {
         await prisma.db.chatSession.deleteMany({ where: { userId } });
         await prisma.db.routine.deleteMany({ where: { userId } });
+        await prisma.db.integration.deleteMany({ where: { userId } });
       },
       profileImage: (address) =>
         nodeEnv === 'test'

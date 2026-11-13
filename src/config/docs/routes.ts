@@ -11,6 +11,7 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Organization', description: 'Manage organizations and teams' },
   { name: 'Chat', description: 'Talk to AI agents' },
   { name: 'Routines', description: 'Scheduled agent tasks' },
+  { name: 'Integrations', description: 'Your connected MCP servers' },
   { name: 'Admin', description: 'Manage all users' },
 ];
 
