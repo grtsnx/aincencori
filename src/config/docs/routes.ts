@@ -18,7 +18,7 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Knowledge', description: 'Documents your bots search' },
   { name: 'Plans', description: 'Big goals in steps' },
   { name: 'Marketplace', description: 'Share and copy bots' },
-  { name: 'Approvals', description: 'What your AI may do' },
+  { name: 'Approvals', description: 'What AI may do' },
   { name: 'Activity', description: 'What happened, and when' },
   { name: 'Usage', description: 'AI spend and plan' },
   { name: 'MCP', description: 'For outside AI apps' },
