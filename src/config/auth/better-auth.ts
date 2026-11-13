@@ -54,7 +54,10 @@ export interface AuthSettings {
   recaptchaSecretKey?: string;
   passkeyRpID: string;
   mcpResource: string;
+  // Where to read the visitor's IP, in order (see config/environment.ts).
   ipAddressHeaders: string[];
+  // True in production, where the API always sits behind a proxy.
+  trustProxy: boolean;
   // Adds Better Auth's test helpers. Never true in production.
   testing: boolean;
   sendEmail: AuthMailer;
@@ -130,11 +133,7 @@ export function createAuthOptions(settings: AuthSettings) {
           domain: settings.cookieDomain,
         },
       }),
-      ipAddress: {
-        ...(settings.ipAddressHeaders.length > 0 && {
-          ipAddressHeaders: settings.ipAddressHeaders,
-        }),
-      },
+      ipAddress: { ipAddressHeaders: settings.ipAddressHeaders },
     },
 
     plugins: [
@@ -225,7 +224,7 @@ export function createAuthOptions(settings: AuthSettings) {
       agentAuthPlugin({
         appName: settings.appName,
         appURL: settings.appURL,
-        trustProxy: settings.ipAddressHeaders.length > 0,
+        trustProxy: settings.trustProxy,
       }),
       ...(settings.recaptchaSecretKey
         ? [

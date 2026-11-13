@@ -22,6 +22,7 @@ export const auth = betterAuth(
     passkeyRpID: 'localhost',
     mcpResource: 'http://localhost:3000/mcp',
     ipAddressHeaders: [],
+    trustProxy: false,
     testing: false,
     sendEmail: async () => {},
     passwordHasher: { hash: async (v) => v, verify: async () => false },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clientIpHeaders,
   sharedParentDomain,
   validateEnvironment,
 } from '@/config/environment.js';
@@ -149,13 +150,11 @@ describe('validateEnvironment', () => {
       validateEnvironment({
         CORS_ORIGINS: 'https://app.example.com',
         BETTER_AUTH_URL: 'https://api.example.com',
-        AUTH_IP_HEADERS: 'cf-connecting-ip, x-real-ip',
       }),
     ).toMatchObject({
       APP_URL: 'https://app.example.com',
       PASSKEY_RP_ID: 'example.com',
       MCP_RESOURCE_URL: 'https://api.example.com/mcp',
-      AUTH_IP_HEADERS: ['cf-connecting-ip', 'x-real-ip'],
     });
   });
 });
@@ -183,5 +182,27 @@ describe('sharedParentDomain', () => {
     expect(
       sharedParentDomain('http://127.0.0.1:3001', 'http://127.0.0.2:3000'),
     ).toBeUndefined();
+  });
+});
+
+describe('clientIpHeaders', () => {
+  it('reads the usual proxy headers, with the default last', () => {
+    const headers = clientIpHeaders({});
+    expect(headers).toEqual(
+      expect.arrayContaining([
+        'cf-connecting-ip',
+        'x-vercel-forwarded-for',
+        'x-forwarded-for',
+      ]),
+    );
+    expect(headers.at(-1)).toBe('x-forwarded-for');
+  });
+
+  it("puts the detected platform's own header first", () => {
+    expect(clientIpHeaders({ VERCEL: '1' })[0]).toBe('x-vercel-forwarded-for');
+    expect(clientIpHeaders({ FLY_APP_NAME: 'api' })[0]).toBe('fly-client-ip');
+    expect(clientIpHeaders({ AWS_EXECUTION_ENV: 'AWS_ECS_FARGATE' })[0]).toBe(
+      'x-forwarded-for',
+    );
   });
 });

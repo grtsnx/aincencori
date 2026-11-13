@@ -77,9 +77,8 @@ Everything is in `.env.example` with a comment. The main ones:
 | `BETTER_AUTH_API_KEY`                | Sends sign-in emails and powers the Better Auth dashboard      |
 | `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*` | Sign-in providers. Set both ID and secret, or leave both empty |
 | `RECAPTCHA_SECRET_KEY`               | Turns on reCAPTCHA                                             |
-| `AUTH_IP_HEADERS`                    | Only when hosted behind a proxy, e.g. `cf-connecting-ip`       |
 
-Without `BETTER_AUTH_API_KEY`, development prints sign-in codes in the server log instead of emailing them. The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
+Without `BETTER_AUTH_API_KEY`, development prints sign-in codes in the server log instead of emailing them. Rate limits read the visitor's real IP from the usual proxy headers (Cloudflare, Vercel, Amazon and others) with no setting needed. The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
 
 ## Changing the database
 

@@ -92,16 +92,31 @@ export function sharedParentDomain(a: string, b: string): string | undefined {
   return shared.length >= 2 ? shared.reverse().join('.') : undefined;
 }
 
-// A comma-separated list in .env; empty means none.
-function commaList(value: string | undefined): string[] {
+// Headers that carry the visitor's real IP behind a proxy or CDN, used to rate
+// limit each person separately. Better Auth uses the first one present, so the
+// header of the platform we run on goes first: a header the platform does not
+// set could be sent by anyone with a fake IP.
+const ipHeaders = [
+  'cf-connecting-ip', // Cloudflare
+  'true-client-ip', // Akamai, Cloudflare Enterprise
+  'x-vercel-forwarded-for', // Vercel
+  'fly-client-ip', // Fly.io
+  'fastly-client-ip', // Fastly
+  'x-real-ip', // nginx and many hosts
+  'x-forwarded-for', // Amazon load balancers and API Gateway; the usual default
+];
+
+export function clientIpHeaders(values: Record<string, unknown>): string[] {
+  const platformHeader = values.VERCEL
+    ? 'x-vercel-forwarded-for'
+    : values.FLY_APP_NAME
+      ? 'fly-client-ip'
+      : values.AWS_EXECUTION_ENV || values.ECS_CONTAINER_METADATA_URI_V4
+        ? 'x-forwarded-for'
+        : undefined;
   return [
-    ...new Set(
-      (value ?? '')
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
-  ];
+    ...new Set([platformHeader, ...ipHeaders].filter(Boolean)),
+  ] as string[];
 }
 
 const environmentSchema = z
@@ -142,7 +157,6 @@ const environmentSchema = z
     LINKEDIN_CLIENT_ID: optionalString(),
     LINKEDIN_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
-    AUTH_IP_HEADERS: optionalString(),
   })
   .superRefine((environment, context) => {
     if (environment.NODE_ENV === 'production') {
@@ -217,8 +231,8 @@ export interface Environment {
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
+  // Worked out, not set in .env.
   AUTH_IP_HEADERS: string[];
-  // Worked out from the URLs above, not set in .env.
   PASSKEY_RP_ID: string;
   MCP_RESOURCE_URL: string;
 }
@@ -240,7 +254,7 @@ export function validateEnvironment(
     SWAGGER_ENABLED: parsed.SWAGGER_ENABLED ?? parsed.NODE_ENV !== 'production',
     BETTER_AUTH_URL: betterAuthUrl,
     APP_URL: appUrl,
-    AUTH_IP_HEADERS: commaList(parsed.AUTH_IP_HEADERS),
+    AUTH_IP_HEADERS: clientIpHeaders(values),
     AUTH_COOKIE_DOMAIN: cookieDomain,
     // Passkeys belong to the shared parent domain when there is one.
     PASSKEY_RP_ID: cookieDomain ?? new URL(appUrl).hostname,

@@ -83,6 +83,7 @@ export class BetterAuthService implements OnModuleInit {
       passkeyRpID: config.getOrThrow<string>('PASSKEY_RP_ID'),
       mcpResource: config.getOrThrow<string>('MCP_RESOURCE_URL'),
       ipAddressHeaders: config.getOrThrow<string[]>('AUTH_IP_HEADERS'),
+      trustProxy: nodeEnv === 'production',
       testing: nodeEnv === 'test',
       sendEmail: (template, to, variables) =>
         this.sendEmail(template, to, variables),
