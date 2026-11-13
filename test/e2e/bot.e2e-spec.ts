@@ -172,7 +172,11 @@ describe('Bots (e2e)', () => {
         .expect(204);
 
       // Skills: the same name twice is refused; a change is a new version.
-      const skill = { name: 'follow-up', description: 'Follow up.', instructions: '1. Thank them.' };
+      const skill = {
+        name: 'follow-up',
+        description: 'Follow up.',
+        instructions: '1. Thank them.',
+      };
       const created = await call()
         .post(`${base}/skills`)
         .set('Cookie', cookies)

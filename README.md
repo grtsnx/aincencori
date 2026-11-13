@@ -67,7 +67,14 @@ Then open the API docs:
 
 - `/mcp` lets any MCP app (Claude, Cursor, other agents) use a user's own services: profile, organizations, routines and chats. Admin and staff features are never offered.
 - The user signs the app in through Better Auth (OAuth). Every call runs as that user.
-- Bots (`/v1/bots`): a user gives a bot a name and instructions, then chats with it (`POST /v1/chat` with `botId`). Integrations are optional.
+- Bots (`/v1/bots`): a user gives a bot a name and instructions, then chats with it (`POST /v1/chat` with `botId`). Everything else is optional:
+  - **Memories**: facts it already knows. The user adds them, and the bot saves new ones itself during chats. Kept per bot, in our database.
+  - **Skills**: playbooks it can run. Stored by us, and sent to Cencori for a safety scan and version history.
+  - **Routines**: jobs that run on their own (`/v1/routines` with `botId`).
+  - **Integrations**: apps it can use.
+- A bot can rewrite its own instructions when asked; the user approves the change in the chat first.
+- The orchestrator is the default assistant ("Agentic", in `src/config/agents/agents.ts`). It answers first and hands the chat to its helpers or to one of the user's bots (those with a description).
+- The model for all agents is one line: `agentModel` in `src/config/agents/limits.ts`.
 - Integrations (`/v1/integrations`): what a user connects for their bots. Apps like Gmail, Slack and Notion sign in through Cencori ("Connect"); a user can connect the same app several times (two Gmail accounts) and give each to a different bot. They can also add their own MCP server (https, public internet; token stored encrypted). Up to 10 per user.
 - A bot only uses the integrations its owner picked. The default assistant uses none. Every tool call on a user's own MCP server asks first.
 - The `/mcp` address is listed in the docs under "MCP".

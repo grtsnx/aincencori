@@ -156,7 +156,20 @@ export class ChatService implements OnModuleInit {
       // Handoffs go by name, so a second bot with the same name is skipped.
       .filter((bot) => !taken.has(bot.name) && taken.add(bot.name))
       .map((bot) => createBotAgent({ secrets: this.secrets }, bot));
-    return this.agent.clone({ handoffs: [...this.agent.handoffs, ...own] });
+    if (own.length === 0) return this.agent;
+    // Naming the bots in the instructions makes the assistant actually use
+    // them, instead of doing a bot's job itself.
+    const list = own
+      .map((bot) => `- ${bot.name}: ${bot.handoffDescription}`)
+      .join('\n');
+    return this.agent.clone({
+      handoffs: [...this.agent.handoffs, ...own],
+      instructions: async (runContext) =>
+        `${await this.agent.resolveInstructions(runContext)}\n\n` +
+        `The user's own bots:\n${list}\n` +
+        'When a request matches one of these bots, you must hand the chat ' +
+        'to it. Do not answer it yourself and do not use write_text for it.',
+    });
   }
 
   onModuleInit(): void {
@@ -349,7 +362,7 @@ export class ChatService implements OnModuleInit {
     // The routine's bot runs it; without one, the default assistant does.
     const agent = routine.botId
       ? (await this.botAgent(user.id, routine.botId)).agent
-      : this.agent;
+      : await this.assistantFor(user.id);
     const result = await this.cencori.agentRun(agent, routine.prompt, {
       context: this.context(user),
       user: user.id,

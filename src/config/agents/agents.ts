@@ -11,6 +11,7 @@ import {
   webSearch,
 } from 'cencori/agents';
 import { z } from 'zod';
+import { agentModel, agentThinking } from './limits.js';
 
 // What every tool gets for the signed-in user. ChatService fills it in.
 export interface ChatContext {
@@ -313,12 +314,15 @@ export function createBotAgent(
   }
 
   return new Agent<ChatContext>({
+    model: agentModel,
+    modelSettings: { reasoningEffort: agentThinking },
     name: bot.name,
     handoffDescription: bot.description ?? undefined,
     instructions: ({ context }) =>
       [
         bot.instructions,
-        `The user is ${context.user.name}. Show data as widgets when it helps.`,
+        `The user is ${context.user.name}. Show data as widgets when it helps, ` +
+          'and always finish with a short answer in words.',
         bot.memories.length > 0 &&
           `What you already know:\n${bot.memories.map((fact) => `- ${fact}`).join('\n')}`,
         bot.skills.length > 0 &&
@@ -343,22 +347,28 @@ export function createBotAgent(
 // ChatService), asks the Writer for drafts, or hands it to a person on our team.
 export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
   const account = new Agent<ChatContext>({
+    model: agentModel,
+    modelSettings: { reasoningEffort: agentThinking },
     name: 'Account',
     handoffDescription: 'Profile, name changes and organizations.',
     instructions:
       'You help with the user’s own account: profile, name and organizations. ' +
-      'Use your tools and show results as widgets.',
+      'Use your tools and show results as widgets. ' +
+      'Always finish with a short answer in words, even after showing a widget.',
     tools: [myProfile, myOrganizations, renameMe as FunctionTool<ChatContext>],
     widgets: true,
   });
 
   const routines = new Agent<ChatContext>({
+    model: agentModel,
+    modelSettings: { reasoningEffort: agentThinking },
     name: 'Routines',
     handoffDescription: 'Scheduled tasks: create, list, pause, delete.',
     instructions:
       'You manage the user’s routines: prompts the agent runs on a schedule. ' +
       'Turn what the user says ("every weekday at 8") into a cron pattern. ' +
-      'List routines first when you need an id.',
+      'List routines first when you need an id. ' +
+      'Always finish with a short answer in words, even after showing a widget.',
     tools: [
       listRoutines,
       createRoutine,
@@ -369,21 +379,25 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
   });
 
   const research = new Agent<ChatContext>({
+    model: agentModel,
+    modelSettings: { reasoningEffort: agentThinking },
     name: 'Research',
     handoffDescription: 'Questions that need the web: news, facts, pages.',
     instructions:
       'You answer questions by searching the web and reading pages. ' +
-      'Say where each fact came from.',
+      'Say where each fact came from. ' +
+      'Always finish with a short answer in words, even after showing a widget.',
     tools: [webSearch(), webFetch()],
     widgets: true,
   });
 
   // Used as a tool, not a handoff: it writes, the main agent keeps the chat.
   const writer = new Agent<ChatContext>({
+    model: agentModel,
+    modelSettings: { reasoningEffort: agentThinking },
     name: 'Writer',
     instructions:
       'You write clear, short text: emails, posts, summaries. Plain English.',
-    modelSettings: { temperature: 0.7 },
   });
 
   const options = {
@@ -392,7 +406,10 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'Keep answers short and plain. Show data as widgets when it helps. ' +
       'Hand account questions to Account, web questions to Research and ' +
       'scheduled or repeating tasks to Routines. ' +
-      'If one of the user’s own bots fits the job better, hand it over. ' +
+      'The user may have their own bots, offered to you as handoffs. Check ' +
+      'them first: when a bot’s description fits the request, hand the chat ' +
+      'to that bot instead of answering yourself or using write_text; it ' +
+      'knows the user’s details. ' +
       'Use the writer tool for drafts. If the user asks for a person, ' +
       'or you cannot help, hand the chat to a human.',
     tools: [
@@ -411,5 +428,10 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     widgets: true,
   };
 
-  return new Agent<ChatContext>({ name: 'Agentic', ...options });
+  return new Agent<ChatContext>({
+    model: agentModel,
+    modelSettings: { reasoningEffort: agentThinking },
+    name: 'Agentic',
+    ...options,
+  });
 }
