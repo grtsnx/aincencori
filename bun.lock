@@ -25,7 +25,7 @@
         "@scalar/nestjs-api-reference": "^1.2.31",
         "better-auth": "1.7.22",
         "better-auth-harmony": "1.3.2",
-        "cencori": "^1.13.0",
+        "cencori": "1.16.0",
         "class-transformer": "^0.5.1",
         "class-validator": "^0.15.1",
         "express": "^5.3.0",
@@ -653,7 +653,7 @@
 
     "caniuse-lite": ["caniuse-lite@1.0.30001826", "", {}, "sha512-wTB+9tIbLro/BCXwLuNV1meHE4L9dS6dArMDwgYfNBPMYScqClHyGunhkCSDtHhe/69Xl0sHlKgBVZ+fNsYtWA=="],
 
-    "cencori": ["cencori@1.13.0", "", { "peerDependencies": { "@ai-sdk/provider": ">=1.0.0", "react": ">=18.0.0" }, "optionalPeers": ["@ai-sdk/provider", "react"] }, "sha512-OpcW+9Nqj4CwA/JTjh4WBr2VYRGTM4hQVc/ZIDBE/H9GBhXsUdydAGXsA15BtSetcw8wwdq+fHBlf+Esmrp9EA=="],
+    "cencori": ["cencori@1.16.0", "", { "peerDependencies": { "@ai-sdk/provider": ">=1.0.0", "react": ">=18.0.0" }, "optionalPeers": ["@ai-sdk/provider", "react"] }, "sha512-SruZ7digB/RHPhrUqe13ZVaEP6ktRikveFT1o6E4vYk3ZROD1DIhsYP/niHZD6o9cI4OXA778FoUCBAWaU7G+w=="],
 
     "chai": ["chai@6.3.0", "", {}, "sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg=="],
 

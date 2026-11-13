@@ -182,6 +182,7 @@ const environmentSchema = z
     LINKEDIN_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
     RESEND_API_KEY: optionalString(),
+    CENCORI_API_KEY: optionalString(),
     SMTP_HOST: optionalString(),
     SMTP_PORT: z.preprocess(
       (value) =>
@@ -305,6 +306,7 @@ export interface Environment {
   LINKEDIN_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
   RESEND_API_KEY?: string;
+  CENCORI_API_KEY?: string;
   SMTP_HOST: string;
   SMTP_PORT: number;
   SMTP_SECURE: boolean;
