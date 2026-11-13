@@ -43,7 +43,7 @@ import {
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
-import { readableImage } from '@/middleware/commons/index.js';
+import { readableImage } from '@/middleware';
 import { R2Service } from '@/lib/r2/r2.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 

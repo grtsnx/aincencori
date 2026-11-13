@@ -25,7 +25,7 @@ import {
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { RedisService } from '@/lib/redis/redis.service.js';
-import { hashValue, verifyHash } from '@/middleware/commons/hash.js';
+import { hashValue, verifyHash } from '@/middleware';
 
 function createAuth(prisma: PrismaClient, settings: AuthSettings) {
   return betterAuth({

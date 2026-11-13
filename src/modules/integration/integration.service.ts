@@ -26,11 +26,7 @@ import type { Integration } from '@/generated/prisma/client.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
-import {
-  assertPublicUrl,
-  safeFetch,
-  UnsafeUrlError,
-} from '@/middleware/commons/index.js';
+import { assertPublicUrl, safeFetch, UnsafeUrlError } from '@/middleware';
 
 interface Owner {
   user: { id: string };

@@ -16,7 +16,7 @@
   },
   "scripts": {
     "postinstall": "prisma generate",
-    "build": "nest build && tsc-alias -p tsconfig.build.json",
+    "build": "nest build && tsc-alias -p tsconfig.build.json && node scripts/check-build.mjs",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"*.{ts,json,md}\" \".github/**/*.{yml,yaml}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"*.{ts,json,md}\" \".github/**/*.{yml,yaml}\"",
     "start": "nest start --env-file .env",
