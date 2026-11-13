@@ -18,7 +18,11 @@ export class SessionUserDto {
 }
 
 export class SessionInfoDto {
-  @ApiProperty({ type: String, format: 'date-time' })
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    example: '2026-11-20T09:30:00.000Z',
+  })
   expiresAt: Date;
 }
 

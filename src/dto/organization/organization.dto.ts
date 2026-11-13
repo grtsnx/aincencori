@@ -13,23 +13,27 @@ export class OrganizationDto {
   @ApiProperty({ type: String, nullable: true, example: null })
   logo: string | null;
 
-  @ApiProperty({ type: String, format: 'date-time' })
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    example: '2026-11-13T09:30:00.000Z',
+  })
   createdAt: Date;
 }
 
 export class MemberUserDto {
-  @ApiProperty()
+  @ApiProperty({ example: 'kq3F9aB2xY7pLm1n' })
   id: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: 'Ada Lovelace' })
   name: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: 'ada@example.com' })
   email: string;
 }
 
 export class MemberDto {
-  @ApiProperty()
+  @ApiProperty({ example: 'mem_4Lx9QwE2' })
   id: string;
 
   @ApiProperty({ example: 'owner' })
@@ -40,21 +44,25 @@ export class MemberDto {
 }
 
 export class TeamDto {
-  @ApiProperty()
+  @ApiProperty({ example: 'team_7Hc2Rm1P' })
   id: string;
 
   @ApiProperty({ example: 'Support' })
   name: string;
 
-  @ApiProperty({ type: String, format: 'date-time' })
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    example: '2026-11-13T09:30:00.000Z',
+  })
   createdAt: Date;
 }
 
 export class InvitationDto {
-  @ApiProperty()
+  @ApiProperty({ example: 'inv_9Tz3Kp8W' })
   id: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: 'grace@example.com' })
   email: string;
 
   @ApiProperty({ type: String, nullable: true, example: 'member' })
@@ -63,7 +71,11 @@ export class InvitationDto {
   @ApiProperty({ example: 'pending' })
   status: string;
 
-  @ApiProperty({ type: String, format: 'date-time' })
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    example: '2026-11-20T09:30:00.000Z',
+  })
   expiresAt: Date;
 }
 

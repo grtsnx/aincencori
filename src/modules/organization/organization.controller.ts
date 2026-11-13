@@ -10,21 +10,19 @@ import { OrganizationDetailsDto, OrganizationDto } from '@/dto';
 import { OrganizationService } from './organization.service.js';
 
 @Controller({ path: 'organizations', version: '1' })
-@ApiTags('Organizations')
+@ApiTags('Organization')
 @ApiCookieAuth()
 export class OrganizationController {
   constructor(private readonly organizationService: OrganizationService) {}
 
-  @ApiOperation({ summary: 'Organizations the signed-in user belongs to' })
+  @ApiOperation({ summary: 'My organizations' })
   @ApiOkResponse({ type: [OrganizationDto] })
   @Get()
   list(@Headers() headers: IncomingHttpHeaders): Promise<OrganizationDto[]> {
     return this.organizationService.list(headers);
   }
 
-  @ApiOperation({
-    summary: 'The active organization with its members, teams and invitations',
-  })
+  @ApiOperation({ summary: 'Active organization' })
   @ApiOkResponse({ type: OrganizationDetailsDto })
   @Get('active')
   active(

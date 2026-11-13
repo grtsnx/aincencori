@@ -84,13 +84,25 @@ describe('Better Auth (e2e)', () => {
     expect(response.body.resource).toBe('http://localhost:3000/mcp');
   });
 
-  it('documents Better Auth routes for Swagger and Scalar', async () => {
+  it('shows Better Auth routes in the v1 docs, without Dash internals', async () => {
     const response = await request(app.getHttpServer())
-      .get('/api/auth-json')
+      .get('/api/v1-json')
       .expect(200);
+    const paths = Object.keys(response.body.paths);
 
-    expect(response.body.openapi).toBeDefined();
-    expect(Object.keys(response.body.paths)).toContain('/sign-in/email-otp');
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        '/v1/auth/session',
+        '/api/auth/sign-in/email-otp',
+        '/api/auth/organization/create',
+        '/api/auth/admin/set-role',
+      ]),
+    );
+    expect(paths.some((path) => path.startsWith('/api/auth/dash'))).toBe(false);
+    expect(response.body.paths['/api/auth/admin/set-role'].post).toMatchObject({
+      tags: ['Admin'],
+      summary: 'Set role',
+    });
   });
 
   // Needs Postgres (DATABASE_URL). Skipped where no database is configured.

@@ -19,20 +19,20 @@ export class AppController {
     private readonly memory: MemoryHealthIndicator,
   ) {}
 
-  @ApiOperation({ summary: 'ping server' })
+  @ApiOperation({ summary: 'Ping' })
   @Get()
   getHello(): string {
     return this.appService.getHello();
   }
 
-  @ApiOperation({ summary: 'Liveness check' })
+  @ApiOperation({ summary: 'Liveness' })
   @SkipThrottle()
   @Get('health/live')
   live(): { status: 'ok' } {
     return { status: 'ok' };
   }
 
-  @ApiOperation({ summary: 'Readiness check' })
+  @ApiOperation({ summary: 'Readiness' })
   @SkipThrottle()
   @Get('health/ready')
   @HealthCheck({ swaggerDocumentation: false })

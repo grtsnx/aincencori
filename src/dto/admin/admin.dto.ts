@@ -10,13 +10,16 @@ import {
 } from 'class-validator';
 
 export class ListUsersQueryDto {
-  @ApiPropertyOptional({ description: 'Part of a name or email' })
+  @ApiPropertyOptional({
+    description: 'Part of a name or email',
+    example: 'ada@example.com',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(100)
   search?: string;
 
-  @ApiPropertyOptional({ default: 25, minimum: 1, maximum: 100 })
+  @ApiPropertyOptional({ default: 25, minimum: 1, maximum: 100, example: 25 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -24,7 +27,7 @@ export class ListUsersQueryDto {
   @Max(100)
   limit?: number;
 
-  @ApiPropertyOptional({ default: 0, minimum: 0 })
+  @ApiPropertyOptional({ default: 0, minimum: 0, example: 0 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -33,28 +36,32 @@ export class ListUsersQueryDto {
 }
 
 export class AdminUserDto {
-  @ApiProperty()
+  @ApiProperty({ example: 'kq3F9aB2xY7pLm1n' })
   id: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: 'Ada Lovelace' })
   name: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: 'ada@example.com' })
   email: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: true })
   emailVerified: boolean;
 
   @ApiProperty({ example: 'user' })
   role: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: false })
   banned: boolean;
 
   @ApiProperty({ type: String, nullable: true, example: 'email-otp' })
   lastLoginMethod: string | null;
 
-  @ApiProperty({ type: String, format: 'date-time' })
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    example: '2026-11-13T09:30:00.000Z',
+  })
   createdAt: Date;
 }
 

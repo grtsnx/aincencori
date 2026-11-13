@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { sendEmail, type EmailTemplateId } from '@better-auth/infra';
 import { betterAuth } from 'better-auth';
@@ -34,8 +34,9 @@ function lazyClient(prisma: PrismaService): PrismaClient {
 }
 
 @Injectable()
-export class BetterAuthService {
+export class BetterAuthService implements OnModuleInit {
   readonly auth: Auth;
+  private openApi?: Record<string, unknown>;
   // Express handler for every Better Auth route.
   readonly handler: ReturnType<typeof toNodeHandler>;
   private readonly logger = new Logger(BetterAuthService.name);
@@ -83,11 +84,19 @@ export class BetterAuthService {
     return this.auth.api.getSession({ headers: fromNodeHeaders(headers) });
   }
 
+  // Built once at startup so the API docs can merge it in synchronously.
+  async onModuleInit(): Promise<void> {
+    if (this.config.get<boolean>('SWAGGER_ENABLED')) {
+      this.openApi = (await this.auth.api.generateOpenAPISchema()) as Record<
+        string,
+        unknown
+      >;
+    }
+  }
+
   // Better Auth's own routes as an OpenAPI document, for the API docs.
-  openApiDocument(): Promise<Record<string, unknown>> {
-    return this.auth.api.generateOpenAPISchema() as Promise<
-      Record<string, unknown>
-    >;
+  openApiDocument(): Record<string, unknown> | undefined {
+    return this.openApi;
   }
 
   // Emails go through Better Auth Infrastructure. Without its API key

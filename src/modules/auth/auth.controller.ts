@@ -17,7 +17,7 @@ import { AuthService } from './auth.service.js';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @ApiOperation({ summary: 'The signed-in user and their session' })
+  @ApiOperation({ summary: 'Current session' })
   @ApiOkResponse({ type: SessionDto })
   @Get('session')
   session(@CurrentSession() auth: AuthSession): SessionDto {
