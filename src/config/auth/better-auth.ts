@@ -66,6 +66,8 @@ export interface AuthSettings {
   // Adds Better Auth's test helpers. Never true in production.
   testing: boolean;
   sendEmail: AuthMailer;
+  // A profile picture for a new user without one (Gravatar, else DiceBear).
+  profileImage: (email: string) => Promise<string>;
   // Argon2id, from lib/hash. Used for every password Better Auth stores.
   passwordHasher: {
     hash(value: string): Promise<string>;
@@ -94,6 +96,24 @@ export function createAuthOptions(settings: AuthSettings) {
     secret: settings.secret,
     trustedOrigins: [...new Set([...settings.trustedOrigins, settings.appURL])],
     telemetry: { enabled: false },
+
+    // New users without a photo get one: their Gravatar if they have one,
+    // otherwise an animated DiceBear "loops" avatar.
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) =>
+            user.image
+              ? undefined
+              : {
+                  data: {
+                    ...user,
+                    image: await settings.profileImage(user.email),
+                  },
+                },
+        },
+      },
+    },
 
     // Failed OAuth sign-ins (cancelled, bad callback) land on our frontend,
     // not Better Auth's development error page. The error is in the query.

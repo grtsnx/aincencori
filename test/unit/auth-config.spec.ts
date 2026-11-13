@@ -20,6 +20,7 @@ const settings: AuthSettings = {
   trustProxy: true,
   testing: true,
   sendEmail: async () => {},
+  profileImage: async () => 'https://api.dicebear.com/10.x/loops/svg',
   passwordHasher: {
     hash: async (value) => value,
     verify: async () => false,

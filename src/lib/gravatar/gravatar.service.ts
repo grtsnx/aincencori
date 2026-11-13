@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 // Profile pictures from Gravatar, falling back to a DiceBear avatar (Loops by
 // default). Only a SHA-256 hash of the email leaves the app, never the email.
@@ -95,11 +94,8 @@ export async function resolveProfileImage(
 
 @Injectable()
 export class GravatarService {
-  private readonly style: string;
-
-  constructor(config: ConfigService) {
-    this.style = config.getOrThrow<string>('DICEBEAR_STYLE');
-  }
+  // DiceBear "loops", animated. Fixed here rather than a .env setting.
+  private readonly style = DEFAULT_DICEBEAR_STYLE;
 
   /** Profile picture for an email: Gravatar, or the configured DiceBear style. */
   profileImage(email: string, fetcher: AvatarFetch = fetch): Promise<string> {

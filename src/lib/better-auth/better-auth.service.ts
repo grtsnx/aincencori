@@ -11,6 +11,11 @@ import {
 } from '@/config/auth/better-auth.js';
 import type { PrismaClient } from '@/generated/prisma/client.js';
 import { EmailService } from '@/lib/email/email.service.js';
+import {
+  buildDicebearUrl,
+  DEFAULT_DICEBEAR_STYLE,
+  GravatarService,
+} from '@/lib/gravatar/gravatar.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { hashValue, verifyHash } from '@/middleware/commons/hash.js';
 
@@ -49,6 +54,7 @@ export class BetterAuthService implements OnModuleInit {
     private readonly config: ConfigService,
     prisma: PrismaService,
     email: EmailService,
+    gravatar: GravatarService,
   ) {
     const nodeEnv = config.getOrThrow<string>('NODE_ENV');
     // A provider is on when both its ID and secret are set.
@@ -86,6 +92,13 @@ export class BetterAuthService implements OnModuleInit {
       sendEmail: (template, to, variables) =>
         email.enqueue(template, to, variables),
       passwordHasher: { hash: hashValue, verify: verifyHash },
+      // Tests never call Gravatar; they get the DiceBear avatar directly.
+      profileImage: (address) =>
+        nodeEnv === 'test'
+          ? Promise.resolve(
+              buildDicebearUrl(address, DEFAULT_DICEBEAR_STYLE, '200'),
+            )
+          : gravatar.profileImage(address),
     });
     this.handler = toNodeHandler(this.auth);
   }

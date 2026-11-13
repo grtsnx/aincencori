@@ -29,6 +29,7 @@ Then open the API docs:
 - A Google, GitHub or LinkedIn sign-in never takes over an existing account just because the email matches. The user signs in first, then links the provider.
 - Throwaway email domains are blocked, and `ada+1@gmail.com` can't make a second account for `ada@gmail.com`.
 - Optional Google reCAPTCHA on the email code routes.
+- New users without a photo get their Gravatar, or else an animated DiceBear "loops" avatar. Only a hash of the email is sent.
 
 **Users, organizations and admin**
 

@@ -250,6 +250,10 @@ describe('Better Auth (e2e)', () => {
         lastLoginMethod: 'email-otp',
         role: 'user',
       });
+      // No photo given at sign-up, so an animated DiceBear avatar is set.
+      expect(user.image).toMatch(
+        /^https:\/\/api\.dicebear\.com\/10\.x\/loops\/svg\?seed=[a-f0-9]{64}&size=200&tags=animation$/,
+      );
 
       await request(server)
         .post('/v1/auth/sign-out')

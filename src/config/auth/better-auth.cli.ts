@@ -26,6 +26,7 @@ export const auth = betterAuth(
     trustProxy: false,
     testing: false,
     sendEmail: async () => {},
+    profileImage: async () => '',
     passwordHasher: { hash: async (v) => v, verify: async () => false },
   }),
 );
