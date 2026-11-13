@@ -36,7 +36,7 @@ export class GroupController {
 
   @ApiOperation({
     summary: 'List groups',
-    description: 'Lists your groups of bots. Page with "before".',
+    description: 'Lists your teams of bots, newest first.',
   })
   @ApiOkResponse({ type: [GroupDto] })
   @Get()
@@ -49,7 +49,7 @@ export class GroupController {
 
   @ApiOperation({
     summary: 'Create a group',
-    description: 'Puts 2 to 6 of your bots on one team.',
+    description: 'Creates a team from 2 to 6 of your bots.',
   })
   @ApiOkResponse({ type: GroupDto })
   @Post()
@@ -63,7 +63,7 @@ export class GroupController {
 
   @ApiOperation({
     summary: 'Get a group',
-    description: 'Returns one of your groups and its bots.',
+    description: 'Returns one team and the bots in it.',
   })
   @ApiOkResponse({ type: GroupDto })
   @Get(':id')
@@ -76,7 +76,7 @@ export class GroupController {
 
   @ApiOperation({
     summary: 'Update a group',
-    description: 'Changes the name, how they work together, or the bots.',
+    description: 'Changes a team: its name, bots, or how they work.',
   })
   @ApiOkResponse({ type: GroupDto })
   @Patch(':id')
@@ -90,7 +90,7 @@ export class GroupController {
 
   @ApiOperation({
     summary: 'Delete a group',
-    description: 'Deletes the group. The bots themselves stay.',
+    description: 'Deletes a team. Its bots are kept.',
   })
   @ApiNoContentResponse({ description: 'Deleted' })
   @Delete(':id')

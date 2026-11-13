@@ -179,7 +179,7 @@ export class ChatService implements OnModuleInit {
   // else the default assistant. A chat keeps what it started with.
   private async agentFor(
     userId: string,
-    body: ChatRequestDto,
+    body: Pick<ChatRequestDto, 'sessionId' | 'botId' | 'groupId'>,
   ): Promise<{
     agent: Agent<ChatContext>;
     bot?: BotRuntime;
@@ -515,21 +515,59 @@ export class ChatService implements OnModuleInit {
     prompt: string;
     botId?: string | null;
   }): Promise<RoutineRunStatus> {
-    const user = await this.prisma.db.user.findUnique({
-      where: { id: routine.userId },
+    const result = await this.ask(routine.userId, {
+      message: routine.prompt,
+      botId: routine.botId ?? undefined,
+      title: routine.name,
+      routineId: routine.id,
+      stopNote: 'This routine stopped',
     });
+    return result.needsApproval ? 'needs-approval' : 'ok';
+  }
+
+  // One message, answered in full (no stream) and saved like any chat turn.
+  // For work with no browser watching: routines, and AI apps on our MCP
+  // server. Continues a chat when chatId is given; else starts one with the
+  // default assistant, a bot or a group.
+  async ask(
+    userId: string,
+    input: {
+      message: string;
+      chatId?: string;
+      botId?: string;
+      groupId?: string;
+      title?: string;
+      routineId?: string;
+      stopNote?: string;
+    },
+  ): Promise<{
+    chatId: string;
+    answeredBy: string;
+    answer: string;
+    needsApproval: boolean;
+  }> {
+    const db = this.prisma.db;
+    const user = await db.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found.');
+    if (input.chatId && !(await this.owns(input.chatId, userId))) {
+      throw new NotFoundException('Chat not found.');
+    }
     const startedAt = new Date();
 
-    // The routine's bot runs it; without one, the default assistant does.
-    const agent = routine.botId
-      ? (await this.botAgent(user.id, routine.botId)).agent
-      : await this.assistantFor(user.id);
-    const result = await this.cencori.agentRun(agent, routine.prompt, {
+    const { agent, bot, group } = await this.agentFor(userId, {
+      sessionId: input.chatId,
+      botId: input.botId,
+      groupId: input.groupId,
+    });
+    const result = await this.cencori.agentRun(agent, input.message, {
       context: this.context(user),
       user: user.id,
-      ...(routine.botId ? {} : { memory: { userId: user.id } }),
-      metadata: { userId: user.id, routineId: routine.id },
+      sessionId: input.chatId,
+      ...(bot || group ? {} : { memory: { userId: user.id } }),
+      metadata: {
+        userId: user.id,
+        ...(input.routineId && { routineId: input.routineId }),
+      },
       maxTurns: maxAgentTurns,
     });
 
@@ -544,29 +582,44 @@ export class ChatService implements OnModuleInit {
       item.type === 'widget' ? [item.widget] : [],
     );
     const waiting = result.interruptions.map((item) => item.toolName);
+    // Nobody is there to approve a step, so say what is waiting.
     const text = needsApproval
-      ? `${answer}\n\nThis routine stopped: ${waiting.join(', ')} needs your approval. Ask for it in a chat.`.trim()
+      ? `${answer}\n\n${input.stopNote ?? 'This stopped'}: ${waiting.join(', ')} needs your approval. Ask for it in a chat.`.trim()
       : answer;
 
-    await this.prisma.db.$transaction([
-      this.prisma.db.chatSession.create({
-        data: {
+    await db.$transaction([
+      db.chatSession.upsert({
+        where: { id: result.sessionId },
+        create: {
           id: result.sessionId,
           userId: user.id,
-          title: routine.name.slice(0, 80),
-          routineId: routine.id,
-          botId: routine.botId,
+          title: (input.title ?? input.message).slice(0, 80),
+          routineId: input.routineId,
+          botId: bot?.id,
+          groupId: group?.id,
         },
+        update: { updatedAt: new Date() },
       }),
-      this.prisma.db.chatMessage.createMany({
+      db.chatMessage.createMany({
         data: [
           {
             id: randomUUID(),
             sessionId: result.sessionId,
             role: 'user',
-            text: routine.prompt,
+            text: input.message,
             createdAt: startedAt,
           },
+          // In a group: what each bot said, before the lead's answer.
+          ...(group?.said ?? [])
+            .filter((turn) => turn.text)
+            .map((turn) => ({
+              id: randomUUID(),
+              sessionId: result.sessionId,
+              role: 'agent',
+              agent: turn.bot,
+              text: turn.text,
+              createdAt: turn.at,
+            })),
           {
             id: randomUUID(),
             sessionId: result.sessionId,
@@ -578,7 +631,12 @@ export class ChatService implements OnModuleInit {
         ],
       }),
     ]);
-    return needsApproval ? 'needs-approval' : 'ok';
+    return {
+      chatId: result.sessionId,
+      answeredBy: result.lastAgent.name,
+      answer: text,
+      needsApproval,
+    };
   }
 
   // What the agent's tools can see and do, as the user. Without headers (a

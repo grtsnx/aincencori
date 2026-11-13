@@ -44,7 +44,7 @@ export class AdminController {
 
   @ApiOperation({
     summary: 'List users',
-    description: 'Admins only. Lists users with search and paging.',
+    description: 'Lists all users, with search. Admins only.',
   })
   @ApiOkResponse({ type: UserListDto })
   @Get('users')

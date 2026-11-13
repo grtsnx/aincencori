@@ -103,7 +103,7 @@ export class ListGroupsQueryDto {
   limit?: number;
 
   @ApiPropertyOptional({
-    description: 'For the next page: the id of the last item you have',
+    description: 'To load the next page, send the id of the last item you got',
     example: '9c1ad96f-7aae-4ca4-86fd-933f1a45603f',
   })
   @IsOptional()

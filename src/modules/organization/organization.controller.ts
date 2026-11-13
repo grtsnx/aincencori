@@ -21,7 +21,7 @@ export class OrganizationController {
 
   @ApiOperation({
     summary: 'List organizations',
-    description: 'Lists organizations the user belongs to.',
+    description: 'Lists the organizations you belong to.',
   })
   @ApiOkResponse({ type: [OrganizationDto] })
   @Get()
@@ -32,7 +32,7 @@ export class OrganizationController {
   @ApiOperation({
     summary: 'Active organization',
     description:
-      'Returns the active organization with members, teams, invites.',
+      'Returns your current organization with its members and teams.',
   })
   @ApiOkResponse({ type: OrganizationDetailsDto })
   @Get('active')

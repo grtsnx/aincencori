@@ -49,8 +49,7 @@ export class ChatController {
 
   @ApiOperation({
     summary: 'Chat with agent',
-    description:
-      'Streams the answer: text, widgets, tools, approvals, handoffs.',
+    description: 'Sends a message and streams the answer as it is written.',
   })
   @ApiProduces('text/event-stream')
   @ApiOkResponse({
@@ -75,7 +74,7 @@ export class ChatController {
 
   @ApiOperation({
     summary: 'List chats',
-    description: 'Your chats, newest first. Page with "before".',
+    description: 'Lists your chats, newest first.',
   })
   @ApiOkResponse({ type: [ChatSessionDto] })
   @Get()
@@ -102,7 +101,7 @@ export class ChatController {
 
   @ApiOperation({
     summary: 'Chat messages',
-    description: 'Saved messages of one chat. Page with "before".',
+    description: 'Returns the messages of one chat, oldest first.',
   })
   @ApiOkResponse({ type: [ChatHistoryMessageDto] })
   @ApiForbiddenResponse({ description: 'Not allowed for this user' })
@@ -118,7 +117,7 @@ export class ChatController {
 
   @ApiOperation({
     summary: 'Chat handoff status',
-    description: 'Who handles the chat, and messages from our team.',
+    description: 'Shows whether a bot or a person is answering.',
   })
   @ApiOkResponse({ type: ChatStatusDto })
   @ApiForbiddenResponse({ description: 'Not allowed for this user' })
@@ -134,7 +133,7 @@ export class ChatController {
 
   @ApiOperation({
     summary: 'Reply as staff',
-    description: 'Staff answer a chat the agent handed to a person.',
+    description: 'Sends a reply from our team. Staff only.',
   })
   @ApiOkResponse({ type: ChatMessageDto })
   @ApiForbiddenResponse({ description: 'Not allowed for this user' })
@@ -151,7 +150,7 @@ export class ChatController {
 
   @ApiOperation({
     summary: 'Hand back to agent',
-    description: 'Staff give the chat back to the agent.',
+    description: 'Hands the chat back to the bot. Staff only.',
   })
   @ApiNoContentResponse({ description: 'Handed back' })
   @ApiForbiddenResponse({ description: 'Not allowed for this user' })

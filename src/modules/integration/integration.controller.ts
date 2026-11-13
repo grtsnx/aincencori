@@ -39,7 +39,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'List apps',
-    description: 'Apps you can connect: Gmail, Slack, your own MCP server.',
+    description: 'Lists the apps you can connect, like Gmail and Slack.',
   })
   @ApiOkResponse({ type: [IntegrationAppDto] })
   @Get('apps')
@@ -49,7 +49,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'List integrations',
-    description: 'Lists what you connected, with status. Page with "before".',
+    description: 'Lists the apps you connected and whether each is ready.',
   })
   @ApiOkResponse({ type: [IntegrationDto] })
   @Get()
@@ -62,7 +62,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'Connect an integration',
-    description: 'Adds an app or MCP server. Apps then need "Connect".',
+    description: 'Adds an app or your own MCP server.',
   })
   @ApiOkResponse({ type: IntegrationDto })
   @Post()
@@ -76,7 +76,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'Update an integration',
-    description: 'Changes the label, address, token, or turns it on/off.',
+    description: 'Renames an integration, or turns it on or off.',
   })
   @ApiOkResponse({ type: IntegrationDto })
   @Patch(':id')
@@ -90,7 +90,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'Remove an integration',
-    description: 'Disconnects it, removes it from bots, deletes its sign-in.',
+    description: 'Disconnects an app and removes it from every bot.',
   })
   @ApiNoContentResponse({ description: 'Removed' })
   @Delete(':id')
@@ -104,7 +104,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'Sign in to app',
-    description: 'Returns the link where the user signs in to the app.',
+    description: 'Returns the link where you sign in to the app.',
   })
   @ApiOkResponse({ type: IntegrationConnectDto })
   @Post(':id/connect')
@@ -118,7 +118,7 @@ export class IntegrationController {
 
   @ApiOperation({
     summary: 'List integration tools',
-    description: 'Own MCP servers only: connects now and lists the tools.',
+    description: 'Checks your own MCP server and lists its tools.',
   })
   @ApiOkResponse({ type: [IntegrationToolDto] })
   @Get(':id/tools')

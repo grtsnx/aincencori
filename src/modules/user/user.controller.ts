@@ -19,7 +19,7 @@ export class UserController {
 
   @ApiOperation({
     summary: 'Get profile',
-    description: "Returns the signed-in user's profile.",
+    description: 'Returns your profile.',
   })
   @ApiOkResponse({ type: UserProfileDto })
   @Get()
@@ -29,7 +29,7 @@ export class UserController {
 
   @ApiOperation({
     summary: 'List sign-in methods',
-    description: "Lists the user's sign-in methods.",
+    description: 'Lists the ways you can sign in.',
   })
   @ApiOkResponse({ type: [LinkedAccountDto] })
   @Get('accounts')
@@ -41,7 +41,7 @@ export class UserController {
 
   @ApiOperation({
     summary: 'List sessions',
-    description: "Lists the user's sessions and marks this one.",
+    description: 'Lists the devices you are signed in on.',
   })
   @ApiOkResponse({ type: [UserSessionDto] })
   @Get('sessions')

@@ -71,7 +71,7 @@ export const authRouteDocs: Record<
   },
   '/sign-in/social': {
     title: 'Sign in with provider',
-    description: 'Starts Google, GitHub or LinkedIn sign-in; returns its link.',
+    description: 'Starts sign-in with Google, GitHub or LinkedIn.',
   },
   '/callback/{id}': {
     title: 'Return from provider sign-in',
@@ -681,7 +681,7 @@ export const mcpRouteDoc = {
   tags: ['MCP'],
   operationId: 'mcp',
   summary: 'Connect an AI app',
-  description: 'Add this address in any MCP app; it signs you in.',
+  description: 'The address to add in any MCP app.',
   security: [{ bearer: [] }],
   requestBody: {
     required: true,

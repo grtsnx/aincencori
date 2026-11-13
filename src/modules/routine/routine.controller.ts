@@ -37,7 +37,7 @@ export class RoutineController {
 
   @ApiOperation({
     summary: 'List routines',
-    description: 'Lists your routines, newest first. Page with "before".',
+    description: 'Lists your scheduled tasks, newest first.',
   })
   @ApiOkResponse({ type: [RoutineDto] })
   @Get()
@@ -50,7 +50,7 @@ export class RoutineController {
 
   @ApiOperation({
     summary: 'Create a routine',
-    description: 'Creates a task the agent runs on a schedule.',
+    description: 'Creates a task that a bot runs on a schedule.',
   })
   @ApiOkResponse({ type: RoutineDto })
   @Post()
@@ -64,7 +64,7 @@ export class RoutineController {
 
   @ApiOperation({
     summary: 'Get a routine',
-    description: 'Returns one of your routines and its next run.',
+    description: 'Returns one scheduled task and when it runs next.',
   })
   @ApiOkResponse({ type: RoutineDto })
   @Get(':id')
@@ -77,7 +77,7 @@ export class RoutineController {
 
   @ApiOperation({
     summary: 'Update a routine',
-    description: 'Changes the name, prompt, schedule, or turns it on/off.',
+    description: 'Changes a scheduled task, or pauses and resumes it.',
   })
   @ApiOkResponse({ type: RoutineDto })
   @Patch(':id')
@@ -105,7 +105,7 @@ export class RoutineController {
 
   @ApiOperation({
     summary: 'Run a routine now',
-    description: 'Starts a run now; the answer appears as a chat.',
+    description: 'Runs the task now. The answer arrives as a chat.',
   })
   @ApiOkResponse({ type: RoutineDto })
   @Post(':id/run')
@@ -119,7 +119,7 @@ export class RoutineController {
 
   @ApiOperation({
     summary: 'Routine runs',
-    description: 'Past runs of a routine, as chats. Page with "before".',
+    description: 'Lists the past runs of a task, newest first.',
   })
   @ApiOkResponse({ type: [ChatSessionDto] })
   @Get(':id/runs')

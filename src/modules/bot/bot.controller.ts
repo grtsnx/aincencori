@@ -41,7 +41,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'List bots',
-    description: 'Lists your bots, newest first. Page with "before".',
+    description: 'Lists the bots you created, newest first.',
   })
   @ApiOkResponse({ type: [BotDto] })
   @Get()
@@ -54,7 +54,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Create a bot',
-    description: 'Only name and instructions are needed; the rest is optional.',
+    description: 'Creates a bot from a name and instructions.',
   })
   @ApiOkResponse({ type: BotDto })
   @Post()
@@ -68,7 +68,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Get a bot',
-    description: 'Returns one of your bots and its integrations.',
+    description: 'Returns one bot with the integrations it can use.',
   })
   @ApiOkResponse({ type: BotDto })
   @Get(':id')
@@ -81,7 +81,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Update a bot',
-    description: 'Changes the name, instructions, integrations, or on/off.',
+    description: 'Changes a bot, or turns it on or off.',
   })
   @ApiOkResponse({ type: BotDto })
   @Patch(':id')
@@ -95,7 +95,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Delete a bot',
-    description: 'Deletes a bot. Its chats and your integrations stay.',
+    description: 'Deletes a bot. Its past chats are kept.',
   })
   @ApiNoContentResponse({ description: 'Deleted' })
   @Delete(':id')
@@ -109,7 +109,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'List bot memories',
-    description: 'Facts the bot knows, newest first. Page with "before".',
+    description: 'Lists the facts a bot knows, newest first.',
   })
   @ApiOkResponse({ type: [BotMemoryDto] })
   @Get(':id/memories')
@@ -123,7 +123,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Add a memory',
-    description: 'Teaches the bot a fact it uses in every chat.',
+    description: 'Teaches a bot a fact to use in every chat.',
   })
   @ApiOkResponse({ type: BotMemoryDto })
   @Post(':id/memories')
@@ -138,7 +138,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Delete a memory',
-    description: 'Makes the bot forget one fact.',
+    description: 'Makes a bot forget one fact.',
   })
   @ApiNoContentResponse({ description: 'Deleted' })
   @Delete(':id/memories/:memoryId')
@@ -153,7 +153,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'List bot skills',
-    description: 'Playbooks the bot can run.',
+    description: 'Lists the step-by-step playbooks a bot can follow.',
   })
   @ApiOkResponse({ type: [BotSkillDto] })
   @Get(':id/skills')
@@ -166,7 +166,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Add a skill',
-    description: 'Gives the bot a playbook. It is safety-scanned first.',
+    description: 'Gives a bot a new playbook, after a safety scan.',
   })
   @ApiOkResponse({ type: BotSkillDto })
   @Post(':id/skills')
@@ -181,7 +181,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Update a skill',
-    description: 'Changes a skill; each change is a new version.',
+    description: 'Changes a playbook and saves it as a new version.',
   })
   @ApiOkResponse({ type: BotSkillDto })
   @Patch(':id/skills/:skillId')
@@ -196,7 +196,7 @@ export class BotController {
 
   @ApiOperation({
     summary: 'Delete a skill',
-    description: 'Removes a skill from the bot.',
+    description: 'Removes a playbook from a bot.',
   })
   @ApiNoContentResponse({ description: 'Deleted' })
   @Delete(':id/skills/:skillId')
