@@ -7,6 +7,7 @@ import { validateEnvironment } from '@/config/index.js';
 
 type Schema = Record<string, unknown>;
 type Operation = {
+  operationId?: string;
   summary?: string;
   description?: string;
   tags?: string[];
@@ -131,7 +132,8 @@ describe('API docs and versioning (e2e)', () => {
 
     it("shows our routes' real response wrapper and errors", () => {
       for (const operation of operations()) {
-        if (!/^\/v\d+/.test(operation.path)) continue;
+        // Only our Nest routes use the wrapper; Better Auth answers raw JSON.
+        if (!operation.operationId?.includes('Controller_')) continue;
         const responses = operation.responses ?? {};
         if (responses['204']) continue; // No body to wrap.
         const ok = responses['200'] as {

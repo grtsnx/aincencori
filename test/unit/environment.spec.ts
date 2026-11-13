@@ -11,7 +11,8 @@ const production = {
   BETTER_AUTH_SECRET: 'a'.repeat(32),
   BETTER_AUTH_URL: 'https://api.example.com',
   APP_URL: 'https://app.example.com',
-  BETTER_AUTH_API_KEY: 'key',
+  MAIL_FROM: 'Agentic <no-reply@example.com>',
+  SMTP_URL: 'smtps://user:pass@smtp.example.com:465',
   CORS_ORIGINS: 'https://app.example.com',
   AUTH_IP_HEADERS: 'x-vercel-forwarded-for',
 };
@@ -59,7 +60,7 @@ describe('validateEnvironment', () => {
       'BETTER_AUTH_SECRET',
       'BETTER_AUTH_URL',
       'APP_URL',
-      'BETTER_AUTH_API_KEY',
+      'MAIL_FROM',
     ] as const) {
       expect(() => validateEnvironment({ ...production, [key]: '' })).toThrow(
         new RegExp(`${key} is required in production`),
@@ -270,5 +271,27 @@ describe('clientIpHeaders', () => {
     expect(clientIpHeaders({ AWS_EXECUTION_ENV: 'AWS_ECS_FARGATE' })).toEqual([
       'x-forwarded-for',
     ]);
+  });
+});
+
+describe('email settings', () => {
+  it('needs Resend or SMTP in production, and uses Mailpit locally', () => {
+    expect(() => validateEnvironment({ ...production, SMTP_URL: '' })).toThrow(
+      /RESEND_API_KEY or SMTP_URL/,
+    );
+    expect(
+      validateEnvironment({
+        ...production,
+        SMTP_URL: '',
+        RESEND_API_KEY: 're_x',
+      }).RESEND_API_KEY,
+    ).toBe('re_x');
+
+    const local = validateEnvironment({});
+    expect(local.SMTP_URL).toBe('smtp://localhost:1025');
+    expect(local.MAIL_FROM).toBe('Agentic <no-reply@localhost>');
+    expect(() => validateEnvironment({ SMTP_URL: 'http://x' })).toThrow(
+      /SMTP_URL/,
+    );
   });
 });

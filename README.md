@@ -8,7 +8,7 @@ You need Bun 1.3.14+, Node.js 24+ and Docker.
 
 ```bash
 cp .env.example .env
-docker compose up -d --wait   # Postgres on port 5433
+docker compose up -d --wait   # Postgres (port 5433) and Mailpit (inbox: http://localhost:8025)
 bun install --frozen-lockfile
 bun run db:migrate
 bun run start:dev
@@ -47,6 +47,11 @@ Then open the API docs:
 - Every route needs a signed-in user unless it's marked `@Public()`.
 - Passwords (if any are ever stored) are hashed with Argon2id.
 
+**Email**
+
+- Sent with `@nestjs/mail`: Resend when `RESEND_API_KEY` is set, otherwise SMTP. Locally every email lands in Mailpit at http://localhost:8025.
+- Emails are saved (encrypted) to an outbox table first and sent in the background with retries.
+
 ## API docs
 
 The docs are grouped into Auth, Agent Auth, User, Organization and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
@@ -55,13 +60,15 @@ There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under
 
 ## Where things go
 
+The full rules for people and AI coding agents are in [AGENTS.md](AGENTS.md) (Claude reads it through `CLAUDE.md`).
+
 ```
 src/
   modules/<name>/   one feature: <name>.service.ts, .controller.ts, .module.ts (exactly these 3)
-  lib/<name>/       one outside tool (Better Auth, Prisma, hashing): .module.ts, .service.ts (exactly these 2)
+  lib/<name>/       one outside tool (Better Auth, Prisma, email): .module.ts, .service.ts (exactly these 2)
   dto/<feature>/    request and response shapes, all exported from dto/index.ts
   config/           settings: environment.ts, auth/ (Better Auth), docs/ (doc wording and samples)
-  middleware/       guards, decorators, filters, interceptors
+  middleware/       guards, decorators, filters, interceptors; commons/ for helpers (hashing)
 ```
 
 ## Settings
@@ -74,11 +81,13 @@ Everything is in `.env.example` with a comment. The main ones:
 | `BETTER_AUTH_SECRET`                 | Signs sessions (32+ characters). Required in production        |
 | `BETTER_AUTH_URL`                    | This API's address                                             |
 | `APP_URL`                            | The frontend's address                                         |
-| `BETTER_AUTH_API_KEY`                | Sends sign-in emails and powers the Better Auth dashboard      |
+| `RESEND_API_KEY` or `SMTP_URL`       | Sends emails. Locally SMTP defaults to Mailpit                 |
+| `MAIL_FROM`                          | The sender address. Required in production                     |
+| `BETTER_AUTH_API_KEY`                | Optional: the Better Auth dashboard                            |
 | `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*` | Sign-in providers. Set both ID and secret, or leave both empty |
 | `RECAPTCHA_SECRET_KEY`               | Turns on reCAPTCHA                                             |
 
-Configure `BETTER_AUTH_API_KEY` to deliver sign-in emails in development; OTP values are never written to application logs. Development infers a default client-IP header from the hosting platform, while production requires an explicit `AUTH_IP_HEADERS` setting. The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
+Production also needs `AUTH_IP_HEADERS`: the one header your host sets with the visitor's real IP (plus `AUTH_TRUSTED_PROXIES` when that header is `x-forwarded-for`). The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
 
 ## Changing the database
 
