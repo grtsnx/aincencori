@@ -16,7 +16,12 @@ import {
   DEFAULT_DICEBEAR_STYLE,
   GravatarService,
 } from '@/lib/gravatar/gravatar.service.js';
-import { deleteBotAgentJob, deleteWorkspaceJob } from '@/config/agents/jobs.js';
+import {
+  deleteBotAgentJob,
+  deleteFilesJob,
+  deleteWorkspaceJob,
+  userFilesPrefix,
+} from '@/config/agents/jobs.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { RedisService } from '@/lib/redis/redis.service.js';
@@ -123,6 +128,8 @@ export class BetterAuthService implements OnModuleInit {
         await db.bot.deleteMany({ where: { userId } });
         await db.integration.deleteMany({ where: { userId } });
         await db.agentWorkspace.deleteMany({ where: { userId } });
+        // Their stored chat files too.
+        await bullmq.add(deleteFilesJob, { prefix: userFilesPrefix(userId) });
         if (workspace) {
           await bullmq.add(deleteWorkspaceJob, {
             tenantId: workspace.tenantId,

@@ -20,6 +20,7 @@ import {
   createChatAgent,
   type RoutineActions,
 } from '@/config/agents/agents.js';
+import { deleteFilesJob, userFilesPrefix } from '@/config/agents/jobs.js';
 import { maxAgentTurns } from '@/config/agents/limits.js';
 import { staffOrganizationSlug } from '@/config/auth/access.js';
 import type {
@@ -34,7 +35,9 @@ import {
   BetterAuthService,
 } from '@/lib/better-auth/better-auth.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
+import { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { R2Service } from '@/lib/r2/r2.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 
 // Background job: remove a deleted chat's copy at Cencori (retried if down).
@@ -45,6 +48,28 @@ interface ChatUser {
   name: string;
   email: string;
   image?: string | null;
+}
+
+// A file a user attached, as kept on a message. No key: stored by name only.
+interface StoredFile {
+  name: string;
+  kind: 'image' | 'file';
+  contentType: string;
+  key?: string;
+  size?: number;
+}
+
+// The same limit Cencori puts on one attachment.
+const maxFileBytes = 10 * 1_048_576;
+
+// Reads a message's files. Older messages kept only the file names.
+function storedFiles(value: unknown): StoredFile[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item: unknown) =>
+    typeof item === 'string'
+      ? { name: item, kind: 'file', contentType: 'application/octet-stream' }
+      : (item as StoredFile),
+  );
 }
 
 // What the chat needs to run one of a user's bots.
@@ -98,6 +123,7 @@ export class ChatService implements OnModuleInit {
     private readonly betterAuth: BetterAuthService,
     private readonly prisma: PrismaService,
     private readonly bullmq: BullmqService,
+    private readonly r2: R2Service,
   ) {
     this.secrets = secretSettings
       .map((key) => this.config.get<string>(key))
@@ -173,6 +199,13 @@ export class ChatService implements OnModuleInit {
   }
 
   onModuleInit(): void {
+    this.bullmq.handle<{ keys?: string[]; prefix?: string }>(
+      deleteFilesJob,
+      async ({ keys, prefix }) => {
+        if (keys) await this.r2.remove(keys);
+        if (prefix) await this.r2.removePrefix(prefix);
+      },
+    );
     this.bullmq.handle<{ sessionId: string }>(
       deleteAtCencori,
       async ({ sessionId }) => {
@@ -201,6 +234,8 @@ export class ChatService implements OnModuleInit {
     if (bot?.cencori && !turn.sessionId && !turn.approval && !turn.poll) {
       turn.sessionId = await this.startBotSession(userId, bot, turn);
     }
+    // Files are saved while the model answers, so they never slow the chat.
+    const files = this.storeFiles(userId, turn.attachments ?? []);
     const handler = this.cencori.agentChatHandler(agent, {
       context: () => this.context(auth.user, headers),
       user: () => userId,
@@ -235,7 +270,7 @@ export class ChatService implements OnModuleInit {
       .get('content-type')
       ?.includes('text/event-stream');
     const stream = isStream
-      ? answer.body.pipeThrough(this.recordTurn(userId, turn, bot?.id))
+      ? answer.body.pipeThrough(this.recordTurn(userId, turn, bot?.id, files))
       : answer.body;
     Readable.fromWeb(stream as NodeReadableStream).pipe(response);
   }
@@ -258,8 +293,19 @@ export class ChatService implements OnModuleInit {
     if (!(await this.owns(sessionId, auth.user.id))) {
       throw new NotFoundException('Chat not found.');
     }
-    // Our copy goes now; Cencori's in the background, retried if it is down.
+    const withFiles = await this.prisma.db.chatMessage.findMany({
+      where: { sessionId, NOT: { attachments: { equals: Prisma.DbNull } } },
+      select: { attachments: true },
+    });
+    const keys = withFiles.flatMap((message) =>
+      storedFiles(message.attachments).flatMap((file) =>
+        file.key ? [file.key] : [],
+      ),
+    );
+    // Our copy goes now; Cencori's and the files in the background, retried
+    // if a service is down.
     await this.prisma.db.chatSession.delete({ where: { id: sessionId } });
+    if (keys.length > 0) await this.bullmq.add(deleteFilesJob, { keys });
     await this.bullmq.add(
       deleteAtCencori,
       { sessionId },
@@ -293,15 +339,29 @@ export class ChatService implements OnModuleInit {
       ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
     });
     // Oldest first, ready to show.
-    return rows.reverse().map((row) => ({
-      id: row.id,
-      role: row.role as ChatHistoryMessageDto['role'],
-      agent: row.agent,
-      text: row.text,
-      widgets: (row.widgets as Record<string, unknown>[] | null) ?? [],
-      attachments: (row.attachments as string[] | null) ?? [],
-      createdAt: row.createdAt,
-    }));
+    return Promise.all(
+      rows.reverse().map(async (row) => ({
+        id: row.id,
+        role: row.role as ChatHistoryMessageDto['role'],
+        agent: row.agent,
+        text: row.text,
+        widgets: (row.widgets as Record<string, unknown>[] | null) ?? [],
+        // Each file gets a private link that works for 15 minutes.
+        attachments: await Promise.all(
+          storedFiles(row.attachments).map(async (file) => ({
+            name: file.name,
+            kind: file.kind,
+            url: file.key
+              ? await this.r2.link(file.key, {
+                  name: file.name,
+                  contentType: file.contentType,
+                })
+              : null,
+          })),
+        ),
+        createdAt: row.createdAt,
+      })),
+    );
   }
 
   // Who handles the chat, and what a person said. The owner or staff.
@@ -483,6 +543,39 @@ export class ChatService implements OnModuleInit {
     }
   }
 
+  // Keeps the files a user attached, so they can be opened from the chat
+  // history later. A file that cannot be stored is kept by name only; the
+  // chat itself is never held up or failed by storage.
+  private async storeFiles(
+    userId: string,
+    attachments: NonNullable<ChatRequestDto['attachments']>,
+  ): Promise<StoredFile[]> {
+    const folder = `${userFilesPrefix(userId)}${randomUUID()}/`;
+    return Promise.all(
+      attachments.map(async (file, index): Promise<StoredFile> => {
+        const base = { name: file.name, kind: file.kind };
+        const parsed = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(file.data_url);
+        const contentType = parsed?.[1] || 'application/octet-stream';
+        if (!parsed) return { ...base, contentType };
+        try {
+          const bytes = parsed[2]
+            ? Buffer.from(parsed[3], 'base64')
+            : Buffer.from(decodeURIComponent(parsed[3]));
+          if (bytes.length === 0 || bytes.length > maxFileBytes) {
+            return { ...base, contentType };
+          }
+          const safeName = file.name.replace(/[^\w.-]+/g, '_').slice(-100);
+          const key = `${folder}${index}-${safeName || 'file'}`;
+          await this.r2.put(key, bytes, contentType);
+          return { ...base, contentType, key, size: bytes.length };
+        } catch {
+          this.logger.warn('A chat file could not be stored.');
+          return { ...base, contentType };
+        }
+      }),
+    );
+  }
+
   private routinesFor(userId: string): ChatContext['routines'] {
     const actions = () => {
       if (!this.routineActions) throw new Error('Routines are not available.');
@@ -517,12 +610,13 @@ export class ChatService implements OnModuleInit {
     userId: string,
     body: ChatRequestDto,
     botId?: string,
+    files: Promise<StoredFile[]> = Promise.resolve([]),
   ): TransformStream<Uint8Array, Uint8Array> {
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
     const startedAt = new Date();
     const userText = (body.message ?? body.action?.label ?? '').trim();
-    const attachments = (body.attachments ?? []).map((file) => file.name);
+    const hasFiles = (body.attachments ?? []).length > 0;
     let buffer = '';
     let text = '';
     let agent: string | undefined;
@@ -544,13 +638,13 @@ export class ChatService implements OnModuleInit {
         update: { updatedAt: new Date() },
       });
       const rows = [];
-      if (userText || attachments.length > 0) {
+      if (userText || hasFiles) {
         rows.push({
           id: randomUUID(),
           sessionId,
           role: 'user',
           text: userText,
-          attachments,
+          attachments: (await files) as never,
           createdAt: startedAt,
         });
       }

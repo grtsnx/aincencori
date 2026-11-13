@@ -9,6 +9,7 @@ const production = {
   NODE_ENV: 'production',
   DATABASE_URL: 'postgresql://user:pass@db.example.com:5432/app',
   REDIS_URL: 'rediss://default:pass@redis.example.com:6379',
+  STORAGE_URL: 'https://key:secret@account.r2.cloudflarestorage.com/files',
   BETTER_AUTH_SECRET: 'a'.repeat(32),
   BETTER_AUTH_URL: 'https://api.example.com',
   APP_URL: 'https://app.example.com',
@@ -68,6 +69,7 @@ describe('validateEnvironment', () => {
     for (const key of [
       'DATABASE_URL',
       'REDIS_URL',
+      'STORAGE_URL',
       'BETTER_AUTH_SECRET',
       'BETTER_AUTH_URL',
       'APP_URL',

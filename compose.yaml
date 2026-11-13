@@ -1,4 +1,4 @@
-# Local Postgres, PgBouncer, Valkey and Mailpit for this project. Start them with `docker compose up -d --wait`.
+# Local Postgres, PgBouncer, Valkey, MinIO and Mailpit for this project. Start them with `docker compose up -d --wait`.
 # It listens on 5433 so it can run beside other projects that use 5432.
 # The address matches DATABASE_URL in .env.example.
 name: aincencori
@@ -63,6 +63,22 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # MinIO: S3-compatible file storage for chat attachments. Port 9000
+  # (console: http://localhost:9001, minioadmin / minioadmin).
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:96b6cf3e14084d3427ec46de10c2873af61b945ad9272eec266cfc8df551cba5
+    container_name: aincencori-minio
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+
   # Catches every email locally. Inbox: http://localhost:8025 (SMTP on 1025).
   mailpit:
     image: axllent/mailpit:v1.33.1
@@ -75,3 +91,4 @@ services:
 volumes:
   postgres-data:
   valkey-data:
+  minio-data:

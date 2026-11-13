@@ -8,7 +8,7 @@ You need Bun 1.3.14+, Node.js 24+ and Docker.
 
 ```bash
 cp .env.example .env
-docker compose up -d --wait   # Postgres (5433), PgBouncer (6433), Valkey (6380) and Mailpit (inbox: http://localhost:8025)
+docker compose up -d --wait   # Postgres (5433), PgBouncer (6433), Valkey (6380), MinIO (9000) and Mailpit (inbox: http://localhost:8025)
 bun install --frozen-lockfile
 bun run db:migrate
 bun run start:dev        # the API
@@ -48,7 +48,7 @@ Then open the API docs:
 - `POST /v1/chat` streams the answer as events: text, widgets (cards, lists, charts), tool calls, approvals and handoffs. The frontend can use Cencori's `<AgentChat>`.
 - The main agent "Agentic" hands account questions to "Account" and web questions to "Research", asks "Writer" for drafts, and can hand the chat to a person on our team.
 - Tools that change data (like changing your name) wait for the user to approve them in the chat.
-- Images and files can be attached. Cencori remembers facts about each user across chats.
+- Images and files (PDF, text, CSV...) can be attached, up to 5 per message, for the default assistant and every bot. The files are kept in Cloudflare R2 (`STORAGE_URL`; locally MinIO), private, and opened from the chat history through links that last 15 minutes. Deleting a chat or a user deletes their files.
 - Guardrails block pasted keys and passwords, and any answer that contains one of our secrets.
 - Every message is saved in our own database (`chatMessage`), so the history is ours and we can switch AI providers without losing it. Chats and messages load in small pages.
 - Each chat belongs to the user who started it. Staff with the `chat` permission can read and reply to chats handed to a person, then hand them back.
@@ -122,20 +122,21 @@ src/
 
 Everything is in `.env.example` with a comment. The main ones:
 
-| Setting                                                                      | What it's for                                                  |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `DATABASE_URL`                                                               | Postgres connection                                            |
-| `REDIS_URL`                                                                  | Redis or Valkey: sessions, rate limits, jobs. Required in prod |
-| `BETTER_AUTH_SECRET`                                                         | Signs sessions (32+ characters). Required in production        |
-| `BETTER_AUTH_URL`                                                            | This API's address                                             |
-| `APP_URL`                                                                    | The frontend's address                                         |
-| `SENDBYTE_API_KEY` or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Sends emails. Locally SMTP defaults to Mailpit                 |
-| `MAIL_REPLY_TO`                                                              | Optional: where replies to our emails go                       |
-| `MAIL_FROM`                                                                  | The sender address. Required in production                     |
-| `BETTER_AUTH_API_KEY`                                                        | Optional: Better Auth dashboard and Sentinel abuse protection  |
-| `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*`                                         | Sign-in providers. Set both ID and secret, or leave both empty |
-| `RECAPTCHA_SECRET_KEY`                                                       | Turns on reCAPTCHA                                             |
-| `CENCORI_API_KEY`                                                            | Turns on the AI chat. Without it chat routes answer 503        |
+| Setting                                                                      | What it's for                                                     |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `DATABASE_URL`                                                               | Postgres connection                                               |
+| `STORAGE_URL`                                                                | Cloudflare R2 (or S3-compatible) for chat files. Required in prod |
+| `REDIS_URL`                                                                  | Redis or Valkey: sessions, rate limits, jobs. Required in prod    |
+| `BETTER_AUTH_SECRET`                                                         | Signs sessions (32+ characters). Required in production           |
+| `BETTER_AUTH_URL`                                                            | This API's address                                                |
+| `APP_URL`                                                                    | The frontend's address                                            |
+| `SENDBYTE_API_KEY` or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Sends emails. Locally SMTP defaults to Mailpit                    |
+| `MAIL_REPLY_TO`                                                              | Optional: where replies to our emails go                          |
+| `MAIL_FROM`                                                                  | The sender address. Required in production                        |
+| `BETTER_AUTH_API_KEY`                                                        | Optional: Better Auth dashboard and Sentinel abuse protection     |
+| `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*`                                         | Sign-in providers. Set both ID and secret, or leave both empty    |
+| `RECAPTCHA_SECRET_KEY`                                                       | Turns on reCAPTCHA                                                |
+| `CENCORI_API_KEY`                                                            | Turns on the AI chat. Without it chat routes answer 503           |
 
 Production also needs `AUTH_IP_HEADERS`: the one header your host sets with the visitor's real IP (plus `AUTH_TRUSTED_PROXIES` when that header is `x-forwarded-for`). The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
 

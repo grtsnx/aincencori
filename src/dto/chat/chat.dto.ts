@@ -231,6 +231,23 @@ export class ChatHistoryQueryDto {
   before?: string;
 }
 
+export class ChatFileDto {
+  @ApiProperty({ example: 'receipt.png' })
+  name: string;
+
+  @ApiProperty({ enum: ['image', 'file'], example: 'image' })
+  kind: 'image' | 'file';
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'A private link to open the file, good for 15 minutes. Null when the file was not kept',
+    example: 'https://files.example.com/chats/kq3F9aB2xY7pLm1n/receipt.png',
+  })
+  url: string | null;
+}
+
 export class ChatHistoryMessageDto {
   @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
   id: string;
@@ -259,11 +276,10 @@ export class ChatHistoryMessageDto {
   widgets: Record<string, unknown>[];
 
   @ApiProperty({
-    description: 'Names of attached files',
-    type: [String],
-    example: ['receipt.png'],
+    description: 'Files the user attached',
+    type: [ChatFileDto],
   })
-  attachments: string[];
+  attachments: ChatFileDto[];
 
   @ApiProperty({ example: '2026-11-13T09:31:00.000Z' })
   createdAt: Date;

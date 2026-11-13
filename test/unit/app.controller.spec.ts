@@ -7,6 +7,7 @@ import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { R2Service } from '@/lib/r2/r2.service.js';
 
 // Readiness with each outside service up or down, all faked.
 async function controller(options: {
@@ -53,6 +54,10 @@ async function controller(options: {
             ? vi.fn().mockResolvedValue({ data: [] })
             : vi.fn().mockRejectedValue(new Error('cencori offline')),
         },
+      },
+      {
+        provide: R2Service,
+        useValue: { ping: vi.fn().mockResolvedValue(undefined) },
       },
       {
         provide: EmailService,

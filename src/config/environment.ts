@@ -164,6 +164,15 @@ const environmentSchema = z
     ),
     // Read by the Prisma CLI only (prisma.config.ts), for migrations.
     DIRECT_DATABASE_URL: optionalString(),
+    STORAGE_URL: optionalString().pipe(
+      z
+        .string()
+        .regex(/^https?:\/\/[^:@/]+:[^@/]+@[^/]+\/[^/?]+/, {
+          error:
+            'STORAGE_URL must look like https://KEY:SECRET@host/bucket?region=auto',
+        })
+        .optional(),
+    ),
     REDIS_URL: optionalString().pipe(
       z
         .string()
@@ -211,6 +220,8 @@ const environmentSchema = z
         'DATABASE_URL',
         // Background jobs and routines.
         'REDIS_URL',
+        // Files people attach in chats.
+        'STORAGE_URL',
         'BETTER_AUTH_SECRET',
         'BETTER_AUTH_URL',
         'APP_URL',
@@ -308,6 +319,7 @@ export interface Environment {
   DATABASE_URL?: string;
   DIRECT_DATABASE_URL?: string;
   REDIS_URL: string;
+  STORAGE_URL: string;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
   AUTH_COOKIE_DOMAIN?: string;
@@ -407,6 +419,10 @@ export function validateEnvironment(
     MCP_RESOURCE_URL: `${betterAuthUrl}/mcp`,
     // Locally: the Valkey container from compose.yaml.
     REDIS_URL: parsed.REDIS_URL ?? 'redis://localhost:6380',
+    // Locally: the MinIO container from compose.yaml.
+    STORAGE_URL:
+      parsed.STORAGE_URL ??
+      'http://minioadmin:minioadmin@localhost:9000/agentic?region=us-east-1',
     // Locally: the Mailpit container from compose.yaml (inbox at :8025).
     SMTP_HOST: parsed.SMTP_HOST ?? 'localhost',
     SMTP_PORT: smtpPort,

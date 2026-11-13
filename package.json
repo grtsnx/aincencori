@@ -39,6 +39,8 @@
     "auth:generate": "auth generate --config src/config/auth/better-auth.cli.ts --adapter prisma --dialect postgresql --output prisma/schema.prisma --yes && node scripts/fix-auth-schema.mjs && prisma format"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1160.0",
+    "@aws-sdk/s3-request-presigner": "3.1160.0",
     "@better-auth/agent-auth": "0.6.2",
     "@better-auth/cimd": "1.7.22",
     "@better-auth/infra": "0.4.30",

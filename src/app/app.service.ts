@@ -3,6 +3,7 @@ import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { R2Service } from '@/lib/r2/r2.service.js';
 
 type Status = { status: 'up' | 'down'; [key: string]: unknown };
 
@@ -32,6 +33,7 @@ export class AppService {
     private readonly bullmq: BullmqService,
     private readonly cencori: CencoriService,
     private readonly email: EmailService,
+    private readonly r2: R2Service,
   ) {}
 
   getHello(): string {
@@ -52,12 +54,13 @@ export class AppService {
   // Shown, but never makes the API "not ready": without them sign-in and
   // most routes still work.
   async optional(): Promise<Record<string, Status>> {
-    const [cencori, email, workers] = await Promise.all([
+    const [cencori, email, workers, storage] = await Promise.all([
       this.checkCencori(),
       this.checkEmail(),
       this.checkWorkers(),
+      this.checkStorage(),
     ]);
-    return { cencori, email, workers };
+    return { cencori, email, workers, storage };
   }
 
   private async checkCencori(): Promise<Status> {
@@ -85,6 +88,16 @@ export class AppService {
       return { status: 'up', provider: this.email.provider, ...outbox };
     } catch {
       return { status: 'down', provider: this.email.provider };
+    }
+  }
+
+  // File storage (R2): without it chats still work, files are just not kept.
+  private async checkStorage(): Promise<Status> {
+    try {
+      const latencyMs = await timed(() => this.r2.ping());
+      return { status: 'up', latencyMs };
+    } catch {
+      return { status: 'down', message: 'File storage did not answer.' };
     }
   }
 

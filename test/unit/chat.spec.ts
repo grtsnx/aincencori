@@ -180,14 +180,16 @@ describe('saving a chat turn', () => {
   const build = () => {
     const upsert = vi.fn().mockResolvedValue({});
     const createMany = vi.fn().mockResolvedValue({});
+    const r2 = { put: vi.fn().mockResolvedValue(undefined) };
     const service = new ChatService(
       { get: () => undefined } as never,
       {} as never,
       {} as never,
       { db: { chatSession: { upsert }, chatMessage: { createMany } } } as never,
       { handle: vi.fn(), add: vi.fn() } as never,
+      r2 as never,
     );
-    return { service, upsert, createMany };
+    return { service, upsert, createMany, r2 };
   };
 
   // Sends stream text through the recorder, split in odd places like a network would.
@@ -255,6 +257,61 @@ describe('saving a chat turn', () => {
       agent: 'Agentic',
       text: 'You are in Acme.',
       widgets: [{ type: 'Card', children: [] }],
+    });
+  });
+
+  it('stores attached files and keeps where they are on the message', async () => {
+    const { service, createMany, r2 } = build();
+    const body = {
+      message: 'What is on this receipt?',
+      attachments: [
+        {
+          kind: 'image',
+          name: 'my receipt (1).png',
+          data_url: `data:image/png;base64,${Buffer.from('fake image').toString('base64')}`,
+        },
+        { kind: 'file', name: 'broken.pdf', data_url: 'not a data url' },
+      ],
+    };
+    const files = (
+      service as unknown as {
+        storeFiles: (userId: string, files: unknown[]) => Promise<unknown[]>;
+      }
+    ).storeFiles('u1', body.attachments);
+    const recorder = (
+      service as unknown as {
+        recordTurn: (
+          userId: string,
+          body: object,
+          botId: undefined,
+          files: Promise<unknown[]>,
+        ) => TransformStream<Uint8Array, Uint8Array>;
+      }
+    ).recordTurn('u1', body, undefined, files);
+    const stream = new Response('event: done\ndata: {"sessionId":"ses_9"}\n\n')
+      .body as ReadableStream<Uint8Array>;
+    await new Response(stream.pipeThrough(recorder)).text();
+
+    // Stored under the user's own folder, with a safe file name.
+    const [key, bytes, type] = r2.put.mock.calls[0];
+    expect(key).toMatch(/^chats\/u1\/[0-9a-f-]{36}\/0-my_receipt_1_.png$/);
+    expect(Buffer.from(bytes).toString()).toBe('fake image');
+    expect(type).toBe('image/png');
+    expect(r2.put).toHaveBeenCalledTimes(1);
+
+    const saved = createMany.mock.calls[0][0].data[0].attachments;
+    expect(saved[0]).toMatchObject({
+      name: 'my receipt (1).png',
+      kind: 'image',
+      contentType: 'image/png',
+      key,
+      size: 10,
+    });
+    // A file we could not read is kept by name only.
+    expect(saved[1]).toEqual({
+      name: 'broken.pdf',
+      kind: 'file',
+      contentType: 'application/octet-stream',
     });
   });
 

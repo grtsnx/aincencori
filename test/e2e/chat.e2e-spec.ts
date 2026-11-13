@@ -7,6 +7,7 @@ import { configureApplication } from '@/bootstrap/application.js';
 import { validateEnvironment } from '@/config/index.js';
 import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { R2Service } from '@/lib/r2/r2.service.js';
 
 // Tests never call Cencori: without a key the chat answers 503.
 describe('Chat (e2e)', () => {
@@ -139,6 +140,71 @@ describe('Chat (e2e)', () => {
       // Deleting the user's chat removes its messages too.
       await db.chatSession.delete({ where: { id } });
       expect(await db.chatMessage.count({ where: { sessionId: id } })).toBe(0);
+    });
+
+    it('opens attached files from the history and removes them with the chat', async () => {
+      const db = app.get(PrismaService).db;
+      const r2 = app.get(R2Service);
+      const user = await db.user.findUniqueOrThrow({ where: { email } });
+      const id = `ses_${randomUUID()}`;
+      const key = `chats/${user.id}/${randomUUID()}/0-receipt.png`;
+      await r2.put(key, Buffer.from('fake image'), 'image/png');
+      await db.chatSession.create({
+        data: { id, userId: user.id, title: 'Files' },
+      });
+      await db.chatMessage.createMany({
+        data: [
+          {
+            id: `${id}-new`,
+            sessionId: id,
+            role: 'user',
+            text: 'What is this?',
+            attachments: [
+              {
+                name: 'receipt.png',
+                kind: 'image',
+                contentType: 'image/png',
+                key,
+                size: 10,
+              },
+            ],
+            createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 2)),
+          },
+          {
+            // How older messages were saved: names only.
+            id: `${id}-old`,
+            sessionId: id,
+            role: 'user',
+            text: 'An older one',
+            attachments: ['old.pdf'],
+            createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 1)),
+          },
+        ],
+      });
+      const server = app.getHttpServer();
+
+      const history = await request(server)
+        .get(`/v1/chat/${id}/messages`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(
+        history.body.data.map((m: { attachments: unknown }) => m.attachments),
+      ).toEqual([
+        [{ name: 'old.pdf', kind: 'file', url: null }],
+        [
+          {
+            name: 'receipt.png',
+            kind: 'image',
+            url: `https://files.example.com/${key}`,
+          },
+        ],
+      ]);
+
+      await request(server)
+        .delete(`/v1/chat/${id}`)
+        .set('Cookie', cookies)
+        .expect(204);
+      expect(r2.has(key)).toBe(false);
     });
 
     it("keeps other people's chats private", async () => {

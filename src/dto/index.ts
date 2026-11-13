@@ -36,6 +36,7 @@ export {
   ChatActionDto,
   ChatApprovalDto,
   ChatAttachmentDto,
+  ChatFileDto,
   ChatHandoffDto,
   ChatHistoryMessageDto,
   ChatHistoryQueryDto,

@@ -47,12 +47,13 @@ export class AppController {
 
   @ApiOperation({
     summary: 'Readiness',
-    description: 'Checks database, Redis, Cencori, email and workers.',
+    description:
+      'Checks database, Redis, Cencori, email, workers and file storage.',
   })
   @ApiOkResponse({
     description:
       'Ready. Answers 503 only when the database, Redis or memory fail; ' +
-      'Cencori, email and workers are shown but never fail it.',
+      'Cencori, email, workers and storage are shown but never fail it.',
     schema: {
       type: 'object',
       example: {
@@ -63,6 +64,7 @@ export class AppController {
         cencori: { status: 'up', latencyMs: 180 },
         email: { status: 'up', provider: 'smtp', waiting: 0, failed: 0 },
         workers: { status: 'up', count: 2 },
+        storage: { status: 'up', latencyMs: 12 },
       },
     },
   })
