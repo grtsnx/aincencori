@@ -53,3 +53,33 @@ export const voiceTtsModel = 'fishaudio/s2.1-pro';
 export const voiceTtsVoice = 'fa4c9eb3dccc4806b382b40d61c6b10a';
 // A call ticket works for this long; the call itself can run longer.
 export const voiceTicketSeconds = 10 * 60;
+
+// Knowledge: documents each user may keep, the biggest file, how much text
+// one document may hold, and how much each search returns.
+export const maxDocumentsPerUser = 100;
+export const maxDocumentBytes = 10 * 1_048_576;
+export const maxDocumentChunks = 2_000;
+export const documentChunkChars = 1_500;
+export const documentSearchResults = 5;
+// Documents one bot may search.
+export const maxDocumentsPerBot = 50;
+
+// Planner: steps in one plan, and plans running at once per user.
+export const maxPlanSteps = 8;
+export const maxActivePlansPerUser = 3;
+// Plans worked on at the same time on one server.
+export const planConcurrency = 3;
+
+// Marketplace: bots each user may share.
+export const maxListingsPerUser = 20;
+// Marketplace sections a shared bot can be put in.
+export const listingCategories = [
+  'productivity',
+  'writing',
+  'research',
+  'sales',
+  'support',
+  'learning',
+  'fun',
+  'other',
+] as const;

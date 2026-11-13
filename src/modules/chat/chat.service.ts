@@ -159,6 +159,10 @@ export class ChatService implements OnModuleInit {
   private bots?: BotLoader;
   // Set by the group module: loads one of the user's groups for a chat.
   private groups?: (userId: string, groupId: string) => Promise<GroupRuntime>;
+  // Set by the document module: searches a user's documents, as text.
+  private documentSearch?: (userId: string, query: string) => Promise<string>;
+  // Set by the plan module: starts a plan for a user.
+  private planStarter?: (userId: string, goal: string) => Promise<{ id: string }>;
   private readonly secrets: string[];
 
   constructor(
@@ -194,6 +198,20 @@ export class ChatService implements OnModuleInit {
     load: (userId: string, groupId: string) => Promise<GroupRuntime>,
   ): void {
     this.groups = load;
+  }
+
+  // The document module hands over how to search a user's documents.
+  useDocuments(
+    search: (userId: string, query: string) => Promise<string>,
+  ): void {
+    this.documentSearch = search;
+  }
+
+  // The plan module hands over how to start a plan.
+  usePlans(
+    start: (userId: string, goal: string) => Promise<{ id: string }>,
+  ): void {
+    this.planStarter = start;
   }
 
   // Which agent answers: the user's group or bot when the chat is with one,
@@ -757,6 +775,14 @@ export class ChatService implements OnModuleInit {
         await this.betterAuth.auth.api.updateUser({ headers, body: { name } });
       },
       routines: this.routinesFor(user.id),
+      searchDocuments: (query) =>
+        this.documentSearch
+          ? this.documentSearch(user.id, query)
+          : Promise.resolve('Documents are not available.'),
+      startPlan: (goal) => {
+        if (!this.planStarter) throw new Error('Plans are not available.');
+        return this.planStarter(user.id, goal);
+      },
     };
   }
 

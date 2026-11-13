@@ -562,6 +562,9 @@ model Bot {
   skills         BotSkill[]
   routines       Routine[]
   groups         GroupMember[]
+  documents      BotDocument[]
+  plans          Plan[]
+  listing        Listing?
 
   @@index([userId, createdAt])
   @@map("bot")
@@ -626,6 +629,130 @@ model BotSkill {
   @@unique([botId, name])
   @@index([botId, createdAt])
   @@map("botSkill")
+}
+
+// A file in a user's knowledge (PDF, Word, text...). The original is kept in
+// storage; its text is split into chunks that bots search during a chat.
+model Document {
+  id          String          @id
+  userId      String
+  name        String
+  contentType String
+  size        Int
+  // Where the original file is kept (R2).
+  key         String
+  // "processing", "ready" or "failed" (then error says why).
+  status      String          @default("processing")
+  error       String?
+  chunkCount  Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  chunks      DocumentChunk[]
+  bots        BotDocument[]
+
+  @@index([userId, createdAt])
+  @@map("document")
+}
+
+// One piece of a document's text, searchable with Postgres text search.
+model DocumentChunk {
+  id         String                   @id
+  documentId String
+  document   Document                 @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  // Copied from the document, so one user's chunks are found fast.
+  userId     String
+  position   Int
+  text       String
+  // Filled in by Postgres from text (a generated column).
+  search     Unsupported("tsvector")? @default(dbgenerated("to_tsvector('english'::regconfig, text)"))
+
+  @@index([documentId, position])
+  @@index([userId])
+  @@index([search], type: Gin)
+  @@map("documentChunk")
+}
+
+// Which documents a bot may search.
+model BotDocument {
+  botId      String
+  bot        Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@id([botId, documentId])
+  @@index([documentId])
+  @@map("botDocument")
+}
+
+// A big goal the planner splits into steps, then works through in the
+// background, one step at a time. The work is saved as a chat.
+model Plan {
+  id        String     @id
+  userId    String
+  // The bot that does the steps. Empty: the default assistant.
+  botId     String?
+  bot       Bot?       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  goal      String
+  // "planning", "running", "done", "failed", "stopped" or "needs-approval".
+  status    String     @default("planning")
+  // The chat the steps run in, once the first step starts.
+  chatId    String?
+  // The final answer, when done. Or why it failed.
+  summary   String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  steps     PlanStep[]
+
+  @@index([userId, createdAt])
+  @@map("plan")
+}
+
+model PlanStep {
+  id           String    @id
+  planId       String
+  plan         Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  position     Int
+  title        String
+  // What the agent is asked to do in this step.
+  instructions String
+  // "waiting", "running", "done", "failed" or "needs-approval".
+  status       String    @default("waiting")
+  result       String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+
+  @@unique([planId, position])
+  @@map("planStep")
+}
+
+// A bot shared on the marketplace. It is a copy made when published, so later
+// changes reach the marketplace only when published again. Memories,
+// integrations and sign-ins are never shared.
+model Listing {
+  id           String    @id
+  botId        String    @unique
+  bot          Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  userId       String
+  // Shown publicly as the author.
+  authorName   String
+  name         String
+  description  String
+  instructions String
+  // The bot's skills: [{ name, description, instructions }].
+  skills       Json
+  category     String
+  // "reviewing", "published" or "rejected" (then reviewNote says why).
+  status       String    @default("reviewing")
+  reviewNote   String?
+  importCount  Int       @default(0)
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, importCount])
+  @@index([status, publishedAt])
+  @@index([userId])
+  @@map("listing")
 }
 
 // Which integrations a bot may use.

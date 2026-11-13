@@ -68,6 +68,21 @@ export class R2Service implements OnModuleDestroy {
     );
   }
 
+  // Reads a whole file. For files we keep small (documents up to 10 MB).
+  async get(key: string): Promise<Uint8Array> {
+    if (!this.client) {
+      const body = this.memory.get(key);
+      if (!body) throw new Error(`File ${key} not found.`);
+      return body;
+    }
+    await this.ready();
+    const file = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!file.Body) throw new Error(`File ${key} is empty.`);
+    return file.Body.transformToByteArray();
+  }
+
   // A private link to one file that works for a short time.
   async link(
     key: string,

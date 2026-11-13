@@ -21,6 +21,7 @@ export {
   UserListDto,
 } from './admin/admin.dto.js';
 export {
+  BotDocumentDto,
   BotDto,
   BotIntegrationDto,
   BotMemoryDto,
@@ -48,6 +49,14 @@ export {
   ChatStatusDto,
 } from './chat/chat.dto.js';
 export {
+  CreateDocumentDto,
+  DocumentDetailsDto,
+  DocumentDto,
+  DocumentHitDto,
+  ListDocumentsQueryDto,
+  SearchDocumentsQueryDto,
+} from './document/document.dto.js';
+export {
   CreateGroupDto,
   GroupBotDto,
   GroupDto,
@@ -63,6 +72,21 @@ export {
   ListIntegrationsQueryDto,
   UpdateIntegrationDto,
 } from './integration/integration.dto.js';
+export {
+  BrowseListingsQueryDto,
+  ListingDto,
+  ListingSkillDto,
+  OwnListingDto,
+  PublishBotDto,
+  RejectListingDto,
+  ReviewListingsQueryDto,
+} from './marketplace/marketplace.dto.js';
+export {
+  CreatePlanDto,
+  ListPlansQueryDto,
+  PlanDto,
+  PlanStepDto,
+} from './plan/plan.dto.js';
 export {
   CreateRoutineDto,
   ListRoutinesQueryDto,

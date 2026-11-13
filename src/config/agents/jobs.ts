@@ -12,3 +12,16 @@ export const deleteFilesJob = 'r2-file-delete';
 
 // Where one user's chat files live in storage.
 export const userFilesPrefix = (userId: string): string => `chats/${userId}/`;
+
+// Where one user's knowledge files live in storage.
+export const userKnowledgePrefix = (userId: string): string =>
+  `knowledge/${userId}/`;
+
+// Reads a new document and makes it searchable.
+export const indexDocumentJob = 'document-index';
+
+// Works through a plan's steps.
+export const runPlanJob = 'plan-run';
+
+// Safety review of a bot shared on the marketplace.
+export const reviewListingJob = 'listing-review';

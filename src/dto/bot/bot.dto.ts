@@ -52,6 +52,18 @@ export class CreateBotDto {
   @IsString({ each: true })
   integrationIds?: string[];
 
+  @ApiPropertyOptional({
+    description: 'Optional: your documents this bot may search',
+    type: [String],
+    example: ['5b1e0c4a-1f7e-4c55-9d1a-2f3c4d5e6f70'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ArrayUnique()
+  @IsString({ each: true })
+  documentIds?: string[];
+
   @ApiPropertyOptional({ default: true, example: true })
   @IsOptional()
   @IsBoolean()
@@ -95,6 +107,18 @@ export class UpdateBotDto {
   @IsString({ each: true })
   integrationIds?: string[];
 
+  @ApiPropertyOptional({
+    description: 'Replaces the document list. An empty list removes them all',
+    type: [String],
+    example: ['5b1e0c4a-1f7e-4c55-9d1a-2f3c4d5e6f70'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ArrayUnique()
+  @IsString({ each: true })
+  documentIds?: string[];
+
   @ApiPropertyOptional({ example: false })
   @IsOptional()
   @IsBoolean()
@@ -131,6 +155,14 @@ export class BotIntegrationDto {
   app: string;
 }
 
+export class BotDocumentDto {
+  @ApiProperty({ example: '5b1e0c4a-1f7e-4c55-9d1a-2f3c4d5e6f70' })
+  id: string;
+
+  @ApiProperty({ example: 'Refund policy.pdf' })
+  name: string;
+}
+
 export class BotDto {
   @ApiProperty({ example: '3f9aB2xY-7aae-4ca4-86fd-933f1a45603f' })
   id: string;
@@ -158,6 +190,12 @@ export class BotDto {
     type: [BotIntegrationDto],
   })
   integrations: BotIntegrationDto[];
+
+  @ApiProperty({
+    description: 'Documents this bot may search. Can be empty',
+    type: [BotDocumentDto],
+  })
+  documents: BotDocumentDto[];
 
   @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
   createdAt: Date;
