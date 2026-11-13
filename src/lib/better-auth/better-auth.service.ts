@@ -80,9 +80,6 @@ export class BetterAuthService implements OnModuleInit {
         linkedin: provider('LINKEDIN'),
       },
       recaptchaSecretKey: config.get<string>('RECAPTCHA_SECRET_KEY'),
-      // Tests never call Dymo API.
-      dymoApiKey:
-        nodeEnv === 'test' ? undefined : config.get<string>('DYMO_API_KEY'),
       passkeyRpID: config.getOrThrow<string>('PASSKEY_RP_ID'),
       mcpResource: config.getOrThrow<string>('MCP_RESOURCE_URL'),
       ipAddressHeaders: config.getOrThrow<string[]>('AUTH_IP_HEADERS'),

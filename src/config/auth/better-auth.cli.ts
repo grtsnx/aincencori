@@ -19,7 +19,6 @@ export const auth = betterAuth(
       linkedin: { clientId: 'schema', clientSecret: 'schema' },
     },
     recaptchaSecretKey: 'schema',
-    dymoApiKey: 'schema',
     passkeyRpID: 'localhost',
     mcpResource: 'http://localhost:3000/mcp',
     ipAddressHeaders: [],

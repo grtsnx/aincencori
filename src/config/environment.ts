@@ -142,7 +142,6 @@ const environmentSchema = z
     LINKEDIN_CLIENT_ID: optionalString(),
     LINKEDIN_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
-    DYMO_API_KEY: optionalString(),
     AUTH_IP_HEADERS: optionalString(),
   })
   .superRefine((environment, context) => {
@@ -218,7 +217,6 @@ export interface Environment {
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
-  DYMO_API_KEY?: string;
   AUTH_IP_HEADERS: string[];
   // Worked out from the URLs above, not set in .env.
   PASSKEY_RP_ID: string;
