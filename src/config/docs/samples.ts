@@ -6,6 +6,24 @@ const sampleUserId = 'kq3F9aB2xY7pLm1n';
 // Sample values for the docs, by field name. Fields not listed here get a
 // value from their name and type (see sampleFor in src/bootstrap/swagger.ts).
 export const sampleValues: Record<string, unknown> = {
+  // WebAuthn options: ask the browser to report how the passkey is stored.
+  extensions: { credProps: true },
+  invitation: {
+    id: 'inv_9Tz3Kp8W',
+    organizationId: 'org_8sK2pQ',
+    email: 'grace@example.com',
+    role: 'member',
+    status: 'accepted',
+    inviterId: sampleUserId,
+    expiresAt: '2026-11-20T09:30:00.000Z',
+  },
+  member: {
+    id: 'mem_4Lx9QwE2',
+    organizationId: 'org_8sK2pQ',
+    userId: sampleUserId,
+    role: 'member',
+    createdAt: sampleDate,
+  },
   id: sampleUserId,
   userId: sampleUserId,
   user_id: sampleUserId,
@@ -141,6 +159,16 @@ export const sampleErrors: Record<string, string> = {
 // Sample bodies for the few responses whose shape can't give a good sample,
 // by "METHOD path status".
 export const sampleResponses: Record<string, unknown> = {
+  'GET /v1/auth/account-info 200': {
+    user: {
+      id: '12345678',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      image: 'https://avatars.githubusercontent.com/u/12345678',
+      emailVerified: true,
+    },
+    data: { login: 'ada', id: 12345678, company: 'Acme' },
+  },
   'POST /v1/auth/organization/delete 200': 'kq3F9aB2xY7pLm1n',
   'POST /v1/auth/oauth2/revoke 200': {},
   'GET /v1/auth/oauth2/end-session 200':

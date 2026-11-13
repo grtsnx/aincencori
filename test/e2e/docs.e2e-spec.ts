@@ -181,6 +181,41 @@ describe('API docs and versioning (e2e)', () => {
       expect(missing).toEqual([]);
     });
 
+    it('fills lists and objects in success samples (no empty [] or {})', () => {
+      // Parts that are empty for real: OAuth revoke answers {} by design.
+      const emptyByDesign = ['POST /v1/auth/oauth2/revoke'];
+      const empties = (value: unknown, path = ''): string[] => {
+        if (Array.isArray(value)) {
+          return value.length === 0
+            ? [path || '(root)']
+            : empties(value[0], `${path}[0]`);
+        }
+        if (value && typeof value === 'object') {
+          const entries = Object.entries(value);
+          if (entries.length === 0) return [path || '(root)'];
+          return entries.flatMap(([key, item]) =>
+            empties(item, `${path}.${key}`),
+          );
+        }
+        return [];
+      };
+      const found: string[] = [];
+      for (const operation of operations()) {
+        if (emptyByDesign.includes(operation.route)) continue;
+        const responses = (operation.responses ?? {}) as Record<string, Schema>;
+        for (const [status, response] of Object.entries(responses)) {
+          if (!status.startsWith('2') || status === '204') continue;
+          const content = (response.content ?? {}) as Record<string, Schema>;
+          for (const media of Object.values(content)) {
+            for (const part of empties(media.example)) {
+              found.push(`${operation.route} ${status} ${part}`);
+            }
+          }
+        }
+      }
+      expect(found).toEqual([]);
+    });
+
     it("shows our routes' real response wrapper and errors", () => {
       for (const operation of operations()) {
         // Only our Nest routes use the wrapper; Better Auth answers raw JSON.

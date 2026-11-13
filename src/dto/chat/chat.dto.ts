@@ -229,7 +229,13 @@ export class ChatHistoryMessageDto {
     description: 'Widgets the agent showed',
     type: 'array',
     items: { type: 'object', additionalProperties: true },
-    example: [{ type: 'Card', title: 'Acme', children: [] }],
+    example: [
+      {
+        type: 'Card',
+        title: 'Acme',
+        children: [{ type: 'Text', value: 'You are the owner.' }],
+      },
+    ],
   })
   widgets: Record<string, unknown>[];
 
