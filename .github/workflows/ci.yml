@@ -50,13 +50,26 @@ jobs:
       - name: Audit dependencies
         run: bun audit --audit-level=high
 
-      - name: Build runtime image
-        run: docker build --tag agentic:ci .
+      - name: Build API image
+        run: docker build --target api --tag agentic:ci .
 
-      - name: Scan runtime image
+      - name: Scan API image
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
           image: agentic:ci
+          cache-db: true
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+
+      # The voice image is the one LiveKit Cloud builds; check it here first.
+      - name: Build voice image
+        run: docker build --tag agentic-voice:ci .
+
+      - name: Scan voice image
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: agentic-voice:ci
           cache-db: true
           fail-build: true
           severity-cutoff: high

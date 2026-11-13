@@ -60,7 +60,7 @@ Then open the API docs:
 - Limits (in `src/config/agents/limits.ts`): 25 routines per user, at most one run every 15 minutes.
 - Background jobs use BullMQ on Redis or Valkey (`REDIS_URL`; locally the Valkey container). Failed jobs retry with growing waits. Tests run jobs straight away and need no Redis.
 - Jobs run on **worker** servers (`src/worker.ts`), never on the API servers, so busy routines don't slow the app. API servers only add jobs. Run as many workers as you need; they share Postgres and Redis.
-- Production: the same Docker image runs both. API: the default command. Worker: `node --enable-source-maps dist/worker.js` (it has no web port, so turn off the HTTP health check for it).
+- Production: one small image (`docker build --target api .`) runs both. API: the default command. Worker: `node --enable-source-maps dist/worker.js` (it has no web port, so turn off the HTTP health check for it).
 - Emails are sent by the worker too: right away, plus a 5-second sweep for retries.
 
 **MCP server (for outside AI apps)**
@@ -74,6 +74,11 @@ Then open the API docs:
   - **Integrations**: apps it can use.
 - Voice typing (LiveKit): `POST /v1/voice/dictate` gives the app a ticket to speak instead of typing. The words appear live in the message box as the user talks, then go to the chat as a normal message. No bot answers on its own.
 - Voice calls (LiveKit): `POST /v1/voice/call` gives the app a ticket to talk live with the default assistant, a bot or a group. The bot starts speaking while it is still writing its answer (first words in about 1.5 seconds in our tests), and the user can talk over it. Our voice worker (`src/voice-worker.ts`, run with `bun run start:voice`) joins the call, turns speech into text, asks the bot through the normal chat, and speaks the answer. A call uses the bot's memories, skills and integrations and is saved as a chat. Needs `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from a LiveKit Cloud project; without them the route answers 503.
+- Deploying the voice worker: LiveKit Cloud runs it for us (about $0.01 per call minute, nothing when idle). It builds the `Dockerfile`'s last stage on its own machines, so your Mac never builds it. Install the `lk` CLI and sign in (`lk cloud auth`), then:
+  - First time: `lk agent create --region us-east --secrets-file .env.production`. This saves the agent's id in `livekit.toml`; commit that file.
+  - Each update: `lk agent deploy`.
+  - The worker needs to reach your production database, Redis and Cencori, so they must be reachable from the internet (with TLS and passwords).
+  - LiveKit gives the worker its own `LIVEKIT_*` settings; don't put them in the secrets file.
 - Groups (`/v1/groups`): 2 to 6 of a user's bots on one chat (`POST /v1/chat` with `groupId`). A built-in lead reads each message and asks the bots that fit; the bots can ask each other too. The history shows what each bot said. Bots are asked at most 8 times per message, which keeps cost in check and stops them talking in circles.
 - A bot can rewrite its own instructions when asked; the user approves the change in the chat first.
 - The orchestrator is the default assistant ("Agentic", in `src/config/agents/agents.ts`). It answers first and hands the chat to its helpers or to one of the user's bots (those with a description).
@@ -169,7 +174,7 @@ CI runs all of these on every push, then builds and scans the Docker image. Tagg
 
 ## Known issues
 
-- **Docker Desktop's default 8 GB disk is too small to build the image** (it is about 1.4 GB, plus build cache). Raise it in Docker Desktop settings, or run `docker builder prune` after building.
+- **Docker Desktop's default 8 GB disk is small.** Build only the API image locally (`docker build --target api .`, about 730 MB); the voice image (about 1.4 GB) is built by LiveKit Cloud. Run `docker builder prune` now and then to clear the build cache.
 
 - **Voice calls are untested with real audio.** The call ticket, the worker's start-up and the spoken answer style are tested; a real call needs LiveKit Cloud keys and a frontend with LiveKit's client.
 
