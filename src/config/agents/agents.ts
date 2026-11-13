@@ -250,7 +250,7 @@ const startPlan = tool({
 // ── Guardrails ───────────────────────────────────────────────────────────
 
 // Stops messages that look like they carry a secret key or password.
-const secretLike =
+export const secretLike =
   /(sk-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|password\s*[:=]\s*\S+)/i;
 
 const noSecretsIn: InputGuardrail<ChatContext> = {

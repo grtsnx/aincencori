@@ -23,6 +23,8 @@ const context: ChatContext = {
     setEnabled: () => Promise.reject(new Error('unused')),
     remove: () => Promise.resolve(),
   },
+  searchDocuments: () => Promise.resolve('Nothing found.'),
+  startPlan: () => Promise.resolve({ id: 'p1' }),
 };
 const runContext = { context, sessionId: '', agentName: 'Agentic' };
 
@@ -38,6 +40,8 @@ describe('chat agents', () => {
       'Routines',
     ]);
     expect(agent.tools.map((t) => t.name)).toEqual([
+      'search_my_documents',
+      'start_plan',
       'write_text',
       'handoff_to_human',
     ]);
@@ -100,6 +104,8 @@ describe('bot agents', () => {
     memories: [],
     skills: [],
     mcpServers: [],
+    documents: [],
+    searchDocuments: vi.fn().mockResolvedValue('Nothing found.'),
     saveMemory: vi.fn().mockResolvedValue(undefined),
     updateInstructions: vi.fn().mockResolvedValue(undefined),
     ...over,
@@ -109,6 +115,29 @@ describe('bot agents', () => {
     if (!found) throw new Error(`no tool ${name}`);
     return found;
   };
+
+  it('searches its documents when it has some, and says which ones', async () => {
+    const searchDocuments = vi.fn().mockResolvedValue('From "Pricing": $20.');
+    const agent = createBotAgent(
+      settings,
+      parts({ documents: ['Pricing', 'Refund policy'], searchDocuments }),
+    );
+
+    expect(agent.tools.map((t) => t.name)).toContain('search_documents');
+    const text = await agent.resolveInstructions(runContext);
+    expect(text).toContain('- Pricing\n- Refund policy');
+    const search = call(agent, 'search_documents') as unknown as {
+      invoke: (ctx: unknown, input: string, callId: string) => Promise<string>;
+    };
+    await expect(
+      search.invoke(
+        runContext,
+        JSON.stringify({ query: 'pro plan price' }),
+        'call-1',
+      ),
+    ).resolves.toContain('$20');
+    expect(searchDocuments).toHaveBeenCalledWith('pro plan price');
+  });
 
   it('works with only a name and instructions', async () => {
     const agent = createBotAgent(settings, parts());
@@ -169,6 +198,8 @@ describe('groups of bots', () => {
     memories: [],
     skills: [],
     mcpServers: [],
+    documents: [],
+    searchDocuments: vi.fn(),
     saveMemory: vi.fn(),
     updateInstructions: vi.fn(),
   };

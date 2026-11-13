@@ -1,5 +1,4 @@
 import {
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -22,13 +21,16 @@ import {
   createChatAgent,
   type RoutineActions,
 } from '@/config/agents/agents.js';
-import { deleteFilesJob, userFilesPrefix } from '@/config/agents/jobs.js';
+import {
+  deleteCencoriSessionJob as deleteAtCencori,
+  deleteFilesJob,
+  userFilesPrefix,
+} from '@/config/agents/jobs.js';
 import {
   maxAgentTurns,
   maxGroupAsks,
   maxGroupBotTurns,
 } from '@/config/agents/limits.js';
-import { staffOrganizationSlug } from '@/config/auth/access.js';
 import type {
   ChatHistoryMessageDto,
   ChatHistoryQueryDto,
@@ -43,12 +45,9 @@ import {
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
-import { readableImage } from '@/middleware';
+import { assertStaff, readableImage } from '@/middleware';
 import { R2Service } from '@/lib/r2/r2.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
-
-// Background job: remove a deleted chat's copy at Cencori (retried if down).
-const deleteAtCencori = 'cencori-session-delete';
 
 interface ChatUser {
   id: string;
@@ -162,7 +161,10 @@ export class ChatService implements OnModuleInit {
   // Set by the document module: searches a user's documents, as text.
   private documentSearch?: (userId: string, query: string) => Promise<string>;
   // Set by the plan module: starts a plan for a user.
-  private planStarter?: (userId: string, goal: string) => Promise<{ id: string }>;
+  private planStarter?: (
+    userId: string,
+    goal: string,
+  ) => Promise<{ id: string }>;
   private readonly secrets: string[];
 
   constructor(
@@ -996,30 +998,17 @@ export class ChatService implements OnModuleInit {
   }
 
   // Platform admins, or staff whose role has the chat permission.
-  private async authorizeStaff(
+  private authorizeStaff(
     auth: AuthSession,
     headers: IncomingHttpHeaders,
     permission: 'read' | 'reply',
   ): Promise<void> {
-    const isAdmin = (auth.user as { role?: string | null }).role
-      ?.split(',')
-      .includes('admin');
-    if (isAdmin) return;
-    const staff = await this.prisma.db.organization.findUnique({
-      where: { slug: staffOrganizationSlug },
-    });
-    const result = staff
-      ? await this.betterAuth.auth.api.hasPermission({
-          headers: fromNodeHeaders(headers),
-          body: {
-            organizationId: staff.id,
-            permissions: { chat: [permission] },
-          },
-        })
-      : { success: false };
-    if (!result.success) {
-      throw new ForbiddenException('You are not allowed to do this.');
-    }
+    return assertStaff(
+      { betterAuth: this.betterAuth, prisma: this.prisma },
+      auth,
+      headers,
+      { chat: [permission] },
+    );
   }
 }
 

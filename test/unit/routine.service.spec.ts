@@ -239,6 +239,45 @@ describe('RoutineService reliability', () => {
     expect(remove).toHaveBeenCalledWith({ where: { id: created.id } });
   });
 
+  it('retries when the database driver reports the clash itself', async () => {
+    const row = routine(true);
+    let attempt = 0;
+    const transaction = vi.fn(
+      async (work: (tx: unknown) => Promise<unknown>) => {
+        attempt += 1;
+        if (attempt === 1) {
+          throw Object.assign(new Error('TransactionWriteConflict'), {
+            name: 'DriverAdapterError',
+          });
+        }
+        return work({
+          routine: {
+            count: vi.fn().mockResolvedValue(0),
+            create: vi.fn().mockResolvedValue(row),
+          },
+        });
+      },
+    );
+    const service = new RoutineService(
+      {
+        db: { bot: { findFirst: vi.fn() }, $transaction: transaction },
+      } as never,
+      { schedule: vi.fn().mockResolvedValue(undefined) } as never,
+      { useRoutines: vi.fn() } as never,
+    );
+
+    await service.create(
+      { user: { id: 'user-1' } },
+      {
+        name: row.name,
+        prompt: row.prompt,
+        cron: row.cron,
+        timezone: row.timezone,
+      },
+    );
+    expect(transaction).toHaveBeenCalledTimes(2);
+  });
+
   it('returns the routine limit error after retrying a serialization conflict', async () => {
     const row = routine(true);
     let attempt = 0;

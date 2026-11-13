@@ -31,6 +31,7 @@ import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { type BotRuntime, ChatService } from '../chat/chat.service.js';
+import { DocumentService } from '../document/document.service.js';
 import { IntegrationService } from '../integration/integration.service.js';
 
 interface Owner {
@@ -39,10 +40,16 @@ interface Owner {
 
 type BotWithIntegrations = Bot & {
   integrations: { integration: Integration }[];
+  documents: { document: { id: string; name: string } }[];
 };
 
+// A bot with what it is linked to: integrations and documents.
 const withIntegrations = {
   integrations: { include: { integration: true } },
+  documents: {
+    include: { document: { select: { id: true, name: true } } },
+    orderBy: { document: { name: 'asc' } },
+  },
 } as const;
 
 // Bots: a user gives a bot a name and instructions, then chats with it
@@ -59,6 +66,7 @@ export class BotService implements OnModuleInit {
     private readonly bullmq: BullmqService,
     private readonly integrations: IntegrationService,
     private readonly chat: ChatService,
+    private readonly documents: DocumentService,
   ) {}
 
   onModuleInit(): void {
@@ -103,6 +111,10 @@ export class BotService implements OnModuleInit {
       userId,
       body.integrationIds ?? [],
     );
+    const documentIds = await this.checkDocuments(
+      userId,
+      body.documentIds ?? [],
+    );
     const bot = await this.prisma.db.bot.create({
       data: {
         id: randomUUID(),
@@ -114,6 +126,45 @@ export class BotService implements OnModuleInit {
         integrations: {
           create: integrationIds.map((integrationId) => ({ integrationId })),
         },
+        documents: {
+          create: documentIds.map((documentId) => ({ documentId })),
+        },
+      },
+      include: withIntegrations,
+    });
+    return toDto(bot);
+  }
+
+  // A new bot copied from one shared on the marketplace: name, description,
+  // instructions and skills. Never memories, integrations or documents.
+  async createCopy(
+    userId: string,
+    copy: {
+      name: string;
+      description: string;
+      instructions: string;
+      skills: { name: string; description: string; instructions: string }[];
+    },
+  ): Promise<BotDto> {
+    const count = await this.prisma.db.bot.count({ where: { userId } });
+    if (count >= maxBotsPerUser) {
+      throw new BadRequestException(
+        `You can have up to ${maxBotsPerUser} bots.`,
+      );
+    }
+    const bot = await this.prisma.db.bot.create({
+      data: {
+        id: randomUUID(),
+        userId,
+        name: copy.name,
+        description: copy.description,
+        instructions: copy.instructions,
+        skills: {
+          create: copy.skills.slice(0, maxSkillsPerBot).map((skill) => ({
+            id: randomUUID(),
+            ...skill,
+          })),
+        },
       },
       include: withIntegrations,
     });
@@ -122,11 +173,15 @@ export class BotService implements OnModuleInit {
 
   async update(id: string, auth: Owner, body: UpdateBotDto): Promise<BotDto> {
     const current = await this.own(id, auth.user.id);
-    const { integrationIds, ...rest } = body;
+    const { integrationIds, documentIds, ...rest } = body;
     const picked =
       integrationIds === undefined
         ? undefined
         : await this.checkIntegrations(auth.user.id, integrationIds);
+    const pickedDocuments =
+      documentIds === undefined
+        ? undefined
+        : await this.checkDocuments(auth.user.id, documentIds);
     const bot = await this.prisma.db.bot.update({
       where: { id },
       data: {
@@ -135,6 +190,12 @@ export class BotService implements OnModuleInit {
           integrations: {
             deleteMany: {},
             create: picked.map((integrationId) => ({ integrationId })),
+          },
+        }),
+        ...(pickedDocuments && {
+          documents: {
+            deleteMany: {},
+            create: pickedDocuments.map((documentId) => ({ documentId })),
           },
         }),
       },
@@ -392,6 +453,7 @@ export class BotService implements OnModuleInit {
   ): Promise<BotRuntime> {
     const db = this.prisma.db;
     const integrations = bot.integrations.map((link) => link.integration);
+    const documentIds = bot.documents.map((link) => link.document.id);
     const [memories, skills, mcpServers, cencori] = await Promise.all([
       db.botMemory.findMany({
         where: { botId: bot.id },
@@ -416,6 +478,9 @@ export class BotService implements OnModuleInit {
       skills,
       mcpServers,
       cencori,
+      documents: bot.documents.map((link) => link.document.name),
+      searchDocuments: (query) =>
+        this.documents.searchText(bot.userId, query, documentIds),
       saveMemory: async (text) => {
         await this.remember(bot.id, text);
       },
@@ -507,6 +572,19 @@ export class BotService implements OnModuleInit {
     });
   }
 
+  // Every id must be one of the user's own documents.
+  private async checkDocuments(
+    userId: string,
+    ids: string[],
+  ): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const owned = await this.documents.owned(userId, ids);
+    if (owned.length !== ids.length) {
+      throw new BadRequestException('Unknown document.');
+    }
+    return ids;
+  }
+
   // Every id must be one of the user's own integrations.
   private async checkIntegrations(
     userId: string,
@@ -543,6 +621,10 @@ function toDto(bot: BotWithIntegrations): BotDto {
       id: integration.id,
       name: integration.name,
       app: integration.app,
+    })),
+    documents: bot.documents.map(({ document }) => ({
+      id: document.id,
+      name: document.name,
     })),
     createdAt: bot.createdAt,
     updatedAt: bot.updatedAt,

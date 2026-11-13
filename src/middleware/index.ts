@@ -1,6 +1,7 @@
 export {
   RequestIdMiddleware,
   assertPublicUrl,
+  assertStaff,
   describeException,
   documentType,
   encryptOAuthToken,

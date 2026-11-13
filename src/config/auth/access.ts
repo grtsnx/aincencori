@@ -18,6 +18,8 @@ const platformStatements = {
   staff: ['invite', 'list', 'update', 'remove'],
   // Read and answer chats an agent handed to a person.
   chat: ['read', 'reply'],
+  // Approve or reject bots shared on the marketplace.
+  marketplace: ['review'],
 } as const;
 
 // Everything a role (built-in or custom) can be given.
@@ -40,6 +42,7 @@ export const organizationRoles = {
     session: ['list', 'revoke'],
     staff: ['invite', 'list', 'update'],
     chat: ['read', 'reply'],
+    marketplace: ['review'],
   }),
   member: organizationAc.newRole({
     ...orgMemberAc.statements,

@@ -81,6 +81,9 @@ Then open the API docs:
   - LiveKit gives the worker its own `LIVEKIT_*` settings; don't put them in the secrets file.
 - Groups (`/v1/groups`): 2 to 6 of a user's bots on one chat (`POST /v1/chat` with `groupId`). A built-in lead reads each message and asks the bots that fit; the bots can ask each other too. The history shows what each bot said. Bots are asked at most 8 times per message, which keeps cost in check and stops them talking in circles.
 - A bot can rewrite its own instructions when asked; the user approves the change in the chat first.
+- Knowledge (`/v1/documents`): users add files (PDF, Word, text, Markdown, CSV, JSON, HTML, up to 10 MB) or plain text. A worker reads each file and splits it into pieces that Postgres searches by word (its built-in text search: free and ours). Each bot searches only the documents its owner gave it (`documentIds`); the default assistant can search all of them. Answers say which document a fact came from.
+- Plans (`/v1/plans`): a big goal ("compare three CRM tools and write a report") is split into up to 8 steps by a Planner agent, then a worker does one step at a time in one chat, so each step sees the earlier work. Apps check the plan to show the steps as they run. A step that needs the user's approval pauses the plan; the user approves it in the chat, then resumes. The default assistant can start a plan too (the user approves first).
+- Marketplace (`/v1/marketplace`): users share a copy of a bot (name, description, instructions, skills; never memories, integrations, documents or sign-ins). An AI safety review runs before anyone sees it; staff with the marketplace permission can approve or reject by hand (`/v1/admin/marketplace`). Anyone can browse; signed-in users copy a bot into their own bots.
 - The orchestrator is the default assistant ("Agentic", in `src/config/agents/agents.ts`). It answers first and hands the chat to its helpers or to one of the user's bots (those with a description).
 - The model for all agents is set in one place: `agentModel` (now `gpt-6-luna`) and `agentThinking` in `src/config/agents/limits.ts`. Older OpenAI models (gpt-4.1, gpt-4o, gpt-5) are being shut down, so don't switch back to them.
 - Integrations (`/v1/integrations`): what a user connects for their bots. Apps like Gmail, Slack and Notion sign in through Cencori ("Connect"); a user can connect the same app several times (two Gmail accounts) and give each to a different bot. They can also add their own MCP server (https, public internet; token stored encrypted). Up to 10 per user.
@@ -173,6 +176,9 @@ bun run build
 CI runs all of these on every push, then builds and scans the Docker image. Tagging a version (`git tag v1.0.0 && git push origin v1.0.0`) publishes the image.
 
 ## Known issues
+
+- **Document search matches words, not meaning.** "money back" won't find "refund" unless the words overlap. The bots usually search with good key words, so it works well in practice; search by meaning (embeddings) can be added later.
+- **Scanned PDFs (pictures of text) can't be read.** They are kept and marked failed with the reason.
 
 - **Docker Desktop's default 8 GB disk is small.** Build only the API image locally (`docker build --target api .`, about 730 MB); the voice image (about 1.4 GB) is built by LiveKit Cloud. Run `docker builder prune` now and then to clear the build cache.
 

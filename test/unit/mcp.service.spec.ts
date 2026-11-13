@@ -37,6 +37,15 @@ async function connect() {
   };
   const groups = { create: vi.fn().mockResolvedValue({ id: 'g1' }) };
   const integrations = { apps: vi.fn().mockResolvedValue([]) };
+  const documents = {
+    search: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({ id: 'd1' }),
+  };
+  const plans = { create: vi.fn().mockResolvedValue({ id: 'p1' }) };
+  const marketplace = {
+    browse: vi.fn().mockResolvedValue([]),
+    import: vi.fn().mockResolvedValue({ id: 'b2' }),
+  };
   const prisma = {
     db: {
       chatSession: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -54,6 +63,9 @@ async function connect() {
     bots as never,
     groups as never,
     integrations as never,
+    documents as never,
+    plans as never,
+    marketplace as never,
   );
   const server = (
     service as unknown as { serverFor(userId: string): McpServer }
@@ -63,7 +75,18 @@ async function connect() {
   await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
   const text = (result: unknown) =>
     (result as { content: { text: string }[] }).content[0].text;
-  return { client, routines, chats, bots, groups, prisma, text };
+  return {
+    client,
+    routines,
+    chats,
+    bots,
+    groups,
+    documents,
+    plans,
+    marketplace,
+    prisma,
+    text,
+  };
 }
 
 describe('MCP server', () => {
@@ -107,10 +130,26 @@ describe('MCP server', () => {
       'connect_integration',
       'update_integration',
       'delete_integration',
+      'list_documents',
+      'add_document',
+      'search_documents',
+      'delete_document',
+      'start_plan',
+      'list_plans',
+      'get_plan',
+      'stop_plan',
+      'resume_plan',
+      'delete_plan',
+      'browse_marketplace',
+      'get_marketplace_bot',
+      'copy_marketplace_bot',
+      'list_my_shared_bots',
+      'share_bot',
+      'unshare_bot',
     ]) {
       expect(names, name).toContain(name);
     }
-    expect(names).toHaveLength(34);
+    expect(names).toHaveLength(50);
     // Nothing from admin, staff or chats handed to a person.
     expect(names.join(' ')).not.toMatch(
       /admin|staff|ban|impersonate|role|reply|release|user_/,
@@ -167,6 +206,38 @@ describe('MCP server', () => {
       name: 'Team',
       botIds: ['b1', 'b2'],
     });
+  });
+
+  it('runs knowledge, plan and marketplace tools as the signed-in user', async () => {
+    const { client, documents, plans, marketplace } = await connect();
+    const owner = { user: { id: 'u1' } };
+
+    await client.callTool({
+      name: 'add_document',
+      arguments: { name: 'Notes', text: 'Refunds within 30 days.' },
+    });
+    expect(documents.create).toHaveBeenCalledWith(owner, {
+      name: 'Notes',
+      text: 'Refunds within 30 days.',
+    });
+
+    await client.callTool({
+      name: 'search_documents',
+      arguments: { q: 'refund' },
+    });
+    expect(documents.search).toHaveBeenCalledWith(owner, { q: 'refund' });
+
+    await client.callTool({
+      name: 'start_plan',
+      arguments: { goal: 'Plan my week.' },
+    });
+    expect(plans.create).toHaveBeenCalledWith(owner, { goal: 'Plan my week.' });
+
+    await client.callTool({
+      name: 'copy_marketplace_bot',
+      arguments: { id: 'l1' },
+    });
+    expect(marketplace.import).toHaveBeenCalledWith('l1', owner);
   });
 
   it("never reads another user's chat", async () => {

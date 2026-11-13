@@ -7,6 +7,10 @@ export const deleteWorkspaceJob = 'cencori-tenant-delete';
 // Removes the Cencori agent behind a deleted bot.
 export const deleteBotAgentJob = 'cencori-agent-delete';
 
+// Removes a chat's copy at Cencori (also side chats: a bot asked inside a
+// group, the planner, the marketplace reviewer).
+export const deleteCencoriSessionJob = 'cencori-session-delete';
+
 // Removes stored chat files: some by key, or all under a prefix (one user's).
 export const deleteFilesJob = 'r2-file-delete';
 

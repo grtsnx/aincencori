@@ -21,6 +21,7 @@ import {
   deleteFilesJob,
   deleteWorkspaceJob,
   userFilesPrefix,
+  userKnowledgePrefix,
 } from '@/config/agents/jobs.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
@@ -110,9 +111,9 @@ export class BetterAuthService implements OnModuleInit {
         getAndDelete: (key) => redis.getAndDelete(key),
         increment: (key, ttl) => redis.count(key, ttl),
       },
-      // A deleted user's chats, routines, bots and integrations go too
-      // (messages follow their chat; a routine's timetable stops itself on
-      // its next run). Their space and bots at Cencori are removed in the
+      // A deleted user's chats, routines, bots, integrations, documents and
+      // plans go too (messages follow their chat; shared bots follow their
+      // bot; a routine's timetable stops itself on its next run). Their space and bots at Cencori are removed in the
       // background, which also signs their apps out.
       onUserDeleted: async (userId) => {
         const db = prisma.db;
@@ -128,9 +129,14 @@ export class BetterAuthService implements OnModuleInit {
         await db.botGroup.deleteMany({ where: { userId } });
         await db.bot.deleteMany({ where: { userId } });
         await db.integration.deleteMany({ where: { userId } });
+        await db.document.deleteMany({ where: { userId } });
+        await db.plan.deleteMany({ where: { userId } });
         await db.agentWorkspace.deleteMany({ where: { userId } });
         // Their stored chat files too.
         await bullmq.add(deleteFilesJob, { prefix: userFilesPrefix(userId) });
+        await bullmq.add(deleteFilesJob, {
+          prefix: userKnowledgePrefix(userId),
+        });
         if (workspace) {
           await bullmq.add(deleteWorkspaceJob, {
             tenantId: workspace.tenantId,

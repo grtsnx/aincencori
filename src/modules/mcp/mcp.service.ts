@@ -10,6 +10,7 @@ import type {
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { z } from 'zod';
+import { listingCategories } from '@/config/agents/limits.js';
 import {
   type AuthSession,
   BetterAuthService,
@@ -17,8 +18,11 @@ import {
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { BotService } from '../bot/bot.service.js';
 import { ChatService } from '../chat/chat.service.js';
+import { DocumentService } from '../document/document.service.js';
 import { GroupService } from '../group/group.service.js';
 import { IntegrationService } from '../integration/integration.service.js';
+import { MarketplaceService } from '../marketplace/marketplace.service.js';
+import { PlanService } from '../plan/plan.service.js';
 import { RoutineService } from '../routine/routine.service.js';
 
 type ToolResult = {
@@ -38,8 +42,8 @@ const page = {
 // Our MCP server: outside AI apps (Claude, Cursor, any MCP client) use the
 // signed-in user's own services through it: profile, organizations, chats
 // (including sending a message), bots with their memories and skills,
-// groups, routines and integrations. Admin and staff features are never
-// offered here.
+// groups, routines, integrations, documents (knowledge), plans and the
+// marketplace. Admin and staff features are never offered here.
 // A user signs the app in through Better Auth (OAuth); each call then runs
 // as that user, so it can only touch that user's data.
 @Injectable()
@@ -56,6 +60,9 @@ export class McpService {
     private readonly bots: BotService,
     private readonly groups: GroupService,
     private readonly integrations: IntegrationService,
+    private readonly documents: DocumentService,
+    private readonly plans: PlanService,
+    private readonly marketplace: MarketplaceService,
   ) {
     // Checks the access token; without a valid one the app is told where to
     // sign in (401 with a WWW-Authenticate header).
@@ -323,6 +330,11 @@ export class McpService {
         instructions: z.string().min(1).max(8000),
         description: z.string().max(300).optional(),
         integrationIds: z.array(z.string()).max(10).optional(),
+        documentIds: z
+          .array(z.string())
+          .max(50)
+          .optional()
+          .describe('Documents the bot may search'),
       },
       {},
       (input) => this.bots.create(owner, input),
@@ -330,13 +342,14 @@ export class McpService {
 
     tool(
       'update_bot',
-      'Change a bot: name, description, instructions, integrations, or on/off.',
+      'Change a bot: name, description, instructions, integrations, documents, or on/off.',
       {
         id: z.string(),
         name: z.string().min(1).max(60).optional(),
         description: z.string().max(300).optional(),
         instructions: z.string().min(1).max(8000).optional(),
         integrationIds: z.array(z.string()).max(10).optional(),
+        documentIds: z.array(z.string()).max(50).optional(),
         enabled: z.boolean().optional(),
       },
       { idempotentHint: true },
@@ -526,6 +539,158 @@ export class McpService {
       { id: z.string() },
       { destructiveHint: true },
       ({ id }) => this.integrations.remove(id, owner),
+    );
+
+    // ── Knowledge (documents) ──────────────────────────────────────────
+
+    tool(
+      'list_documents',
+      "Files in the user's knowledge, and whether each is ready.",
+      page,
+      readOnly,
+      (input) => this.documents.list(owner, input),
+    );
+
+    tool(
+      'add_document',
+      "Add text to the user's knowledge, as a document bots can search.",
+      {
+        name: z.string().min(1).max(200),
+        text: z.string().min(1).max(1_000_000),
+      },
+      {},
+      (input) => this.documents.create(owner, input),
+    );
+
+    tool(
+      'search_documents',
+      "Search the user's documents with key words. botId: only that bot's.",
+      { q: z.string().min(1).max(500), botId: z.string().optional() },
+      readOnly,
+      (input) => this.documents.search(owner, input),
+    );
+
+    tool(
+      'delete_document',
+      'Delete a document. Bots stop using it.',
+      { id: z.string() },
+      { destructiveHint: true },
+      ({ id }) => this.documents.remove(id, owner),
+    );
+
+    // ── Plans ──────────────────────────────────────────────────────────
+
+    tool(
+      'start_plan',
+      'Start a plan: a big goal split into steps and worked through in ' +
+        'the background. Check it with get_plan.',
+      {
+        goal: z.string().min(1).max(4000),
+        botId: z.string().optional().describe('Empty: the default assistant'),
+      },
+      {},
+      (input) => this.plans.create(owner, input),
+    );
+
+    tool(
+      'list_plans',
+      "The user's plans, with steps.",
+      page,
+      readOnly,
+      (input) => this.plans.list(owner, input),
+    );
+
+    tool(
+      'get_plan',
+      'A plan with each step and its result.',
+      { id: z.string() },
+      readOnly,
+      ({ id }) => this.plans.get(id, owner),
+    );
+
+    tool(
+      'stop_plan',
+      'Stop a plan after the step running now.',
+      { id: z.string() },
+      {},
+      ({ id }) => this.plans.stop(id, owner),
+    );
+
+    tool(
+      'resume_plan',
+      'Carry on a paused, stopped or failed plan.',
+      { id: z.string() },
+      {},
+      ({ id }) => this.plans.resume(id, owner),
+    );
+
+    tool(
+      'delete_plan',
+      'Delete a plan. Its chat is kept.',
+      { id: z.string() },
+      { destructiveHint: true },
+      ({ id }) => this.plans.remove(id, owner),
+    );
+
+    // ── Marketplace ────────────────────────────────────────────────────
+
+    tool(
+      'browse_marketplace',
+      'Bots other people shared. Copy one with copy_marketplace_bot.',
+      {
+        q: z.string().max(100).optional(),
+        category: z.string().max(40).optional(),
+        sort: z.enum(['popular', 'newest']).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+        offset: z.number().int().min(0).max(1000).optional(),
+      },
+      readOnly,
+      (input) => this.marketplace.browse(input),
+    );
+
+    tool(
+      'get_marketplace_bot',
+      'What a shared bot does: instructions and skills.',
+      { id: z.string() },
+      readOnly,
+      ({ id }) => this.marketplace.get(id, auth),
+    );
+
+    tool(
+      'copy_marketplace_bot',
+      "Add a copy of a shared bot to the user's bots.",
+      { id: z.string() },
+      {},
+      ({ id }) => this.marketplace.import(id, owner),
+    );
+
+    tool(
+      'list_my_shared_bots',
+      'Bots the user shared, with their review status.',
+      {},
+      readOnly,
+      () => this.marketplace.mine(owner),
+    );
+
+    tool(
+      'share_bot',
+      'Share a copy of a bot on the marketplace (after a safety review). ' +
+        'The bot needs a description. Never shares memories or sign-ins.',
+      {
+        botId: z.string(),
+        category: z.enum(listingCategories),
+        authorName: z.string().min(1).max(60).optional(),
+      },
+      {},
+      (input) => this.marketplace.publish(owner, input),
+    );
+
+    tool(
+      'unshare_bot',
+      'Take a shared bot off the marketplace. Copies stay.',
+      { id: z.string().describe('The shared bot id (not the bot id)') },
+      { destructiveHint: true },
+      ({ id }) => this.marketplace.unpublish(id, owner),
     );
 
     return server;

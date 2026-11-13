@@ -318,12 +318,21 @@ export class RoutineService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
+// Two transactions clashed; trying again fixes it. Prisma reports this as
+// P2034, but when the clash shows up while committing, the database driver
+// throws its own "TransactionWriteConflict" error instead.
 function isSerializationConflict(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const { code, message, cause } = error as {
+    code?: unknown;
+    message?: unknown;
+    cause?: { kind?: unknown; originalCode?: unknown };
+  };
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'P2034'
+    code === 'P2034' ||
+    message === 'TransactionWriteConflict' ||
+    cause?.kind === 'TransactionWriteConflict' ||
+    cause?.originalCode === '40001'
   );
 }
 
