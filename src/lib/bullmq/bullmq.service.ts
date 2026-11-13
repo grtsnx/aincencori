@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  type OnApplicationBootstrap,
-  type OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   type ConnectionOptions,
@@ -39,11 +34,12 @@ interface Registration {
 
 // Background jobs on BullMQ (Redis or Valkey, REDIS_URL).
 // - A module registers its jobs with handle() in onModuleInit.
+// - API servers only add jobs; worker servers (src/worker.ts) run them.
 // - add() queues a job; schedule() runs one on a timetable (routines).
 // - Failed jobs are retried with growing waits; finished ones are cleaned up.
 // Tests run each job straight away, so they need no Redis.
 @Injectable()
-export class BullmqService implements OnApplicationBootstrap, OnModuleDestroy {
+export class BullmqService implements OnModuleDestroy {
   private readonly logger = new Logger(BullmqService.name);
   private readonly connection: ConnectionOptions;
   private readonly inline: boolean;
@@ -122,12 +118,14 @@ export class BullmqService implements OnApplicationBootstrap, OnModuleDestroy {
     return this.testSchedules.get(`${name}:${id}`);
   }
 
-  // Workers start once the whole app is ready, so every module's handlers
-  // are registered first.
-  onApplicationBootstrap(): void {
+  // Starts running jobs. Only the worker process calls this (src/worker.ts):
+  // API servers only add jobs, so busy jobs never slow down the API.
+  startWorkers(): string[] {
     this.started = true;
-    if (this.inline) return;
-    for (const name of this.handlers.keys()) this.startWorker(name);
+    if (!this.inline) {
+      for (const name of this.handlers.keys()) this.startWorker(name);
+    }
+    return [...this.handlers.keys()];
   }
 
   // Lets running jobs finish, then closes the connections.

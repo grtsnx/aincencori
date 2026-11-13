@@ -38,4 +38,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/v1/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
+# The API. Workers use the same image with: node --enable-source-maps dist/worker.js
 CMD ["node", "--enable-source-maps", "dist/main.js"]

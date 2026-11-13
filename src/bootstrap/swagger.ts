@@ -328,8 +328,9 @@ function sampleNestResponses(document: OpenAPIObject): void {
       for (const [status, response] of Object.entries(responses)) {
         const code = Number(status);
         if (code < 400 || response.content) continue;
-        Object.assign(
-          response,
+        // A copy: one decorator's response object is shared by many routes.
+        responses[status] = Object.assign(
+          { ...response },
           errorResponse(
             code,
             (response.description as string | undefined) ??

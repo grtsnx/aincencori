@@ -1,15 +1,14 @@
-import {
-  Injectable,
-  Logger,
-  type OnModuleDestroy,
-  type OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Mailer } from '@nestjs/mail';
 import { symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
 import { randomUUID } from 'node:crypto';
 import { type EmailTemplate, renderEmail } from '@/config/email/templates.js';
+import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+
+// Background job that sends due emails from the outbox (on worker servers).
+const sendEmails = 'email-outbox';
 
 const batchSize = 10;
 const leaseMs = 5 * 60_000;
@@ -31,12 +30,13 @@ interface OutboxRow {
 }
 
 // Every email goes through an outbox: saved (encrypted) in Postgres first, then
-// sent by a background loop with retries, so a provider outage loses nothing.
+// sent by a background job on the worker servers, with retries, so a provider
+// outage loses nothing. A new email is sent right away; a 5-second sweep picks
+// up retries and anything missed.
 // Sending uses @nestjs/mail (Resend or SMTP, see email.module.ts).
 @Injectable()
-export class EmailService implements OnModuleInit, OnModuleDestroy {
+export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
-  private timer?: ReturnType<typeof setInterval>;
   private processing = false;
   private lastPrunedAt = 0;
   // Tests only: the last email "sent" to each address.
@@ -46,20 +46,18 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly mailer: Mailer,
+    private readonly bullmq: BullmqService,
   ) {}
 
   onModuleInit(): void {
+    this.bullmq.handle(sendEmails, () => this.processDueMessages(), {
+      concurrency: 1,
+    });
     if (this.isTest()) return;
-    this.timer = setInterval(() => {
-      void this.processDueMessages().catch(() => {
-        this.logger.error('Email outbox polling failed.');
-      });
-    }, 5_000);
-    this.timer.unref?.();
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
+    // Same id every start, so this only updates the one timetable.
+    void this.bullmq
+      .schedule(sendEmails, 'every-5-seconds', { everyMs: 5_000 }, {})
+      .catch(() => this.logger.error('Could not schedule the email sweep.'));
   }
 
   // Queues an email. Tests keep it in memory instead (read with lastTestEmail).
@@ -89,6 +87,11 @@ export class EmailService implements OnModuleInit, OnModuleDestroy {
         availableAt: new Date(),
       },
     });
+    // Send now instead of waiting for the sweep. If Redis is briefly down,
+    // the email is still safe in the outbox and the sweep sends it.
+    await this.bullmq
+      .add(sendEmails, {}, { attempts: 1 })
+      .catch(() => this.logger.warn('Email queued; the sweep will send it.'));
   }
 
   // Tests only: the variables of the last email to an address (e.g. otpCode).

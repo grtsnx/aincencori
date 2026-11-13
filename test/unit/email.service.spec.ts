@@ -27,7 +27,16 @@ function createService(rows: unknown[] = [], updateCounts: number[] = [1, 1]) {
   } as never;
   // @nestjs/mail's Mailer; only send() is used.
   const sender = vi.fn().mockResolvedValue({ messageId: 'm1' });
-  const service = new EmailService(config, prisma, { send: sender } as never);
+  const service = new EmailService(
+    config,
+    prisma,
+    { send: sender } as never,
+    {
+      handle: vi.fn(),
+      add: vi.fn().mockResolvedValue(undefined),
+      schedule: vi.fn().mockResolvedValue(undefined),
+    } as never,
+  );
   return { service, create, findMany, updateMany, deleteMany, sender };
 }
 
@@ -214,6 +223,7 @@ describe('EmailService (outbox + @nestjs/mail)', () => {
       { get: () => 'test' } as never,
       { db: { emailOutbox: { create } } } as never,
       { send: vi.fn() } as never,
+      { handle: vi.fn(), add: vi.fn() } as never,
     );
 
     await service.enqueue(message.template, message.to, message.variables);
