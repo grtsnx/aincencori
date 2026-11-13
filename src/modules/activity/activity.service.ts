@@ -51,7 +51,9 @@ export class ActivityService implements OnModuleInit {
         { cron: '0 3 * * *', timezone: 'UTC' },
         {},
       )
-      .catch(() => this.logger.warn('The activity clean-up was not scheduled.'));
+      .catch(() =>
+        this.logger.warn('The activity clean-up was not scheduled.'),
+      );
   }
 
   // Adds an entry in the background.

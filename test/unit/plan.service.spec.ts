@@ -225,7 +225,7 @@ describe('PlanService', () => {
   it('stops at once, without retrying, when the AI allowance is used up', async () => {
     const { plan, usage, chat, run } = createService();
     usage.assertAllowance.mockRejectedValue(
-      new HttpException('You have used this month\'s AI allowance.', 402),
+      new HttpException("You have used this month's AI allowance.", 402),
     );
 
     await run(1);

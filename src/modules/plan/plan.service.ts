@@ -211,7 +211,7 @@ export class PlanService implements OnModuleInit {
         message:
           'All steps of the plan are done. Give the user the finished ' +
           'result in full, then one line on what each step did.',
-          chatId,
+        chatId,
         source: 'plan',
         stopNote: 'This plan paused',
       });

@@ -189,7 +189,8 @@ function guarded<S extends z.ZodObject>(
   const { execute } = options;
   return tool<S, ChatContext>({
     ...options,
-    needsApproval: ({ context }) => context.toolDecision(options.name) === 'ask',
+    needsApproval: ({ context }) =>
+      context.toolDecision(options.name) === 'ask',
     execute: (args, runContext, details) =>
       runContext.context.toolDecision(options.name) === 'deny'
         ? deniedToolMessage

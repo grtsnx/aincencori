@@ -33,8 +33,7 @@ export class ApprovalController {
 
   @ApiOperation({
     summary: 'List waiting approvals',
-    description:
-      'Steps your AI stopped at. Approve one by sending it to the chat.',
+    description: 'Steps your AI stopped at, waiting for your OK.',
   })
   @ApiOkResponse({ type: [PendingApprovalDto] })
   @Get()

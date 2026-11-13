@@ -15,6 +15,10 @@ export {
   splitText,
   UnreadableDocumentError,
 } from './document-text.js';
-export { meteredFetch, usageFromEvent, type ModelUsage } from './metered-fetch.js';
+export {
+  meteredFetch,
+  usageFromEvent,
+  type ModelUsage,
+} from './metered-fetch.js';
 export { readRunState, signRunState } from './run-state.js';
 export { sendAlert } from './alert.js';

@@ -4,6 +4,7 @@ import {
   ExceptionFilter,
   Injectable,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpAdapterHost } from '@nestjs/core';
@@ -17,7 +18,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
   constructor(
     private readonly adapterHost: HttpAdapterHost,
-    private readonly config: ConfigService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
@@ -51,7 +52,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       });
       // Tell the team (one message per kind of error every few minutes).
       sendAlert(
-        this.config.get<string>('ALERT_WEBHOOK_URL'),
+        this.config?.get<string>('ALERT_WEBHOOK_URL'),
         `Server error on ${request.method ?? ''} ${path ?? ''}`,
         exception instanceof Error ? exception.message : String(exception),
       );

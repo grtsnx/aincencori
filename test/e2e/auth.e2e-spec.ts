@@ -161,6 +161,9 @@ describe('Better Auth (e2e)', () => {
       'Knowledge',
       'Plans',
       'Marketplace',
+      'Approvals',
+      'Activity',
+      'Usage',
       'MCP',
       'Admin',
     ]);
@@ -185,9 +188,16 @@ describe('Better Auth (e2e)', () => {
     const capabilities = await request(server)
       .get('/v1/agent-auth/capabilities')
       .expect(200);
-    expect(capabilities.body.data).toEqual([
-      expect.objectContaining({ name: 'get_profile' }),
-    ]);
+    expect(capabilities.body.data.map((c: { name: string }) => c.name)).toEqual(
+      [
+        'get_profile',
+        'list_bots',
+        'ask',
+        'search_documents',
+        'start_plan',
+        'get_usage',
+      ],
+    );
   });
 
   it('rejects agent routes without an agent token', async () => {

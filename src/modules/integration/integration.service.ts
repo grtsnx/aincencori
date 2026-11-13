@@ -413,8 +413,7 @@ export class IntegrationService implements OnModuleInit {
       fetch: this.fetch,
       quiet,
       // Rules are read fresh before each chat turn.
-      decide: (tool) =>
-        this.approvals.cachedDecision(integration.userId, tool),
+      decide: (tool) => this.approvals.cachedDecision(integration.userId, tool),
     });
   }
 

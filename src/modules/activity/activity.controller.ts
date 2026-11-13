@@ -7,7 +7,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { IncomingHttpHeaders } from 'node:http';
-import { ActivityDto, AdminActivityQueryDto, ListActivityQueryDto } from '@/dto';
+import {
+  ActivityDto,
+  AdminActivityQueryDto,
+  ListActivityQueryDto,
+} from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { CurrentSession } from '@/middleware';
 import { ActivityService } from './activity.service.js';
