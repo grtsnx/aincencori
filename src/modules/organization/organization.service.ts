@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { fromNodeHeaders } from 'better-auth/node';
 import type { IncomingHttpHeaders } from 'node:http';
-import type { OrganizationDetailsDto, OrganizationDto } from '@/dto';
+import { permissionCatalog } from '@/config/auth/access.js';
+import type {
+  OrganizationDetailsDto,
+  OrganizationDto,
+  PermissionCatalogDto,
+} from '@/dto';
 import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
 
 interface OrganizationRecord {
@@ -60,6 +65,12 @@ export class OrganizationService {
         expiresAt: invitation.expiresAt,
       })),
     };
+  }
+
+  // Every permission a custom organization role can be given. Create roles with
+  // Better Auth's /api/auth/organization/create-role.
+  permissions(): PermissionCatalogDto {
+    return { permissions: permissionCatalog };
   }
 
   private toDto(organization: OrganizationRecord): OrganizationDto {

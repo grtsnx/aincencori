@@ -129,6 +129,15 @@ const environmentSchema = z
         .optional(),
     ),
     MCP_RESOURCE_URL: optionalString().pipe(z.url().optional()),
+    STAFF_ORGANIZATION_SLUG: optionalString().pipe(
+      z
+        .string()
+        .regex(/^[a-z0-9-]{2,40}$/, {
+          error:
+            'STAFF_ORGANIZATION_SLUG must use lowercase letters, numbers and dashes',
+        })
+        .optional(),
+    ),
     AUTH_IP_HEADERS: optionalString(),
     AUTH_TRUSTED_PROXIES: optionalString(),
     AUTH_COOKIE_DOMAIN: optionalString().pipe(
@@ -210,6 +219,7 @@ export interface Environment {
   MCP_RESOURCE_URL: string;
   AUTH_IP_HEADERS: string[];
   AUTH_TRUSTED_PROXIES: string[];
+  STAFF_ORGANIZATION_SLUG: string;
 }
 
 export function validateEnvironment(
@@ -232,5 +242,6 @@ export function validateEnvironment(
     MCP_RESOURCE_URL: parsed.MCP_RESOURCE_URL ?? `${betterAuthUrl}/mcp`,
     AUTH_IP_HEADERS: commaList(parsed.AUTH_IP_HEADERS),
     AUTH_TRUSTED_PROXIES: commaList(parsed.AUTH_TRUSTED_PROXIES),
+    STAFF_ORGANIZATION_SLUG: parsed.STAFF_ORGANIZATION_SLUG ?? 'staff',
   };
 }

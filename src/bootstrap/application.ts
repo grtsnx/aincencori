@@ -48,6 +48,15 @@ export function configureApplication(
   const { handler } = app.get(BetterAuthService);
   const server = app.getHttpAdapter().getInstance();
   server.all(`${authBasePath}/{*any}`, handler);
+  // Agent Auth's discovery document lives under the auth path; agents look
+  // for it here.
+  server.get(
+    '/.well-known/agent-configuration',
+    (request: { url: string }, response: unknown) => {
+      request.url = `${authBasePath}/agent-configuration`;
+      return handler(request as never, response as never);
+    },
+  );
   server.all('/.well-known/{*any}', handler);
 
   app.useGlobalPipes(

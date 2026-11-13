@@ -6,7 +6,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { IncomingHttpHeaders } from 'node:http';
-import { OrganizationDetailsDto, OrganizationDto } from '@/dto';
+import {
+  OrganizationDetailsDto,
+  OrganizationDto,
+  PermissionCatalogDto,
+} from '@/dto';
 import { OrganizationService } from './organization.service.js';
 
 @Controller({ path: 'organizations', version: '1' })
@@ -36,5 +40,15 @@ export class OrganizationController {
     @Headers() headers: IncomingHttpHeaders,
   ): Promise<OrganizationDetailsDto> {
     return this.organizationService.active(headers);
+  }
+
+  @ApiOperation({
+    summary: 'List permissions',
+    description: 'Every permission an organization role can be given.',
+  })
+  @ApiOkResponse({ type: PermissionCatalogDto })
+  @Get('permissions')
+  permissions(): PermissionCatalogDto {
+    return this.organizationService.permissions();
   }
 }

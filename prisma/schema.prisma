@@ -44,10 +44,11 @@ model User {
   oauthaccesstokens  OauthAccessToken[]
   oauthconsents      OauthConsent[]
 
-  agenthosts            AgentHost[]
-  agents                Agent[]
-  agentcapabilitygrants AgentCapabilityGrant[]
-  approvalrequests      ApprovalRequest[]
+  agenthosts         AgentHost[]
+  agents             Agent[]
+  agentGrantsGranted AgentCapabilityGrant[] @relation("AgentGrantGrantedBy")
+  agentGrantsDenied  AgentCapabilityGrant[] @relation("AgentGrantDeniedBy")
+  approvalrequests   ApprovalRequest[]
 
   @@unique([email])
   @@map("user")
@@ -487,23 +488,27 @@ model Agent {
 }
 
 model AgentCapabilityGrant {
-  id          String    @id
-  agentId     String
-  agent       Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  capability  String
-  deniedBy    String?
-  user        User?     @relation(fields: [deniedBy], references: [id], onDelete: Cascade) @relation(fields: [grantedBy], references: [id], onDelete: Cascade)
-  grantedBy   String?
-  expiresAt   DateTime?
-  createdAt   DateTime
-  updatedAt   DateTime
-  status      String    @default("active")
-  reason      String?
-  constraints String?
+  id            String    @id
+  agentId       String
+  agent         Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  capability    String
+  // Fixed by hand: the generator merges these two user links into one field.
+  // Re-apply after `bun run auth:generate` if it reverts them.
+  deniedBy      String?
+  deniedByUser  User?     @relation("AgentGrantDeniedBy", fields: [deniedBy], references: [id], onDelete: Cascade)
+  grantedBy     String?
+  grantedByUser User?     @relation("AgentGrantGrantedBy", fields: [grantedBy], references: [id], onDelete: Cascade)
+  expiresAt     DateTime?
+  createdAt     DateTime
+  updatedAt     DateTime
+  status        String    @default("active")
+  reason        String?
+  constraints   String?
 
   @@index([agentId])
   @@index([capability])
   @@index([grantedBy])
+  @@index([deniedBy])
   @@index([status])
   @@map("agentCapabilityGrant")
 }

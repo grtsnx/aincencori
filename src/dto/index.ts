@@ -1,5 +1,12 @@
 // Every DTO, grouped by feature folder.
 export {
+  AgentCapabilityDto,
+  AgentConfigurationDto,
+  AgentInfoDto,
+  AgentSessionDto,
+  AgentUserDto,
+} from './agent-auth/agent-auth.dto.js';
+export {
   AdminUserDto,
   CreateRoleDto,
   InviteStaffDto,
