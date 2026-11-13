@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
 import { CronExpressionParser } from 'cron-parser';
@@ -36,8 +37,10 @@ const runRoutine = 'routine-run';
 // 8, summarize the news"). The queue fires each run at the right time in the
 // user's time zone; each run is saved as a chat the user can open.
 @Injectable()
-export class RoutineService implements OnModuleInit {
+export class RoutineService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RoutineService.name);
+  private reconcileRetryTimer?: ReturnType<typeof setTimeout>;
+  private isShuttingDown = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -56,9 +59,7 @@ export class RoutineService implements OnModuleInit {
     // jobs (like sign-in emails) must not wait. Each run checks its routine
     // still exists and is on, so nothing wrong runs meanwhile.
     this.bullmq.onWorkerStart(() => {
-      void this.reconcileSchedules().catch(() =>
-        this.logger.error('Routine schedules could not be reconciled.'),
-      );
+      void this.reconcileSchedulesWithRetry();
       return Promise.resolve();
     });
     // Lets the chat agent manage the user's routines ("every morning at 8...").
@@ -69,6 +70,11 @@ export class RoutineService implements OnModuleInit {
         this.update(id, { user: { id: userId } }, { enabled }),
       remove: (userId, id) => this.remove(id, { user: { id: userId } }),
     });
+  }
+
+  onModuleDestroy(): void {
+    this.isShuttingDown = true;
+    if (this.reconcileRetryTimer) clearTimeout(this.reconcileRetryTimer);
   }
 
   // The user's routines, newest first, one page at a time.
@@ -228,7 +234,10 @@ export class RoutineService implements OnModuleInit {
       await this.bullmq.unschedule(runRoutine, routineId);
       return;
     }
-    if (!routine.enabled && !manual) return;
+    if (!routine.enabled && !manual) {
+      await this.bullmq.unschedule(runRoutine, routineId);
+      return;
+    }
     let status: string;
     try {
       status = await this.chat.runRoutine(routine);
@@ -281,6 +290,22 @@ export class RoutineService implements OnModuleInit {
         }
       }
       after = routines.at(-1)?.id;
+    }
+  }
+
+  // Retry transient database or queue failures without blocking worker boot.
+  private async reconcileSchedulesWithRetry(): Promise<void> {
+    try {
+      await this.reconcileSchedules();
+    } catch {
+      this.logger.error('Routine schedules could not be reconciled.');
+      if (!this.isShuttingDown && !this.reconcileRetryTimer) {
+        this.reconcileRetryTimer = setTimeout(() => {
+          this.reconcileRetryTimer = undefined;
+          void this.reconcileSchedulesWithRetry();
+        }, 30_000);
+        this.reconcileRetryTimer.unref?.();
+      }
     }
   }
 

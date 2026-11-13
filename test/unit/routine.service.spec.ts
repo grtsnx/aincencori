@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RoutineService } from '@/modules/routine/routine.service.js';
 
 const routine = (enabled: boolean) => ({
@@ -70,6 +70,8 @@ function createService(rows = [routine(true), routine(false)]) {
 }
 
 describe('RoutineService reliability', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('restores enabled schedules and removes disabled schedules when a worker starts', async () => {
     const { service, bullmq, reconcile } = createService();
     service.onModuleInit();
@@ -106,6 +108,25 @@ describe('RoutineService reliability', () => {
     );
   });
 
+  it('retries schedule reconciliation after a temporary database failure', async () => {
+    const { service, db, bullmq, reconcile } = createService([routine(true)]);
+    db.routine.findMany
+      .mockReset()
+      .mockRejectedValueOnce(new Error('Database unavailable'))
+      .mockResolvedValueOnce([routine(true)])
+      .mockResolvedValue([]);
+    vi.useFakeTimers();
+    service.onModuleInit();
+
+    await reconcile()?.();
+    expect(db.routine.findMany).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await vi.waitFor(() => expect(bullmq.schedule).toHaveBeenCalledOnce());
+    expect(db.routine.findMany).toHaveBeenCalledTimes(3);
+  });
+
   it('does not restore or run orphaned routines', async () => {
     const orphan = { ...routine(true), id: 'orphan-routine', userId: 'gone' };
     const { service, bullmq, chat, reconcile, getHandler } = createService([
@@ -124,13 +145,19 @@ describe('RoutineService reliability', () => {
   });
 
   it('skips queued scheduled runs for paused routines but permits manual runs', async () => {
-    const { service, chat, getHandler } = createService([routine(false)]);
+    const { service, bullmq, chat, getHandler } = createService([
+      routine(false),
+    ]);
     service.onModuleInit();
     const handler = getHandler();
     if (!handler) throw new Error('Routine handler was not registered.');
 
     await handler({ routineId: 'paused-routine' });
     expect(chat.runRoutine).not.toHaveBeenCalled();
+    expect(bullmq.unschedule).toHaveBeenCalledWith(
+      'routine-run',
+      'paused-routine',
+    );
 
     await handler({ routineId: 'paused-routine', manual: true });
     expect(chat.runRoutine).toHaveBeenCalledTimes(1);
