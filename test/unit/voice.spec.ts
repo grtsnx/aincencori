@@ -56,7 +56,11 @@ describe('voice calls', () => {
     // Our voice worker is called in, and told who is calling and which bot.
     const [agent] = ticket.roomConfig.agents;
     expect(agent.agentName).toBe('agentic-voice');
-    expect(JSON.parse(agent.metadata)).toEqual({ userId: 'u1', botId: 'b1' });
+    expect(JSON.parse(agent.metadata)).toEqual({
+      mode: 'call',
+      userId: 'u1',
+      botId: 'b1',
+    });
   });
 
   it('makes a new room for every call', async () => {
@@ -85,5 +89,23 @@ describe('voice calls', () => {
     await expect(
       service.startCall(auth, { botId: 'b', groupId: 'g' }),
     ).rejects.toThrow('not both');
+  });
+
+  it('gives a voice typing ticket: no bot, the chosen language', async () => {
+    const { service } = voice();
+
+    const typing = await service.startDictation(auth, { language: 'fr' });
+
+    expect(typing.room).toMatch(/^dictate-[0-9a-f-]{36}$/);
+    const [agent] = claims(typing.token).roomConfig.agents;
+    expect(JSON.parse(agent.metadata)).toEqual({
+      mode: 'dictate',
+      userId: 'u1',
+      language: 'fr',
+    });
+    const defaults = await service.startDictation(auth, {});
+    expect(
+      JSON.parse(claims(defaults.token).roomConfig.agents[0].metadata).language,
+    ).toBe('en');
   });
 });

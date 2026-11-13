@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class StartCallDto {
   @ApiPropertyOptional({
@@ -20,6 +20,18 @@ export class StartCallDto {
   @IsString()
   @MaxLength(200)
   groupId?: string;
+}
+
+export class StartDictationDto {
+  @ApiPropertyOptional({
+    description: 'The language you will speak, as a two-letter code',
+    default: 'en',
+    example: 'en',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-z]{2}$/, { message: 'language must be a two-letter code' })
+  language?: string;
 }
 
 export class VoiceCallDto {

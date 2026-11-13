@@ -87,4 +87,8 @@ export {
   UserProfileDto,
   UserSessionDto,
 } from './user/user.dto.js';
-export { StartCallDto, VoiceCallDto } from './voice/voice.dto.js';
+export {
+  StartCallDto,
+  StartDictationDto,
+  VoiceCallDto,
+} from './voice/voice.dto.js';

@@ -220,6 +220,16 @@ describe('Chat (e2e)', () => {
         .set('Cookie', cookies)
         .send({ botId: 'not-my-bot' })
         .expect(404);
+      await request(server)
+        .post('/v1/voice/dictate')
+        .set('Cookie', cookies)
+        .send({ language: 'english' })
+        .expect(400);
+      await request(server)
+        .post('/v1/voice/dictate')
+        .set('Cookie', cookies)
+        .send({})
+        .expect(503);
     });
 
     it("keeps other people's chats private", async () => {

@@ -8,7 +8,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { StartCallDto, VoiceCallDto } from '@/dto';
+import { StartCallDto, StartDictationDto, VoiceCallDto } from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { CurrentSession } from '@/middleware';
 import { VoiceService } from './voice.service.js';
@@ -35,5 +35,21 @@ export class VoiceController {
     @Body() body: StartCallDto,
   ): Promise<VoiceCallDto> {
     return this.voiceService.startCall(auth, body);
+  }
+
+  @ApiOperation({
+    summary: 'Start voice typing',
+    description: 'Returns a ticket to speak and see your words typed live.',
+  })
+  @ApiOkResponse({ type: VoiceCallDto })
+  @ApiServiceUnavailableResponse({ description: 'Voice is not set up' })
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Post('dictate')
+  @HttpCode(200)
+  startDictation(
+    @CurrentSession() auth: AuthSession,
+    @Body() body: StartDictationDto,
+  ): Promise<VoiceCallDto> {
+    return this.voiceService.startDictation(auth, body);
   }
 }

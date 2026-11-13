@@ -13,6 +13,7 @@ RUN bun install --frozen-lockfile
 
 FROM dependencies AS build
 COPY nest-cli.json tsconfig.json tsconfig.build.json ./
+COPY scripts/check-build.mjs ./scripts/check-build.mjs
 COPY src ./src
 RUN bun run build
 

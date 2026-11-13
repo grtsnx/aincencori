@@ -5,12 +5,12 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { voiceAgentName, voiceTicketSeconds } from '@/config/agents/limits.js';
-import type { StartCallDto, VoiceCallDto } from '@/dto';
+import type { StartCallDto, StartDictationDto, VoiceCallDto } from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { LivekitService } from '@/lib/livekit/livekit.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
-// Live voice calls: the user talks with the default assistant, one of their
+// Voice, two ways. Calls: the user talks with the default assistant, one of their
 // bots or one of their groups, like a phone call. We give the app a ticket
 // for a private LiveKit room; our voice worker joins it, turns speech into
 // text, asks the bot through the normal chat (so memories, skills and
@@ -52,7 +52,32 @@ export class VoiceService {
       identity: userId,
       name: auth.user.name,
       agentName: voiceAgentName,
-      details: { userId, botId: body.botId, groupId: body.groupId },
+      details: {
+        mode: 'call',
+        userId,
+        botId: body.botId,
+        groupId: body.groupId,
+      },
+      seconds: voiceTicketSeconds,
+    });
+  }
+
+  // Voice typing: the user speaks and sees their words appear as they talk,
+  // to send as a normal message. No bot answers; nothing is saved here.
+  async startDictation(
+    auth: AuthSession,
+    body: StartDictationDto,
+  ): Promise<VoiceCallDto> {
+    return this.livekit.ticket({
+      room: `dictate-${randomUUID()}`,
+      identity: auth.user.id,
+      name: auth.user.name,
+      agentName: voiceAgentName,
+      details: {
+        mode: 'dictate',
+        userId: auth.user.id,
+        language: body.language ?? 'en',
+      },
       seconds: voiceTicketSeconds,
     });
   }

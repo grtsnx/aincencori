@@ -72,6 +72,7 @@ Then open the API docs:
   - **Skills**: playbooks it can run. Stored by us, and sent to Cencori for a safety scan and version history.
   - **Routines**: jobs that run on their own (`/v1/routines` with `botId`).
   - **Integrations**: apps it can use.
+- Voice typing (LiveKit): `POST /v1/voice/dictate` gives the app a ticket to speak instead of typing. The words appear live in the message box as the user talks, then go to the chat as a normal message. No bot answers on its own.
 - Voice calls (LiveKit): `POST /v1/voice/call` gives the app a ticket to talk live with the default assistant, a bot or a group. The bot starts speaking while it is still writing its answer (first words in about 1.5 seconds in our tests), and the user can talk over it. Our voice worker (`src/voice-worker.ts`, run with `bun run start:voice`) joins the call, turns speech into text, asks the bot through the normal chat, and speaks the answer. A call uses the bot's memories, skills and integrations and is saved as a chat. Needs `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from a LiveKit Cloud project; without them the route answers 503.
 - Groups (`/v1/groups`): 2 to 6 of a user's bots on one chat (`POST /v1/chat` with `groupId`). A built-in lead reads each message and asks the bots that fit; the bots can ask each other too. The history shows what each bot said. Bots are asked at most 8 times per message, which keeps cost in check and stops them talking in circles.
 - A bot can rewrite its own instructions when asked; the user approves the change in the chat first.
@@ -168,7 +169,7 @@ CI runs all of these on every push, then builds and scans the Docker image. Tagg
 
 ## Known issues
 
-- **The Docker image has not been rebuilt since `sharp` (pictures) and `@livekit/agents` (voice) were added.** Both ship compiled code; check the image builds and starts on its Alpine base before deploying.
+- **Docker Desktop's default 8 GB disk is too small to build the image** (it is about 1.4 GB, plus build cache). Raise it in Docker Desktop settings, or run `docker builder prune` after building.
 
 - **Voice calls are untested with real audio.** The call ticket, the worker's start-up and the spoken answer style are tested; a real call needs LiveKit Cloud keys and a frontend with LiveKit's client.
 

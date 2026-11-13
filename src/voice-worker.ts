@@ -22,9 +22,11 @@ import {
 } from '@/config/agents/limits.js';
 import { ChatService } from '@/modules/chat/chat.service.js';
 
-// The voice worker: it joins each live call (a LiveKit room), turns what the
-// user says into text, asks our bot through the normal chat, and speaks the
-// answer. So a call uses the same bots, memories, skills and integrations as
+// The voice worker. It joins each voice room (LiveKit) in one of two modes:
+// - call: turns what the user says into text, asks our bot through the
+//   normal chat, and speaks the answer.
+// - dictate (voice typing): only turns speech into text, shown live in the
+//   app's message box. So a call uses the same bots, memories, skills and integrations as
 // a typed chat, and is saved as a chat.
 //
 // Run it beside the API: `bun run start:voice` (needs LIVEKIT_URL,
@@ -32,6 +34,9 @@ import { ChatService } from '@/modules/chat/chat.service.js';
 
 // Who is calling and which bot, signed into the call ticket by our API.
 interface CallDetails {
+  // call: talk with a bot. dictate: voice typing, no bot answers.
+  mode?: 'call' | 'dictate';
+  language?: string;
   userId?: string;
   botId?: string;
   groupId?: string;
@@ -58,6 +63,36 @@ export default defineAgent({
       return;
     }
     const userId: string = details.userId;
+
+    // Voice typing: only turn speech into text. LiveKit sends the words to
+    // the app as they are heard (first guesses, then the final text), where
+    // they fill the message box. No bot answers and nothing is spoken.
+    if (details.mode === 'dictate') {
+      class Typist extends voice.Agent {
+        override async llmNode(): Promise<ReadableStream<string> | null> {
+          return null;
+        }
+      }
+      const typing = new voice.AgentSession({
+        stt: new inference.STT({
+          model: voiceSttModel,
+          language: details.language ?? 'en',
+        }),
+        // Never called (the answer step returns nothing), but needed for
+        // LiveKit to run its turn steps.
+        llm: new inference.LLM({ model: `openai/${agentModel}` }),
+        turnHandling: {
+          turnDetection: new inference.TurnDetector(),
+          preemptiveGeneration: { enabled: false },
+        },
+      });
+      await typing.start({
+        agent: new Typist({ instructions: '' }),
+        room: ctx.room,
+      });
+      await ctx.connect();
+      return;
+    }
     // The whole call is one chat; it starts with the first thing said.
     let chatId: string | undefined;
     // The turn before this one, so a new turn waits until it is saved (and
@@ -128,7 +163,10 @@ export default defineAgent({
     }
 
     const session = new voice.AgentSession({
-      stt: new inference.STT({ model: voiceSttModel, language: 'en' }),
+      stt: new inference.STT({
+        model: voiceSttModel,
+        language: details.language ?? 'en',
+      }),
       // Never called (llmNode above answers), but LiveKit only runs the
       // think step when a model is set.
       llm: new inference.LLM({ model: `openai/${agentModel}` }),
