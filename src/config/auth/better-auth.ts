@@ -2,7 +2,7 @@ import { passkey } from '@better-auth/passkey';
 import { emailHarmony } from 'better-auth-harmony';
 import { cimd } from '@better-auth/cimd';
 import { fetchClientMetadataResource } from '@better-auth/cimd/node';
-import { dash } from '@better-auth/infra';
+import { dash, sentinel } from '@better-auth/infra';
 import { mcp } from '@better-auth/mcp';
 import type { BetterAuthOptions } from 'better-auth';
 import {
@@ -21,6 +21,7 @@ import { randomBytes } from 'node:crypto';
 import type { EmailTemplate } from '@/config/email/templates.js';
 import { organizationAc, organizationRoles } from './access.js';
 import { agentAuthPlugin } from './agent.js';
+import { sentinelSecurity } from './sentinel.js';
 
 // Scopes OAuth and MCP apps may ask for (Better Auth's defaults).
 const oauthScopes = ['openid', 'profile', 'email', 'offline_access'];
@@ -260,7 +261,17 @@ export function createAuthOptions(settings: AuthSettings) {
             }),
           ]
         : []),
-      ...(settings.dashApiKey ? [dash({ apiKey: settings.dashApiKey })] : []),
+      // Better Auth Infrastructure, when its key is set: the dashboard, and
+      // Sentinel (bot and abuse protection on sign-in and sign-up).
+      ...(settings.dashApiKey
+        ? [
+            dash({ apiKey: settings.dashApiKey }),
+            sentinel({
+              apiKey: settings.dashApiKey,
+              security: sentinelSecurity,
+            }),
+          ]
+        : []),
       ...(settings.testing ? [testUtils({ captureOTP: true })] : []),
     ],
   } satisfies BetterAuthOptions;

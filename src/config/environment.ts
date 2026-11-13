@@ -180,14 +180,15 @@ const environmentSchema = z
     LINKEDIN_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
     RESEND_API_KEY: optionalString(),
-    SMTP_URL: optionalString().pipe(
-      z
-        .string()
-        .regex(/^smtps?:\/\//, {
-          error: 'SMTP_URL must start with smtp:// or smtps://',
-        })
-        .optional(),
+    SMTP_HOST: optionalString(),
+    SMTP_PORT: z.preprocess(
+      (value) =>
+        typeof value === 'string' && value.trim() === '' ? undefined : value,
+      z.coerce.number().int().min(1).max(65_535).optional(),
     ),
+    SMTP_SECURE: booleanValue('SMTP_SECURE').optional(),
+    SMTP_USER: optionalString(),
+    SMTP_PASSWORD: optionalString(),
     MAIL_FROM: optionalString(),
   })
   .superRefine((environment, context) => {
@@ -210,11 +211,11 @@ const environmentSchema = z
       }
 
       // Sign-in codes need a way out: Resend or an SMTP server.
-      if (!environment.RESEND_API_KEY && !environment.SMTP_URL) {
+      if (!environment.RESEND_API_KEY && !environment.SMTP_HOST) {
         context.addIssue({
           code: 'custom',
-          message: 'Set RESEND_API_KEY or SMTP_URL in production',
-          path: ['SMTP_URL'],
+          message: 'Set RESEND_API_KEY or SMTP_HOST in production',
+          path: ['SMTP_HOST'],
         });
       }
 
@@ -237,6 +238,15 @@ const environmentSchema = z
           path: ['AUTH_TRUSTED_PROXIES'],
         });
       }
+    }
+
+    // An SMTP login needs both its user and password, or neither.
+    if (!environment.SMTP_USER !== !environment.SMTP_PASSWORD) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Set both SMTP_USER and SMTP_PASSWORD, or neither',
+        path: ['SMTP_USER'],
+      });
     }
 
     // Each sign-in provider needs both its ID and secret, or neither.
@@ -293,7 +303,11 @@ export interface Environment {
   LINKEDIN_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
   RESEND_API_KEY?: string;
-  SMTP_URL: string;
+  SMTP_HOST: string;
+  SMTP_PORT: number;
+  SMTP_SECURE: boolean;
+  SMTP_USER?: string;
+  SMTP_PASSWORD?: string;
   MAIL_FROM: string;
   // Worked out, not set in .env.
   AUTH_IP_HEADERS: string[];
@@ -354,6 +368,7 @@ export function validateEnvironment(
   }
 
   const cookieDomain = sharedParentDomain(appUrl, betterAuthUrl);
+  const smtpPort = parsed.SMTP_PORT ?? (parsed.SMTP_HOST ? 587 : 1025);
   return {
     ...parsed,
     CORS_ORIGINS: origins,
@@ -370,7 +385,10 @@ export function validateEnvironment(
     PASSKEY_RP_ID: cookieDomain ?? new URL(appUrl).hostname,
     MCP_RESOURCE_URL: `${betterAuthUrl}/mcp`,
     // Locally: the Mailpit container from compose.yaml (inbox at :8025).
-    SMTP_URL: parsed.SMTP_URL ?? 'smtp://localhost:1025',
+    SMTP_HOST: parsed.SMTP_HOST ?? 'localhost',
+    SMTP_PORT: smtpPort,
+    // Port 465 uses TLS from the start; 587 and 25 upgrade with STARTTLS.
+    SMTP_SECURE: parsed.SMTP_SECURE ?? smtpPort === 465,
     MAIL_FROM:
       parsed.MAIL_FROM ?? `${parsed.PLATFORM_NAME} <no-reply@localhost>`,
   };

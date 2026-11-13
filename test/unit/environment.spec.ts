@@ -12,7 +12,9 @@ const production = {
   BETTER_AUTH_URL: 'https://api.example.com',
   APP_URL: 'https://app.example.com',
   MAIL_FROM: 'Agentic <no-reply@example.com>',
-  SMTP_URL: 'smtps://user:pass@smtp.example.com:465',
+  SMTP_HOST: 'smtp.example.com',
+  SMTP_USER: 'mailer',
+  SMTP_PASSWORD: 'secret',
   CORS_ORIGINS: 'https://app.example.com',
   AUTH_IP_HEADERS: 'x-vercel-forwarded-for',
 };
@@ -275,23 +277,42 @@ describe('clientIpHeaders', () => {
 });
 
 describe('email settings', () => {
-  it('needs Resend or SMTP in production, and uses Mailpit locally', () => {
-    expect(() => validateEnvironment({ ...production, SMTP_URL: '' })).toThrow(
-      /RESEND_API_KEY or SMTP_URL/,
+  it('needs Resend or SMTP in production', () => {
+    expect(() => validateEnvironment({ ...production, SMTP_HOST: '' })).toThrow(
+      /RESEND_API_KEY or SMTP_HOST/,
     );
     expect(
       validateEnvironment({
         ...production,
-        SMTP_URL: '',
+        SMTP_HOST: '',
+        SMTP_USER: '',
+        SMTP_PASSWORD: '',
         RESEND_API_KEY: 're_x',
       }).RESEND_API_KEY,
     ).toBe('re_x');
+  });
 
-    const local = validateEnvironment({});
-    expect(local.SMTP_URL).toBe('smtp://localhost:1025');
-    expect(local.MAIL_FROM).toBe('Agentic <no-reply@localhost>');
-    expect(() => validateEnvironment({ SMTP_URL: 'http://x' })).toThrow(
-      /SMTP_URL/,
+  it('uses Mailpit locally and port 587 for a real SMTP host', () => {
+    expect(validateEnvironment({})).toMatchObject({
+      SMTP_HOST: 'localhost',
+      SMTP_PORT: 1025,
+      SMTP_SECURE: false,
+      MAIL_FROM: 'Agentic <no-reply@localhost>',
+    });
+    expect(
+      validateEnvironment({ SMTP_HOST: 'smtp.example.com' }),
+    ).toMatchObject({ SMTP_PORT: 587, SMTP_SECURE: false });
+    expect(
+      validateEnvironment({ SMTP_HOST: 'smtp.example.com', SMTP_PORT: '465' }),
+    ).toMatchObject({ SMTP_PORT: 465, SMTP_SECURE: true });
+  });
+
+  it('needs both SMTP user and password, or neither', () => {
+    expect(() => validateEnvironment({ SMTP_USER: 'mailer' })).toThrow(
+      /SMTP_USER and SMTP_PASSWORD/,
+    );
+    expect(() => validateEnvironment({ SMTP_PORT: '99999' })).toThrow(
+      /SMTP_PORT/,
     );
   });
 });

@@ -20,7 +20,7 @@ Follow these rules exactly. If a change doesn't fit them, ask before breaking on
 
 ## Email
 
-- Use `@nestjs/mail` (the official NestJS mail package). Resend when `RESEND_API_KEY` is set, otherwise SMTP (`SMTP_URL`; locally Mailpit from `compose.yaml`).
+- Use `@nestjs/mail` (the official NestJS mail package). Resend when `RESEND_API_KEY` is set, otherwise SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`; locally Mailpit from `compose.yaml`).
 - Every email goes through the outbox in `lib/email/email.service.ts` (encrypted, retried). Email wording lives in `config/email/templates.ts`.
 
 ## API docs (Swagger at /api, Scalar at /docs)

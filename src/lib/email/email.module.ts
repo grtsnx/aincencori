@@ -8,8 +8,9 @@ import {
 } from '@nestjs/mail';
 import { EmailService } from './email.service.js';
 
-// @nestjs/mail. Resend when RESEND_API_KEY is set, otherwise SMTP (SMTP_URL;
-// locally the Mailpit container from compose.yaml). Tests use an in-memory box.
+// @nestjs/mail. Resend when RESEND_API_KEY is set, otherwise SMTP (SMTP_HOST,
+// SMTP_PORT, SMTP_USER, ...; locally Mailpit from compose.yaml). Tests use an
+// in-memory box.
 @Global()
 @Module({
   imports: [
@@ -23,7 +24,15 @@ import { EmailService } from './email.service.js';
             : resendApiKey
               ? new ResendTransport({ apiKey: resendApiKey })
               : new SmtpTransport({
-                  url: config.getOrThrow<string>('SMTP_URL'),
+                  host: config.getOrThrow<string>('SMTP_HOST'),
+                  port: config.getOrThrow<number>('SMTP_PORT'),
+                  secure: config.getOrThrow<boolean>('SMTP_SECURE'),
+                  ...(config.get<string>('SMTP_USER') && {
+                    auth: {
+                      user: config.getOrThrow<string>('SMTP_USER'),
+                      pass: config.getOrThrow<string>('SMTP_PASSWORD'),
+                    },
+                  }),
                 });
         return {
           transport,

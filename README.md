@@ -75,17 +75,17 @@ src/
 
 Everything is in `.env.example` with a comment. The main ones:
 
-| Setting                              | What it's for                                                  |
-| ------------------------------------ | -------------------------------------------------------------- |
-| `DATABASE_URL`                       | Postgres connection                                            |
-| `BETTER_AUTH_SECRET`                 | Signs sessions (32+ characters). Required in production        |
-| `BETTER_AUTH_URL`                    | This API's address                                             |
-| `APP_URL`                            | The frontend's address                                         |
-| `RESEND_API_KEY` or `SMTP_URL`       | Sends emails. Locally SMTP defaults to Mailpit                 |
-| `MAIL_FROM`                          | The sender address. Required in production                     |
-| `BETTER_AUTH_API_KEY`                | Optional: the Better Auth dashboard                            |
-| `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*` | Sign-in providers. Set both ID and secret, or leave both empty |
-| `RECAPTCHA_SECRET_KEY`               | Turns on reCAPTCHA                                             |
+| Setting                                                                    | What it's for                                                  |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `DATABASE_URL`                                                             | Postgres connection                                            |
+| `BETTER_AUTH_SECRET`                                                       | Signs sessions (32+ characters). Required in production        |
+| `BETTER_AUTH_URL`                                                          | This API's address                                             |
+| `APP_URL`                                                                  | The frontend's address                                         |
+| `RESEND_API_KEY` or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Sends emails. Locally SMTP defaults to Mailpit                 |
+| `MAIL_FROM`                                                                | The sender address. Required in production                     |
+| `BETTER_AUTH_API_KEY`                                                      | Optional: Better Auth dashboard and Sentinel abuse protection  |
+| `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*`                                       | Sign-in providers. Set both ID and secret, or leave both empty |
+| `RECAPTCHA_SECRET_KEY`                                                     | Turns on reCAPTCHA                                             |
 
 Production also needs `AUTH_IP_HEADERS`: the one header your host sets with the visitor's real IP (plus `AUTH_TRUSTED_PROXIES` when that header is `x-forwarded-for`). The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
 
