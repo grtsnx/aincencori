@@ -29,6 +29,7 @@ Then open the API docs:
 - Passkeys and two-factor (2FA).
 - A Google, GitHub or LinkedIn sign-in never takes over an existing account just because the email matches. The user signs in first, then links the provider.
 - Throwaway email domains are blocked, and `ada+1@gmail.com` can't make a second account for `ada@gmail.com`.
+- Free-trial abuse: Sentinel counts accounts per device (fingerprint, 90 days). The 3rd account from one device must solve a challenge; the 4th is blocked. It needs `sentinelClient()` on the frontend.
 - Optional Google reCAPTCHA on the email code routes.
 - New users without a photo get their Gravatar, or else an animated DiceBear "loops" avatar. Only a hash of the email is sent.
 
@@ -40,7 +41,7 @@ Then open the API docs:
 
 **AI agents (Agent Auth)**
 
-- Agents act for a user, who approves each thing an agent may do. For now agents can only read the user's profile.
+- Agents act for a user, who approves each thing an agent may do: read the profile, list bots, ask the assistant or a bot, search documents, start a plan, and read usage. They run with the same limits and rules as the user.
 - Agents find the setup at `/.well-known/agent-configuration`.
 
 **Chat with AI agents (Cencori)**
@@ -48,6 +49,7 @@ Then open the API docs:
 - `POST /v1/chat` streams the answer as events: text, widgets (cards, lists, charts), tool calls, approvals and handoffs. The frontend can use Cencori's `<AgentChat>`.
 - The main agent "Agentic" hands account questions to "Account" and web questions to "Research", asks "Writer" for drafts, and can hand the chat to a person on our team.
 - Tools that change data (like changing your name) wait for the user to approve them in the chat.
+- Replies, like WhatsApp: send `replyTo` (a message id) with a message, and the AI is shown the quoted text. Agents can quote too, with their `reply_to_message` tool. The history gives each message's `replyTo` (a short preview). After each turn the stream sends a `saved` event with the new messages' ids, so the app can quote them straight away.
 - Images and files (PDF, text, CSV...) can be attached, up to 5 per message, for the default assistant and every bot. The files are kept in Cloudflare R2 (`STORAGE_URL`; locally MinIO), private, and opened from the chat history through links that last 15 minutes. Deleting a chat or a user deletes their files. Small pictures are enlarged before the model sees them, because models misread tiny images; the stored file stays the original.
 - Guardrails block pasted keys and passwords, and any answer that contains one of our secrets.
 - Every message is saved in our own database (`chatMessage`), so the history is ours and we can switch AI providers without losing it. Chats and messages load in small pages.
@@ -90,6 +92,16 @@ Then open the API docs:
 - A bot only uses the integrations its owner picked. The default assistant uses none. Every tool call on a user's own MCP server asks first.
 - The `/mcp` address is listed in the docs under "MCP".
 - Our own chat agent can manage routines too ("remind me every morning at 8"). Creating, pausing or deleting one asks the user to approve first.
+
+**Approvals, usage and activity** (ideas from Meta's Muse: the AI proposes, rules decide)
+
+- Risky tools ask first by default. The user can set a standing rule per tool: allow, ask or never (`/v1/approvals/rules`), everywhere or for one bot. On an approval card they can also tick "for this chat" (a week) or "always" (`remember` in the decision). Reading tools never ask, so people don't tire of approving.
+- Approvals inbox (`/v1/approvals`): steps the AI stopped at, from chats, routines and plans. Each has a signed state; sending it to `POST /v1/chat` with the decisions carries the run on in its chat. Unanswered ones go after 14 days.
+- Outside text (document search results, answers from users' own MCP servers) is marked as untrusted, so the AI treats it as data and not orders. Tools the user turned off are hidden from the AI.
+- Usage (`/v1/usage`): every AI call's tokens and cost are counted per user and day (Cencori reports them; our meter reads them as they stream past). Plans in `src/config/billing/plans.ts` set a monthly allowance (free $2, pro $20, business $100). When it is used, new chats, routines, plans and voice calls answer 402 until next month. Staff see everyone's spend (`/v1/admin/usage`) and set plans (`PUT /v1/admin/users/:id/plan`).
+- Billing with Cencori: when staff set a plan, the user is sent to Cencori as an "end user" with the rate plan of the same slug (create `free`, `pro`, `business` in Cencori's Revenue settings, with your markup). Cencori can then make invoices and charge through Stripe Connect. We keep our own counts too, because Cencori's API can't read one user's usage.
+- Activity log (`/v1/activity`; staff: `/v1/admin/activity`): sign-ins, every change made through the API, each tool the AI ran, approvals asked and answered, and Agent Auth events. Kept a year.
+- Alerts: set `ALERT_WEBHOOK_URL` (Slack or Discord) to get a message when the server errors or a background job fails for good. The same alert is sent at most once every 10 minutes per server.
 
 **Built for heavy traffic**
 
@@ -171,12 +183,19 @@ bun run typecheck
 bun run test       # unit tests
 bun run test:e2e   # API tests; the database ones run when DATABASE_URL is set
 bun run build
+bun run eval       # AI quality and safety checks on the real model (costs a few cents)
+bun run load-test  # against a running server: bun run load-test http://localhost:3000 20 30
 ```
+
+The load test hits one IP, so the rate limit (100 a minute) answers 429 quickly; that is expected. Run it from several machines to measure real capacity.
 
 CI runs all of these on every push, then builds and scans the Docker image. Tagging a version (`git tag v1.0.0 && git push origin v1.0.0`) publishes the image.
 
 ## Known issues
 
+- **Payments are not wired yet.** Plans are set by staff. Cencori can invoice through Stripe Connect once it is set up in their dashboard; a checkout page is still needed.
+- **Voice minutes (LiveKit) are not counted in usage.** The AI answers in a call are; the speech part is billed by LiveKit.
+- **Approval rules don't apply to app tools run by Cencori (Gmail, Slack...).** Those still ask every time; Cencori decides.
 - **Document search matches words, not meaning.** "money back" won't find "refund" unless the words overlap. The bots usually search with good key words, so it works well in practice; search by meaning (embeddings) can be added later.
 - **Scanned PDFs (pictures of text) can't be read.** They are kept and marked failed with the reason.
 

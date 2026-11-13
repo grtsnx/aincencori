@@ -26,7 +26,7 @@ Follow these rules exactly. If a change doesn't fit them, ask before breaking on
 
 ## API docs (Swagger at /api, Scalar at /docs)
 
-- Sections: Auth, Agent Auth, User, Organization, Chat, Voice, Routines, Bots, Groups, Integrations, Knowledge, Plans, Marketplace, MCP, Admin (plus Server).
+- Sections: Auth, Agent Auth, User, Organization, Chat, Voice, Routines, Bots, Groups, Integrations, Knowledge, Plans, Marketplace, Approvals, Activity, Usage, MCP, Admin (plus Server).
 - Every route title is **at most 4 words**; every route description is **at most 12 words**.
 - Every DTO field and every response has sample data (`example`).
 - `test/e2e/docs.e2e-spec.ts` enforces this. Keep it passing.
