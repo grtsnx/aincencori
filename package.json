@@ -33,7 +33,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "auth:generate": "auth generate --config src/config/auth/better-auth.cli.ts --adapter prisma --dialect postgresql --output prisma/schema.prisma --yes"
+    "auth:generate": "auth generate --config src/config/auth/better-auth.cli.ts --adapter prisma --dialect postgresql --output prisma/schema.prisma --yes && node scripts/fix-auth-schema.mjs && prisma format"
   },
   "dependencies": {
     "@better-auth/agent-auth": "0.6.2",

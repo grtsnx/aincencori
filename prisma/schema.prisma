@@ -50,7 +50,10 @@ model User {
   agentGrantsDenied  AgentCapabilityGrant[] @relation("AgentGrantDeniedBy")
   approvalrequests   ApprovalRequest[]
 
+  normalizedEmail String?
+
   @@unique([email])
+  @@unique([normalizedEmail])
   @@map("user")
 }
 

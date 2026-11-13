@@ -41,6 +41,8 @@ function lazyClient(prisma: PrismaService): PrismaClient {
 export class BetterAuthService implements OnModuleInit {
   readonly auth: Auth;
   private openApi?: Record<string, unknown>;
+  // Tests only: the last email "sent" to each address.
+  private readonly testEmails = new Map<string, Record<string, string>>();
   // Express handler for every Better Auth route.
   readonly handler: ReturnType<typeof toNodeHandler>;
   private readonly logger = new Logger(BetterAuthService.name);
@@ -73,6 +75,9 @@ export class BetterAuthService implements OnModuleInit {
           ? { clientId: googleId, clientSecret: googleSecret }
           : undefined,
       recaptchaSecretKey: config.get<string>('RECAPTCHA_SECRET_KEY'),
+      // Tests never call Dymo API.
+      dymoApiKey:
+        nodeEnv === 'test' ? undefined : config.get<string>('DYMO_API_KEY'),
       passkeyRpID: config.getOrThrow<string>('PASSKEY_RP_ID'),
       mcpResource: config.getOrThrow<string>('MCP_RESOURCE_URL'),
       ipAddressHeaders: config.getOrThrow<string[]>('AUTH_IP_HEADERS'),
@@ -100,6 +105,11 @@ export class BetterAuthService implements OnModuleInit {
     }
   }
 
+  // Tests only: the variables of the last email to an address (e.g. otpCode).
+  lastTestEmail(to: string): Record<string, string> | undefined {
+    return this.testEmails.get(to);
+  }
+
   // Better Auth's own routes as an OpenAPI document, for the API docs.
   openApiDocument(): Record<string, unknown> | undefined {
     return this.openApi;
@@ -112,8 +122,11 @@ export class BetterAuthService implements OnModuleInit {
     to: string,
     variables: Record<string, string>,
   ): Promise<void> {
-    // Tests read codes from Better Auth's test helpers, never from real email.
-    if (this.config.get<string>('NODE_ENV') === 'test') return;
+    // Tests never send email. They read the last message here instead.
+    if (this.config.get<string>('NODE_ENV') === 'test') {
+      this.testEmails.set(to, variables);
+      return;
+    }
 
     const apiKey = this.config.get<string>('BETTER_AUTH_API_KEY');
     if (!apiKey) {

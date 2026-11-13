@@ -1,9 +1,11 @@
 import { passkey } from '@better-auth/passkey';
+import { dymoEmailPlugin } from '@dymo-api/better-auth';
+import { emailHarmony } from 'better-auth-harmony';
 import { cimd } from '@better-auth/cimd';
 import { fetchClientMetadataResource } from '@better-auth/cimd/node';
 import { dash, type EmailTemplateId } from '@better-auth/infra';
 import { mcp } from '@better-auth/mcp';
-import type { BetterAuthOptions } from 'better-auth';
+import type { BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import {
   admin,
   captcha,
@@ -42,6 +44,8 @@ export interface AuthSettings {
   dashApiKey?: string;
   google?: { clientId: string; clientSecret: string };
   recaptchaSecretKey?: string;
+  // Dymo API fraud checks on emails. Off unless a key is set.
+  dymoApiKey?: string;
   passkeyRpID: string;
   mcpResource: string;
   ipAddressHeaders: string[];
@@ -127,6 +131,22 @@ export function createAuthOptions(settings: AuthSettings) {
     },
 
     plugins: [
+      // Runs first and locally: blocks throwaway email domains and stores a
+      // normalized copy (ada+x@gmail.com -> ada@gmail.com) so one inbox gets one
+      // account. The email the user typed is kept as is.
+      emailHarmony(),
+      // Then Dymo's fraud check, when configured. It sends the email to Dymo
+      // API. Normalizing is left to Harmony so Google sign-in emails still match.
+      ...(settings.dymoApiKey
+        ? [
+            // Typed as a plain plugin: it bundles its own copy of Better Auth's
+            // types, which would otherwise hide the other plugins' route types.
+            dymoEmailPlugin({
+              apiKey: settings.dymoApiKey,
+              normalize: false,
+            }) as BetterAuthPlugin,
+          ]
+        : []),
       emailOTP({
         // Codes are stored hashed. Better Auth compares them by exact match, so
         // a salted hash like Argon2 cannot be used here.

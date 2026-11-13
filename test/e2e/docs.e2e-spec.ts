@@ -130,6 +130,7 @@ describe('API docs and versioning (e2e)', () => {
       for (const operation of operations()) {
         if (!/^\/v\d+/.test(operation.path)) continue;
         const responses = operation.responses ?? {};
+        if (responses['204']) continue; // No body to wrap.
         const ok = responses['200'] as {
           content: Record<string, { schema: Schema }>;
         };

@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import type { TestHelpers } from 'better-auth/plugins';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '@/app';
@@ -138,6 +137,7 @@ describe('Better Auth (e2e)', () => {
     expect(sections.map((section) => section.name)).toEqual([
       'Server',
       'Auth',
+      'Agent Auth',
       'User',
       'Organization',
       'Admin',
@@ -147,22 +147,56 @@ describe('Better Auth (e2e)', () => {
     ).toEqual([]);
   });
 
+  it('publishes Agent Auth discovery and capabilities', async () => {
+    const server = app.getHttpServer();
+
+    const configuration = await request(server)
+      .get('/v1/agent-auth/configuration')
+      .expect(200);
+    expect(configuration.body.data.endpoints).toBeDefined();
+
+    const wellKnown = await request(server)
+      .get('/.well-known/agent-configuration')
+      .expect(200);
+    expect(wellKnown.body.endpoints).toEqual(configuration.body.data.endpoints);
+
+    const capabilities = await request(server)
+      .get('/v1/agent-auth/capabilities')
+      .expect(200);
+    expect(capabilities.body.data).toEqual([
+      expect.objectContaining({ name: 'get_profile' }),
+    ]);
+  });
+
+  it('rejects agent routes without an agent token', async () => {
+    await request(app.getHttpServer())
+      .get('/v1/agent-auth/session')
+      .expect(401);
+  });
+
+  it('blocks throwaway email domains', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/auth/email-otp/send-verification-otp')
+      .send({ email: 'someone@mailinator.com', type: 'sign-in' });
+
+    expect(response.status).toBe(400);
+  });
+
   // Needs Postgres (DATABASE_URL). Skipped where no database is configured.
   describe.skipIf(!process.env.DATABASE_URL)('with a database', () => {
     const email = `e2e-${randomUUID()}@example.com`;
     const slug = `e2e-${randomUUID()}`;
+    const createdEmail = `e2e-created-${randomUUID()}@example.com`;
 
-    // Signs in with an email code captured by Better Auth's test helpers.
+    // Signs in with the email code from the (unsent) test email.
     async function signIn(): Promise<string[]> {
       const server = app.getHttpServer();
-      const context = await app.get(BetterAuthService).auth.$context;
-      const helpers = (context as unknown as { test: TestHelpers }).test;
-
       await request(server)
         .post('/api/auth/email-otp/send-verification-otp')
         .send({ email, type: 'sign-in' })
         .expect(200);
-      const otp = helpers.getOTP?.(email);
+      // Codes are stored hashed, so read the code from the (unsent) email.
+      const otp = app.get(BetterAuthService).lastTestEmail(email)?.otpCode;
       expect(otp).toMatch(/^\d{6}$/);
 
       const response = await request(server)
@@ -176,8 +210,12 @@ describe('Better Auth (e2e)', () => {
 
     afterAll(async () => {
       const db = app.get(PrismaService).db;
-      await db.organization.deleteMany({ where: { slug } });
-      await db.user.deleteMany({ where: { email } });
+      await db.organization.deleteMany({
+        where: { slug: { in: [slug, 'staff'] } },
+      });
+      await db.user.deleteMany({
+        where: { email: { in: [email, createdEmail] } },
+      });
     });
 
     it('signs in with an email code, reads the session, then signs out', async () => {
@@ -304,6 +342,95 @@ describe('Better Auth (e2e)', () => {
       expect(allowed.body.data.users).toEqual([
         expect.objectContaining({ email, role: 'admin' }),
       ]);
+    });
+
+    it('lets admins create staff roles and invite staff', async () => {
+      const server = app.getHttpServer();
+      const cookies = await signIn(); // An admin since the previous test.
+
+      const permissions = await request(server)
+        .get('/v1/admin/permissions')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(permissions.body.data.permissions.staff).toEqual(
+        expect.arrayContaining(['invite']),
+      );
+
+      const role = await request(server)
+        .post('/v1/admin/roles')
+        .set('Cookie', cookies)
+        .send({
+          name: 'support-agent',
+          permissions: { user: ['list', 'get'], staff: ['list'] },
+        })
+        .expect(200);
+      expect(role.body.data).toMatchObject({
+        name: 'support-agent',
+        builtIn: false,
+        permissions: { user: ['list', 'get'], staff: ['list'] },
+      });
+
+      const updated = await request(server)
+        .patch(`/v1/admin/roles/${role.body.data.id}`)
+        .set('Cookie', cookies)
+        .send({ permissions: { user: ['list'], staff: ['list'] } })
+        .expect(200);
+      expect(updated.body.data.permissions).toEqual({
+        user: ['list'],
+        staff: ['list'],
+      });
+
+      const roles = await request(server)
+        .get('/v1/admin/roles')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(
+        roles.body.data.map((item: { name: string }) => item.name),
+      ).toEqual(
+        expect.arrayContaining(['owner', 'admin', 'member', 'support-agent']),
+      );
+
+      const invite = await request(server)
+        .post('/v1/admin/staff/invitations')
+        .set('Cookie', cookies)
+        .send({ email: 'grace@example.com', role: 'support-agent' })
+        .expect(200);
+      expect(invite.body.data).toMatchObject({
+        email: 'grace@example.com',
+        role: 'support-agent',
+        status: 'pending',
+      });
+
+      const staff = await request(server)
+        .get('/v1/admin/staff')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(staff.body.data).toEqual([
+        expect.objectContaining({
+          role: 'owner',
+          user: expect.objectContaining({ email }),
+        }),
+      ]);
+    });
+
+    it('stores admin-set passwords with Argon2id', async () => {
+      const server = app.getHttpServer();
+      const cookies = await signIn();
+
+      await request(server)
+        .post('/api/auth/admin/create-user')
+        .set('Cookie', cookies)
+        .send({
+          email: createdEmail,
+          password: 'correct-horse-battery',
+          name: 'Created User',
+        })
+        .expect(200);
+
+      const account = await app.get(PrismaService).db.account.findFirstOrThrow({
+        where: { user: { email: createdEmail }, providerId: 'credential' },
+      });
+      expect(account.password).toMatch(/^\$argon2id\$/);
     });
   });
 });

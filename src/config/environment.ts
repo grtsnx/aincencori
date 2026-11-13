@@ -120,6 +120,7 @@ const environmentSchema = z
     GOOGLE_CLIENT_ID: optionalString(),
     GOOGLE_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
+    DYMO_API_KEY: optionalString(),
     PASSKEY_RP_ID: optionalString().pipe(
       z
         .string()
@@ -215,6 +216,7 @@ export interface Environment {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
+  DYMO_API_KEY?: string;
   PASSKEY_RP_ID: string;
   MCP_RESOURCE_URL: string;
   AUTH_IP_HEADERS: string[];

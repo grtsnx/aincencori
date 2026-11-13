@@ -6,6 +6,7 @@
 export const docSections: { name: string; description: string }[] = [
   { name: 'Server', description: 'Check server health' },
   { name: 'Auth', description: 'Sign users in securely' },
+  { name: 'Agent Auth', description: 'Safe AI agent access' },
   { name: 'User', description: 'Manage your own account' },
   { name: 'Organization', description: 'Manage organizations and teams' },
   { name: 'Admin', description: 'Manage all users' },
@@ -371,11 +372,11 @@ export const authRouteDocs: Record<
     description: 'Lets a banned user sign in again.',
   },
   '/admin/impersonate-user': {
-    title: 'Sign in as user',
+    title: 'Impersonate a user',
     description: 'Signs in as a user to help them.',
   },
   '/admin/stop-impersonating': {
-    title: 'Return to admin account',
+    title: 'Stop impersonating',
     description: 'Ends impersonation and restores the admin session.',
   },
   '/admin/list-user-sessions': {
@@ -517,5 +518,153 @@ export const authRouteDocs: Record<
   '/organization/remove-team-member': {
     title: 'Remove team member',
     description: 'Removes a member from a team.',
+  },
+  '/agent-configuration': {
+    title: 'Agent discovery document',
+    description: 'Tells agents how to register and what they can do.',
+  },
+  '/agent/register': {
+    title: 'Register an agent',
+    description: 'A host registers a new agent for the user.',
+  },
+  '/agent/list': {
+    title: 'List my agents',
+    description: 'Lists agents acting for the signed-in user.',
+  },
+  '/agent/get': {
+    title: 'Get an agent',
+    description: "Returns one agent's details, without secrets.",
+  },
+  '/agent/update': {
+    title: 'Update an agent',
+    description: "Changes an agent's name or details.",
+  },
+  '/agent/revoke': {
+    title: 'Revoke an agent',
+    description: 'Stops an agent from acting for the user.',
+  },
+  '/agent/revoke-capability': {
+    title: 'Remove agent capability',
+    description: 'Takes back one or more capabilities from an agent.',
+  },
+  '/agent/rotate-key': {
+    title: 'Change agent key',
+    description: "Replaces an agent's public key.",
+  },
+  '/agent/reactivate': {
+    title: 'Reactivate an agent',
+    description: 'Turns an expired agent back on with default capabilities.',
+  },
+  '/agent/session': {
+    title: 'Get agent session',
+    description: 'Returns the agent behind a signed agent token.',
+  },
+  '/agent/cleanup': {
+    title: 'Expire overdue agents',
+    description: "Expires the user's agents that are past their lifetime.",
+  },
+  '/agent/request-capability': {
+    title: 'Request agent capability',
+    description: 'An agent asks the user for more capabilities.',
+  },
+  '/agent/approve-capability': {
+    title: 'Approve agent request',
+    description: 'The user approves or denies an agent request.',
+  },
+  '/agent/status': {
+    title: 'Get agent status',
+    description: "Returns an agent's status and its capability grants.",
+  },
+  '/agent/introspect': {
+    title: 'Check an agent token',
+    description: 'Checks an agent token and returns its grants.',
+  },
+  '/agent/grant-capability': {
+    title: 'Grant agent capability',
+    description: 'The user gives an agent more capabilities.',
+  },
+  '/agent/ciba/authorize': {
+    title: 'Ask user to approve',
+    description: 'Sends the user an approval request for an agent.',
+  },
+  '/agent/ciba/pending': {
+    title: 'List pending approvals',
+    description: 'Lists approval requests waiting for the user.',
+  },
+  '/agent/device/code': {
+    title: 'Get device code',
+    description: 'Issues a code the user enters to approve an agent.',
+  },
+  '/agent/claim': {
+    title: 'Claim an agent',
+    description: 'Starts claiming an agent that has no user yet.',
+  },
+  '/capability/list': {
+    title: 'List capabilities',
+    description: 'Lists what agents can ask a user to allow.',
+  },
+  '/capability/describe': {
+    title: 'Describe a capability',
+    description: 'Returns full details for one capability.',
+  },
+  '/capability/execute': {
+    title: 'Run a capability',
+    description: 'An agent runs a capability the user granted.',
+  },
+  '/capability/batch-execute': {
+    title: 'Run several capabilities',
+    description: 'An agent runs several granted capabilities at once.',
+  },
+  '/host/create': {
+    title: 'Create an agent host',
+    description: 'Registers a device or app that runs agents.',
+  },
+  '/host/enroll': {
+    title: 'Enroll a host',
+    description: 'Enrolls a device using a one-time token.',
+  },
+  '/host/list': {
+    title: 'List my hosts',
+    description: 'Lists devices and apps that run agents for the user.',
+  },
+  '/host/get': {
+    title: 'Get a host',
+    description: "Returns one host's details.",
+  },
+  '/host/revoke': {
+    title: 'Revoke a host',
+    description: 'Stops a host and all its agents.',
+  },
+  '/host/switch-account': {
+    title: 'Move host to me',
+    description: "Moves a host to the user's account, revoking its agents.",
+  },
+  '/host/update': {
+    title: 'Update a host',
+    description: "Changes a host's name, key or default capabilities.",
+  },
+  '/host/rotate-key': {
+    title: 'Change host key',
+    description: "Replaces a host's public key.",
+  },
+  '/organization/create-role': {
+    title: 'Create a role',
+    description: 'Creates a custom role with chosen permissions.',
+  },
+  '/organization/update-role': {
+    title: 'Update a role',
+    description: "Changes a custom role's permissions.",
+  },
+  '/organization/delete-role': {
+    title: 'Delete a role',
+    description: 'Deletes a custom role no one uses.',
+  },
+  '/organization/list-roles': {
+    title: 'List roles',
+    description: "Lists the organization's custom roles.",
+  },
+  '/organization/get-role': {
+    title: 'Get a role',
+    description: "Returns one custom role's permissions.",
   },
 };

@@ -15,6 +15,7 @@ export const auth = betterAuth(
     dashApiKey: 'schema-generation-only',
     google: { clientId: 'schema', clientSecret: 'schema' },
     recaptchaSecretKey: 'schema',
+    dymoApiKey: 'schema',
     passkeyRpID: 'localhost',
     mcpResource: 'http://localhost:3000/mcp',
     ipAddressHeaders: [],

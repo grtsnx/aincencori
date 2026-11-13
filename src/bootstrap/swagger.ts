@@ -26,6 +26,9 @@ function authTag(path: string): string | null {
     prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 
   if (starts(hiddenPaths)) return null;
+  if (starts(['/agent', '/agent-configuration', '/capability', '/host'])) {
+    return 'Agent Auth';
+  }
   if (starts(['/admin'])) return 'Admin';
   if (starts(['/organization'])) return 'Organization';
   if (starts(userPaths)) return 'User';
@@ -196,7 +199,8 @@ function sampleNestResponses(document: OpenAPIObject): void {
 
       for (const [status, response] of Object.entries(responses)) {
         const code = Number(status);
-        if (code < 200 || code >= 300) continue;
+        // 204 has no body, so no wrapper.
+        if (code < 200 || code >= 300 || code === 204) continue;
         const content = response.content as Record<string, Schema> | undefined;
         const data = content?.['application/json']?.schema ?? {};
         response.description ||= 'Success';
