@@ -19,7 +19,7 @@ import type {
   RoutineDto,
   UpdateRoutineDto,
 } from '@/dto';
-import type { Routine } from '@/generated/prisma/client.js';
+import { Prisma, type Routine } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { ChatService } from '../chat/chat.service.js';
@@ -46,11 +46,12 @@ export class RoutineService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.bullmq.handle<{ routineId: string }>(
+    this.bullmq.handle<{ routineId: string; manual?: boolean }>(
       runRoutine,
-      ({ routineId }) => this.run(routineId),
+      ({ routineId, manual }) => this.run(routineId, manual ?? false),
       { concurrency: routineConcurrency },
     );
+    this.bullmq.onWorkerStart(() => this.reconcileSchedules());
     // Lets the chat agent manage the user's routines ("every morning at 8...").
     this.chat.useRoutines({
       list: (userId) => this.list({ user: { id: userId } }, {}),
@@ -89,27 +90,45 @@ export class RoutineService implements OnModuleInit {
       });
       if (!bot) throw new BadRequestException('Unknown bot.');
     }
-    const count = await this.prisma.db.routine.count({
-      where: { userId: auth.user.id },
-    });
-    if (count >= maxRoutinesPerUser) {
-      throw new BadRequestException(
-        `You can have up to ${maxRoutinesPerUser} routines.`,
-      );
+    const data = {
+      id: randomUUID(),
+      userId: auth.user.id,
+      botId: body.botId,
+      name: body.name,
+      prompt: body.prompt,
+      cron: body.cron,
+      timezone: body.timezone,
+      enabled: body.enabled ?? true,
+    };
+    let routine: Routine;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        routine = await this.prisma.db.$transaction(
+          async (tx) => {
+            const count = await tx.routine.count({
+              where: { userId: auth.user.id },
+            });
+            if (count >= maxRoutinesPerUser) {
+              throw new BadRequestException(
+                `You can have up to ${maxRoutinesPerUser} routines.`,
+              );
+            }
+            return tx.routine.create({ data });
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+        break;
+      } catch (error) {
+        if (isSerializationConflict(error) && attempt < 2) continue;
+        throw error;
+      }
     }
-    const routine = await this.prisma.db.routine.create({
-      data: {
-        id: randomUUID(),
-        userId: auth.user.id,
-        botId: body.botId,
-        name: body.name,
-        prompt: body.prompt,
-        cron: body.cron,
-        timezone: body.timezone,
-        enabled: body.enabled ?? true,
-      },
-    });
-    await this.sync(routine);
+    try {
+      await this.sync(routine);
+    } catch (error) {
+      await this.prisma.db.routine.delete({ where: { id: routine.id } });
+      throw error;
+    }
     return toDto(routine);
   }
 
@@ -124,20 +143,45 @@ export class RoutineService implements OnModuleInit {
       where: { id },
       data: body,
     });
-    await this.sync(routine);
+    try {
+      await this.sync(routine);
+    } catch (error) {
+      const restored = await this.prisma.db.routine.update({
+        where: { id },
+        data: {
+          botId: current.botId,
+          name: current.name,
+          prompt: current.prompt,
+          cron: current.cron,
+          timezone: current.timezone,
+          enabled: current.enabled,
+        },
+      });
+      await this.sync(restored).catch(() => {
+        this.logger.error(`Routine ${id} schedule needs reconciliation.`);
+      });
+      throw error;
+    }
     return toDto(routine);
   }
 
   async remove(id: string, auth: Owner): Promise<void> {
     await this.own(id, auth);
-    await this.bullmq.unschedule(runRoutine, id);
     await this.prisma.db.routine.delete({ where: { id } });
+    await this.bullmq.unschedule(runRoutine, id).catch(() => {
+      // A stale scheduled run sees the missing row and removes its schedule.
+      this.logger.warn(`Routine ${id} schedule will be removed by its worker.`);
+    });
   }
 
   // Runs it once now, outside its schedule. The answer arrives as a chat.
   async runNow(id: string, auth: Owner): Promise<RoutineDto> {
     await this.own(id, auth);
-    await this.bullmq.add(runRoutine, { routineId: id }, { attempts: 1 });
+    await this.bullmq.add(
+      runRoutine,
+      { routineId: id, manual: true },
+      { attempts: 1 },
+    );
     return toDto(await this.own(id, auth));
   }
 
@@ -158,7 +202,7 @@ export class RoutineService implements OnModuleInit {
 
   // One run, from the queue. Failures are recorded, not retried: a retry
   // would bill the AI again for the same answer.
-  private async run(routineId: string): Promise<void> {
+  private async run(routineId: string, manual: boolean): Promise<void> {
     const routine = await this.prisma.db.routine.findUnique({
       where: { id: routineId },
     });
@@ -167,6 +211,15 @@ export class RoutineService implements OnModuleInit {
       await this.bullmq.unschedule(runRoutine, routineId);
       return;
     }
+    const owner = await this.prisma.db.user.findUnique({
+      where: { id: routine.userId },
+      select: { id: true },
+    });
+    if (!owner) {
+      await this.bullmq.unschedule(runRoutine, routineId);
+      return;
+    }
+    if (!routine.enabled && !manual) return;
     let status: string;
     try {
       status = await this.chat.runRoutine(routine);
@@ -194,6 +247,25 @@ export class RoutineService implements OnModuleInit {
     }
   }
 
+  private async reconcileSchedules(): Promise<void> {
+    const routines = await this.prisma.db.routine.findMany();
+    const ownerIds = [...new Set(routines.map((routine) => routine.userId))];
+    const owners = ownerIds.length
+      ? await this.prisma.db.user.findMany({
+          where: { id: { in: ownerIds } },
+          select: { id: true },
+        })
+      : [];
+    const existingOwners = new Set(owners.map((owner) => owner.id));
+    for (const routine of routines) {
+      if (!existingOwners.has(routine.userId)) {
+        await this.bullmq.unschedule(runRoutine, routine.id);
+      } else {
+        await this.sync(routine);
+      }
+    }
+  }
+
   private async own(id: string, auth: Owner): Promise<Routine> {
     const routine = await this.prisma.db.routine.findUnique({ where: { id } });
     if (!routine || routine.userId !== auth.user.id) {
@@ -201,6 +273,15 @@ export class RoutineService implements OnModuleInit {
     }
     return routine;
   }
+}
+
+function isSerializationConflict(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'P2034'
+  );
 }
 
 // A valid cron pattern and time zone, with runs at least

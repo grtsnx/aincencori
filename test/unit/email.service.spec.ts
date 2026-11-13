@@ -27,17 +27,31 @@ function createService(rows: unknown[] = [], updateCounts: number[] = [1, 1]) {
   } as never;
   // @nestjs/mail's Mailer; only send() is used.
   const sender = vi.fn().mockResolvedValue({ messageId: 'm1' });
+  let startHook: (() => Promise<void>) | undefined;
+  const bullmq = {
+    handle: vi.fn(),
+    onWorkerStart: vi.fn((hook: () => Promise<void>) => {
+      startHook = hook;
+    }),
+    add: vi.fn().mockResolvedValue(undefined),
+    schedule: vi.fn().mockResolvedValue(undefined),
+  };
   const service = new EmailService(
     config,
     prisma,
     { send: sender } as never,
-    {
-      handle: vi.fn(),
-      add: vi.fn().mockResolvedValue(undefined),
-      schedule: vi.fn().mockResolvedValue(undefined),
-    } as never,
+    bullmq as never,
   );
-  return { service, create, findMany, updateMany, deleteMany, sender };
+  return {
+    service,
+    create,
+    findMany,
+    updateMany,
+    deleteMany,
+    sender,
+    bullmq,
+    startHook: () => startHook,
+  };
 }
 
 describe('EmailService (outbox + @nestjs/mail)', () => {
@@ -57,6 +71,21 @@ describe('EmailService (outbox + @nestjs/mail)', () => {
     ).resolves.toBe(JSON.stringify(message));
     expect(create.mock.calls[0]?.[0].data).toMatchObject({ status: 'pending' });
     expect(payload).not.toContain('123456');
+  });
+
+  it('sets up the retry sweep before the worker starts processing jobs', async () => {
+    const { service, bullmq, startHook } = createService();
+    service.onModuleInit();
+
+    expect(bullmq.schedule).not.toHaveBeenCalled();
+    await startHook()?.();
+
+    expect(bullmq.schedule).toHaveBeenCalledWith(
+      'email-outbox',
+      'every-5-seconds',
+      { everyMs: 5_000 },
+      {},
+    );
   });
 
   it('claims and sends due messages once', async () => {

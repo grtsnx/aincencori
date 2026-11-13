@@ -389,3 +389,35 @@ describe('saving a chat turn', () => {
     expect(rows[0]).toMatchObject({ sessionId: 'ses_2', role: 'user' });
   });
 });
+
+describe('chat deletion', () => {
+  it('stores the remote deletion job before removing the local chat', async () => {
+    const operations: string[] = [];
+    const service = new ChatService(
+      { get: () => undefined } as never,
+      {} as never,
+      {} as never,
+      {
+        db: {
+          chatSession: {
+            findUnique: vi.fn().mockResolvedValue({ userId: 'user-1' }),
+            delete: vi.fn().mockImplementation(async () => {
+              operations.push('local-delete');
+            }),
+          },
+          chatMessage: { findMany: vi.fn().mockResolvedValue([]) },
+        },
+      } as never,
+      {
+        add: vi.fn().mockImplementation(async () => {
+          operations.push('remote-delete-job');
+        }),
+      } as never,
+      {} as never,
+    );
+
+    await service.remove('session-1', { user: { id: 'user-1' } } as never);
+
+    expect(operations).toEqual(['remote-delete-job', 'local-delete']);
+  });
+});

@@ -45,6 +45,7 @@ model User {
   oauthconsents      OauthConsent[]
 
   agenthosts         AgentHost[]
+  routines           Routine[]
   agents             Agent[]
   agentGrantsGranted AgentCapabilityGrant[] @relation("AgentGrantGrantedBy")
   agentGrantsDenied  AgentCapabilityGrant[] @relation("AgentGrantDeniedBy")
@@ -484,6 +485,7 @@ model ChatMessage {
 model Routine {
   id         String    @id
   userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // The bot that runs it. Empty: the default assistant.
   botId      String?
   bot        Bot?      @relation(fields: [botId], references: [id], onDelete: Cascade)

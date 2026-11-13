@@ -436,15 +436,15 @@ export class ChatService implements OnModuleInit {
         file.key ? [file.key] : [],
       ),
     );
-    // Our copy goes now; Cencori's and the files in the background, retried
-    // if a service is down.
-    await this.prisma.db.chatSession.delete({ where: { id: sessionId } });
-    if (keys.length > 0) await this.bullmq.add(deleteFilesJob, { keys });
+    // Queue remote cleanup first. If Redis is down, the local chat stays so
+    // the request can be retried instead of stranding an external copy.
     await this.bullmq.add(
       deleteAtCencori,
       { sessionId },
       { jobId: `delete-${sessionId}` },
     );
+    if (keys.length > 0) await this.bullmq.add(deleteFilesJob, { keys });
+    await this.prisma.db.chatSession.delete({ where: { id: sessionId } });
   }
 
   // A chat's messages from our own database, newest page first.

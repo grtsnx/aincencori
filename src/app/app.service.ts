@@ -27,6 +27,7 @@ async function timed(work: () => Promise<unknown>): Promise<number> {
 export class AppService {
   // Cencori is asked at most every 30 seconds, however often health is checked.
   private cencoriCheck?: { at: number; result: Status };
+  private cencoriInFlight?: Promise<Status>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -63,12 +64,23 @@ export class AppService {
     return { cencori, email, workers, storage };
   }
 
-  private async checkCencori(): Promise<Status> {
+  private checkCencori(): Promise<Status> {
     if (!this.cencori.isConfigured) {
-      return { status: 'down', message: 'CENCORI_API_KEY is not set.' };
+      return Promise.resolve({
+        status: 'down',
+        message: 'CENCORI_API_KEY is not set.',
+      });
     }
     const cached = this.cencoriCheck;
-    if (cached && Date.now() - cached.at < 30_000) return cached.result;
+    if (cached && Date.now() - cached.at < 30_000) {
+      return Promise.resolve(cached.result);
+    }
+    if (this.cencoriInFlight) return this.cencoriInFlight;
+    this.cencoriInFlight = this.queryCencori();
+    return this.cencoriInFlight;
+  }
+
+  private async queryCencori(): Promise<Status> {
     let result: Status;
     try {
       const latencyMs = await timed(() =>
@@ -79,6 +91,7 @@ export class AppService {
       result = { status: 'down', message: 'Cencori did not answer.' };
     }
     this.cencoriCheck = { at: Date.now(), result };
+    this.cencoriInFlight = undefined;
     return result;
   }
 

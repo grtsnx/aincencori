@@ -16,6 +16,6 @@ const app = await NestFactory.createApplicationContext(AppModule, {
 validateEnvironment(process.env);
 // On stop (deploys, scaling down) running jobs finish before it exits.
 app.enableShutdownHooks();
-const jobs = app.get(BullmqService).startWorkers();
+const jobs = await app.get(BullmqService).startWorkers();
 
 new ConsoleLogger('Worker').log(`Running jobs: ${jobs.join(', ')}`);

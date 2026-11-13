@@ -58,10 +58,14 @@ export class EmailService implements OnModuleInit {
       concurrency: 1,
     });
     if (this.isTest()) return;
-    // Same id every start, so this only updates the one timetable.
-    void this.bullmq
-      .schedule(sendEmails, 'every-5-seconds', { everyMs: 5_000 }, {})
-      .catch(() => this.logger.error('Could not schedule the email sweep.'));
+    this.bullmq.onWorkerStart(() =>
+      this.bullmq.schedule(
+        sendEmails,
+        'every-5-seconds',
+        { everyMs: 5_000 },
+        {},
+      ),
+    );
   }
 
   // Queues an email. Tests keep it in memory instead (read with lastTestEmail).

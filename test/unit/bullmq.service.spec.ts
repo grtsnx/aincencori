@@ -48,4 +48,14 @@ describe('BullmqService (tests run jobs straight away)', () => {
     await queue.unschedule('routine-run', 'r1');
     expect(queue.testSchedule('routine-run', 'r1')).toBeUndefined();
   });
+
+  it('awaits worker startup hooks before reporting ready jobs', async () => {
+    const queue = service();
+    const hook = vi.fn().mockResolvedValue(undefined);
+    queue.onWorkerStart(hook);
+    queue.handle('routine-run', vi.fn().mockResolvedValue(undefined));
+
+    await expect(queue.startWorkers()).resolves.toEqual(['routine-run']);
+    expect(hook).toHaveBeenCalledOnce();
+  });
 });

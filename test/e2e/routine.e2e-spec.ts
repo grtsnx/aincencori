@@ -138,13 +138,64 @@ describe('Routines (e2e)', () => {
         .expect(400);
     });
 
+    it('enforces the routine limit across concurrent creates', async () => {
+      const db = app.get(PrismaService).db;
+      const owner = await db.user.findUniqueOrThrow({ where: { email } });
+      await db.routine.deleteMany({ where: { userId: owner.id } });
+      await db.routine.createMany({
+        data: Array.from({ length: 24 }, (_, index) => ({
+          id: randomUUID(),
+          userId: owner.id,
+          name: `Existing ${index}`,
+          prompt: 'Existing routine',
+          cron: '0 8 * * *',
+          timezone: 'UTC',
+          enabled: false,
+        })),
+      });
+
+      const server = app.getHttpServer();
+      const body = {
+        name: 'One more',
+        prompt: 'Summarize the news.',
+        cron: '0 9 * * *',
+        timezone: 'UTC',
+        enabled: false,
+      };
+      const results = await Promise.all(
+        Array.from({ length: 3 }, () =>
+          request(server)
+            .post('/v1/routines')
+            .set('Cookie', cookies)
+            .send(body),
+        ),
+      );
+
+      expect(results.map((result) => result.status).sort()).toEqual([
+        200, 400, 400,
+      ]);
+      await expect(
+        db.routine.count({ where: { userId: owner.id } }),
+      ).resolves.toBe(25);
+      await db.routine.deleteMany({ where: { userId: owner.id } });
+    });
+
     it("hides other people's routines", async () => {
       const db = app.get(PrismaService).db;
       const id = randomUUID();
+      const otherUserId = randomUUID();
+      await db.user.create({
+        data: {
+          id: otherUserId,
+          name: 'Another user',
+          email: `${otherUserId}@example.com`,
+          emailVerified: true,
+        },
+      });
       await db.routine.create({
         data: {
           id,
-          userId: 'someone-else',
+          userId: otherUserId,
           name: 'Theirs',
           prompt: 'x',
           cron: '0 8 * * *',
@@ -161,8 +212,35 @@ describe('Routines (e2e)', () => {
           .set('Cookie', cookies)
           .expect(404);
       } finally {
-        await db.routine.delete({ where: { id } });
+        await db.user.delete({ where: { id: otherUserId } });
       }
+    });
+
+    it("deletes a user's routines with the account", async () => {
+      const db = app.get(PrismaService).db;
+      const userId = randomUUID();
+      await db.user.create({
+        data: {
+          id: userId,
+          name: 'Routine owner',
+          email: `${userId}@example.com`,
+          emailVerified: true,
+        },
+      });
+      await db.routine.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          name: 'Private routine',
+          prompt: 'Private prompt',
+          cron: '0 8 * * *',
+          timezone: 'UTC',
+        },
+      });
+
+      await db.user.delete({ where: { id: userId } });
+
+      await expect(db.routine.count({ where: { userId } })).resolves.toBe(0);
     });
   });
 });

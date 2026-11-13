@@ -13,6 +13,8 @@ export type JobHandler<T> = (
   job: { id?: string; attempt: number },
 ) => Promise<void>;
 
+type WorkerStartHook = () => Promise<void>;
+
 export interface JobOptions {
   // Run later instead of now.
   delayMs?: number;
@@ -46,6 +48,7 @@ export class BullmqService implements OnModuleDestroy {
   private readonly queues = new Map<string, Queue>();
   private readonly workers = new Map<string, Worker>();
   private readonly handlers = new Map<string, Registration>();
+  private readonly workerStartHooks: WorkerStartHook[] = [];
   private started = false;
   // Tests only: schedules that would be set.
   private readonly testSchedules = new Map<string, Schedule>();
@@ -73,6 +76,16 @@ export class BullmqService implements OnModuleDestroy {
       concurrency: options.concurrency ?? 5,
     });
     if (this.started) this.startWorker(name);
+  }
+
+  // Runs durable queue reconciliation before workers begin processing jobs.
+  onWorkerStart(hook: WorkerStartHook): void {
+    if (this.started) {
+      throw new Error(
+        'Worker startup hooks must be registered before startup.',
+      );
+    }
+    this.workerStartHooks.push(hook);
   }
 
   // Queues a job. Returns once it is safely stored in Redis.
@@ -133,7 +146,9 @@ export class BullmqService implements OnModuleDestroy {
 
   // Starts running jobs. Only the worker process calls this (src/worker.ts):
   // API servers only add jobs, so busy jobs never slow down the API.
-  startWorkers(): string[] {
+  async startWorkers(): Promise<string[]> {
+    if (this.started) return [...this.handlers.keys()];
+    for (const hook of this.workerStartHooks) await hook();
     this.started = true;
     if (!this.inline) {
       for (const name of this.handlers.keys()) this.startWorker(name);
