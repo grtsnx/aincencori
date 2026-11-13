@@ -99,9 +99,19 @@ describe('Better Auth (e2e)', () => {
       ]),
     );
     expect(paths.some((path) => path.startsWith('/api/auth/dash'))).toBe(false);
+    // Password routes are off, so the docs leave them out.
+    expect(paths).not.toContain('/api/auth/sign-in/email');
+    expect(paths).not.toContain('/api/auth/error');
+    expect(response.body.paths['/api/auth/ok'].get.summary).toBe(
+      'Check auth is running',
+    );
+    expect(
+      response.body.paths['/api/auth/passkey/generate-register-options'].get
+        .summary,
+    ).toBe('Start adding a passkey');
     expect(response.body.paths['/api/auth/admin/set-role'].post).toMatchObject({
       tags: ['Admin'],
-      summary: 'Set role',
+      summary: 'Change user role',
     });
   });
 

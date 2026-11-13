@@ -5,6 +5,12 @@ import {
   SwaggerModule,
 } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
+import {
+  authRouteDocs,
+  docSections,
+  hiddenPaths,
+  userPaths,
+} from '@/config/api-docs.js';
 import { authBasePath } from '@/config/better-auth.js';
 import type { Environment } from '@/config/index.js';
 import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
@@ -12,74 +18,23 @@ import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
 const apiVersions = ['1', '2'] as const;
 type ApiVersion = (typeof apiVersions)[number];
 
-// Sections in the order the docs show them.
-const tags: { name: string; description: string }[] = [
-  { name: 'Server', description: 'Check server health' },
-  { name: 'Auth', description: 'Sign users in securely' },
-  { name: 'User', description: 'Manage your own account' },
-  { name: 'Organization', description: 'Manage organizations and teams' },
-  { name: 'Admin', description: 'Manage all users' },
-];
-
-const userPaths = [
-  '/update-user',
-  '/delete-user',
-  '/change-email',
-  '/email-otp/request-email-change',
-  '/email-otp/change-email',
-  '/list-accounts',
-  '/unlink-account',
-  '/link-social',
-  '/get-access-token',
-  '/refresh-token',
-  '/account-info',
-  '/get-session',
-  '/list-sessions',
-  '/revoke-session',
-  '/revoke-sessions',
-  '/revoke-other-sessions',
-  '/multi-session',
-  '/passkey/list-user-passkeys',
-  '/passkey/delete-passkey',
-  '/passkey/update-passkey',
-];
-
 // The docs section for a Better Auth route, or null to leave it out.
 function authTag(path: string): string | null {
   const starts = (prefixes: string[]) =>
     prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 
-  if (starts(['/dash'])) return null; // Better Auth dashboard internals.
+  if (starts(hiddenPaths)) return null;
   if (starts(['/admin'])) return 'Admin';
   if (starts(['/organization'])) return 'Organization';
   if (starts(userPaths)) return 'User';
   return 'Auth';
 }
 
-// Titles that would otherwise be long or unclear. Every title is at most 4 words.
-const titles: Record<string, string> = {
-  '/email-otp/send-verification-otp': 'Send email code',
-  '/email-otp/check-verification-otp': 'Check email code',
-  '/email-otp/verify-email': 'Verify email with code',
-  '/email-otp/request-password-reset': 'Request password reset code',
-  '/email-otp/reset-password': 'Reset password with code',
-  '/email-otp/request-email-change': 'Request email change code',
-  '/email-otp/change-email': 'Change email with code',
-  '/sign-in/email-otp': 'Sign in with code',
-  '/two-factor/get-totp-uri': 'Get 2FA setup link',
-  '/two-factor/verify-backup-code': 'Verify 2FA backup code',
-  '/two-factor/generate-backup-codes': 'New 2FA backup codes',
-  '/multi-session/list-device-sessions': 'List device sessions',
-};
-
-// A short title from the route: /admin/set-role -> "Set role".
+// A fallback title for a route not listed in authRouteDocs: /foo/do-thing -> "Foo do thing".
 function shortTitle(path: string): string {
-  if (titles[path]) return titles[path];
-  const groups = new Set(['admin', 'organization']);
-  const parts = path.split('/').filter(Boolean);
-  const words = (
-    groups.has(parts[0]) && parts.length > 1 ? parts.slice(1) : parts
-  )
+  const words = path
+    .split('/')
+    .filter(Boolean)
     .join(' ')
     .replaceAll('-', ' ')
     .replace(/\{|\}/g, '');
@@ -109,7 +64,10 @@ function withAuthRoutes(
         {
           ...(operation as object),
           tags: [tag],
-          summary: shortTitle(path),
+          summary: authRouteDocs[path]?.title ?? shortTitle(path),
+          description:
+            authRouteDocs[path]?.description ??
+            (operation as { description?: string }).description,
         },
       ]),
     );
@@ -141,7 +99,7 @@ export function configureSwagger(
       .setDescription(`${environment.PLATFORM_NAME} API`)
       .setVersion(`v${version}`)
       .addCookieAuth('better-auth.session_token');
-    for (const tag of tags) builder.addTag(tag.name, tag.description);
+    for (const tag of docSections) builder.addTag(tag.name, tag.description);
 
     const document = SwaggerModule.createDocument(app, builder.build());
     const prefix = `/v${version}`;
