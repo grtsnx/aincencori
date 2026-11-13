@@ -55,8 +55,12 @@ export class BetterAuthService implements OnModuleInit {
   ) {
     const nodeEnv = config.getOrThrow<string>('NODE_ENV');
     this.production = nodeEnv === 'production';
-    const googleId = config.get<string>('GOOGLE_CLIENT_ID');
-    const googleSecret = config.get<string>('GOOGLE_CLIENT_SECRET');
+    // A provider is on when both its ID and secret are set.
+    const provider = (name: 'GOOGLE' | 'GITHUB' | 'LINKEDIN') => {
+      const clientId = config.get<string>(`${name}_CLIENT_ID`);
+      const clientSecret = config.get<string>(`${name}_CLIENT_SECRET`);
+      return clientId && clientSecret ? { clientId, clientSecret } : undefined;
+    };
 
     this.auth = createAuth(lazyClient(prisma), {
       appName: config.getOrThrow<string>('PLATFORM_NAME'),
@@ -70,10 +74,11 @@ export class BetterAuthService implements OnModuleInit {
         nodeEnv === 'test'
           ? undefined
           : config.get<string>('BETTER_AUTH_API_KEY'),
-      google:
-        googleId && googleSecret
-          ? { clientId: googleId, clientSecret: googleSecret }
-          : undefined,
+      oauth: {
+        google: provider('GOOGLE'),
+        github: provider('GITHUB'),
+        linkedin: provider('LINKEDIN'),
+      },
       recaptchaSecretKey: config.get<string>('RECAPTCHA_SECRET_KEY'),
       // Tests never call Dymo API.
       dymoApiKey:
@@ -81,7 +86,6 @@ export class BetterAuthService implements OnModuleInit {
       passkeyRpID: config.getOrThrow<string>('PASSKEY_RP_ID'),
       mcpResource: config.getOrThrow<string>('MCP_RESOURCE_URL'),
       ipAddressHeaders: config.getOrThrow<string[]>('AUTH_IP_HEADERS'),
-      trustedProxies: config.getOrThrow<string[]>('AUTH_TRUSTED_PROXIES'),
       testing: nodeEnv === 'test',
       sendEmail: (template, to, variables) =>
         this.sendEmail(template, to, variables),

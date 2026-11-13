@@ -24,7 +24,7 @@ export const sampleValues: Record<string, unknown> = {
   sessionId: 'ses_6Jd1Xr4T',
   accountId: '109876543210987654321',
   providerId: 'google',
-  provider: 'google',
+  provider: 'github',
   clientId: 'app_3Fh8Kq2L',
   client_id: 'app_3Fh8Kq2L',
   clientSecret: 'secret_9Wd2Hs7Q',

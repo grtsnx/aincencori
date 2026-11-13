@@ -64,12 +64,12 @@ export const authRouteDocs: Record<
     description: 'Returns ok when the auth service is up.',
   },
   '/sign-in/social': {
-    title: 'Sign in with Google',
-    description: 'Starts Google sign-in and returns the Google page link.',
+    title: 'Sign in with provider',
+    description: 'Starts Google, GitHub or LinkedIn sign-in; returns its link.',
   },
   '/callback/{id}': {
-    title: 'Return from Google sign-in',
-    description: 'Google sends the user back here after sign-in.',
+    title: 'Return from provider sign-in',
+    description: 'The provider sends the user back here after sign-in.',
   },
   '/sign-out': {
     title: 'Sign out',
@@ -292,8 +292,8 @@ export const authRouteDocs: Record<
     description: 'Signs out every device except this one.',
   },
   '/link-social': {
-    title: 'Link Google account',
-    description: 'Connects Google to the signed-in account.',
+    title: 'Link a provider account',
+    description: 'Connects Google, GitHub or LinkedIn to this account.',
   },
   '/list-accounts': {
     title: 'List sign-in methods',

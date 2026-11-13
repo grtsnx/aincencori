@@ -74,6 +74,24 @@ const optionalOrigin = (name: string, example: string) =>
       .optional(),
   );
 
+// The parent domain the frontend and API share, so they can share the session
+// cookie: app.example.com + api.example.com -> example.com. None for the same
+// host, localhost or IP addresses, where cookies already work.
+export function sharedParentDomain(a: string, b: string): string | undefined {
+  const hosts = [new URL(a).hostname, new URL(b).hostname];
+  if (hosts[0] === hosts[1]) return undefined;
+  if (hosts.some((host) => host === 'localhost' || /^[\d.:[\]]+$/.test(host))) {
+    return undefined;
+  }
+  const [first, second] = hosts.map((host) => host.split('.').reverse());
+  const shared: string[] = [];
+  for (let i = 0; i < Math.min(first.length, second.length); i++) {
+    if (first[i] !== second[i]) break;
+    shared.push(first[i]);
+  }
+  return shared.length >= 2 ? shared.reverse().join('.') : undefined;
+}
+
 // A comma-separated list in .env; empty means none.
 function commaList(value: string | undefined): string[] {
   return [
@@ -119,37 +137,13 @@ const environmentSchema = z
     BETTER_AUTH_API_KEY: optionalString(),
     GOOGLE_CLIENT_ID: optionalString(),
     GOOGLE_CLIENT_SECRET: optionalString(),
+    GITHUB_CLIENT_ID: optionalString(),
+    GITHUB_CLIENT_SECRET: optionalString(),
+    LINKEDIN_CLIENT_ID: optionalString(),
+    LINKEDIN_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
     DYMO_API_KEY: optionalString(),
-    PASSKEY_RP_ID: optionalString().pipe(
-      z
-        .string()
-        .regex(/^[a-z0-9.-]+$/i, {
-          error: 'PASSKEY_RP_ID must be a domain name, such as example.com',
-        })
-        .optional(),
-    ),
-    MCP_RESOURCE_URL: optionalString().pipe(z.url().optional()),
-    STAFF_ORGANIZATION_SLUG: optionalString().pipe(
-      z
-        .string()
-        .regex(/^[a-z0-9-]{2,40}$/, {
-          error:
-            'STAFF_ORGANIZATION_SLUG must use lowercase letters, numbers and dashes',
-        })
-        .optional(),
-    ),
     AUTH_IP_HEADERS: optionalString(),
-    AUTH_TRUSTED_PROXIES: optionalString(),
-    AUTH_COOKIE_DOMAIN: optionalString().pipe(
-      z
-        .string()
-        .regex(/^[a-z0-9.-]+$/i, {
-          error:
-            'AUTH_COOKIE_DOMAIN must be a domain name, such as example.com',
-        })
-        .optional(),
-    ),
   })
   .superRefine((environment, context) => {
     if (environment.NODE_ENV === 'production') {
@@ -171,13 +165,17 @@ const environmentSchema = z
       }
     }
 
-    if (!environment.GOOGLE_CLIENT_ID !== !environment.GOOGLE_CLIENT_SECRET) {
-      context.addIssue({
-        code: 'custom',
-        message:
-          'Set both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or neither',
-        path: ['GOOGLE_CLIENT_ID'],
-      });
+    // Each sign-in provider needs both its ID and secret, or neither.
+    for (const provider of ['GOOGLE', 'GITHUB', 'LINKEDIN'] as const) {
+      const id = environment[`${provider}_CLIENT_ID`];
+      const secret = environment[`${provider}_CLIENT_SECRET`];
+      if (!id !== !secret) {
+        context.addIssue({
+          code: 'custom',
+          message: `Set both ${provider}_CLIENT_ID and ${provider}_CLIENT_SECRET, or neither`,
+          path: [`${provider}_CLIENT_ID`],
+        });
+      }
     }
 
     if (!environment.OBSERVE_ENABLED) return;
@@ -215,13 +213,16 @@ export interface Environment {
   BETTER_AUTH_API_KEY?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  LINKEDIN_CLIENT_ID?: string;
+  LINKEDIN_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
   DYMO_API_KEY?: string;
+  AUTH_IP_HEADERS: string[];
+  // Worked out from the URLs above, not set in .env.
   PASSKEY_RP_ID: string;
   MCP_RESOURCE_URL: string;
-  AUTH_IP_HEADERS: string[];
-  AUTH_TRUSTED_PROXIES: string[];
-  STAFF_ORGANIZATION_SLUG: string;
 }
 
 export function validateEnvironment(
@@ -233,6 +234,7 @@ export function validateEnvironment(
     parsed.BETTER_AUTH_URL ?? `http://localhost:${parsed.PORT}`;
   // The frontend. Defaults to the first CORS origin in development.
   const appUrl = parsed.APP_URL ?? origins[0] ?? 'http://localhost:3001';
+  const cookieDomain = sharedParentDomain(appUrl, betterAuthUrl);
   return {
     ...parsed,
     CORS_ORIGINS: origins,
@@ -240,10 +242,10 @@ export function validateEnvironment(
     SWAGGER_ENABLED: parsed.SWAGGER_ENABLED ?? parsed.NODE_ENV !== 'production',
     BETTER_AUTH_URL: betterAuthUrl,
     APP_URL: appUrl,
-    PASSKEY_RP_ID: parsed.PASSKEY_RP_ID ?? new URL(appUrl).hostname,
-    MCP_RESOURCE_URL: parsed.MCP_RESOURCE_URL ?? `${betterAuthUrl}/mcp`,
     AUTH_IP_HEADERS: commaList(parsed.AUTH_IP_HEADERS),
-    AUTH_TRUSTED_PROXIES: commaList(parsed.AUTH_TRUSTED_PROXIES),
-    STAFF_ORGANIZATION_SLUG: parsed.STAFF_ORGANIZATION_SLUG ?? 'staff',
+    AUTH_COOKIE_DOMAIN: cookieDomain,
+    // Passkeys belong to the shared parent domain when there is one.
+    PASSKEY_RP_ID: cookieDomain ?? new URL(appUrl).hostname,
+    MCP_RESOURCE_URL: `${betterAuthUrl}/mcp`,
   };
 }

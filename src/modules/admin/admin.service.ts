@@ -1,8 +1,11 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { fromNodeHeaders } from 'better-auth/node';
 import type { IncomingHttpHeaders } from 'node:http';
-import { organizationRoles, permissionCatalog } from '@/config/auth/access.js';
+import {
+  organizationRoles,
+  permissionCatalog,
+  staffOrganizationSlug,
+} from '@/config/auth/access.js';
 import type {
   CreateRoleDto,
   InviteStaffDto,
@@ -37,7 +40,6 @@ export class AdminService {
   constructor(
     private readonly betterAuth: BetterAuthService,
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
   ) {}
 
   async listUsers(
@@ -260,7 +262,7 @@ export class AdminService {
 
   // The Staff organization, created the first time an admin needs it.
   private async staffOrganizationId(adminUserId?: string): Promise<string> {
-    const slug = this.config.getOrThrow<string>('STAFF_ORGANIZATION_SLUG');
+    const slug = staffOrganizationSlug;
     const db = this.prisma.db;
     let organization = await db.organization.findUnique({ where: { slug } });
 

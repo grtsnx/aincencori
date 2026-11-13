@@ -6,6 +6,10 @@ import {
   ownerAc as orgOwnerAc,
 } from 'better-auth/plugins/organization/access';
 
+// The organization that holds platform staff. Created the first time an admin
+// uses the staff routes. Fixed (not from .env) so it never changes under us.
+export const staffOrganizationSlug = 'staff';
+
 // Platform permissions. They only take effect in the Staff organization,
 // where they decide what each staff role may do across the platform.
 const platformStatements = {

@@ -42,14 +42,19 @@ export interface AuthSettings {
   cookieDomain?: string;
   // Better Auth Infrastructure: dashboard and email delivery.
   dashApiKey?: string;
-  google?: { clientId: string; clientSecret: string };
+  // OAuth sign-in. A provider is on when its ID and secret are set.
+  oauth: Partial<
+    Record<
+      'google' | 'github' | 'linkedin',
+      { clientId: string; clientSecret: string }
+    >
+  >;
   recaptchaSecretKey?: string;
   // Dymo API fraud checks on emails. Off unless a key is set.
   dymoApiKey?: string;
   passkeyRpID: string;
   mcpResource: string;
   ipAddressHeaders: string[];
-  trustedProxies: string[];
   // Adds Better Auth's test helpers. Never true in production.
   testing: boolean;
   sendEmail: AuthMailer;
@@ -93,12 +98,17 @@ export function createAuthOptions(settings: AuthSettings) {
           settings.passwordHasher.verify(hash, password),
       },
     },
-    socialProviders: settings.google
-      ? { google: { ...settings.google, prompt: 'select_account' as const } }
-      : {},
+    socialProviders: {
+      ...(settings.oauth.google && {
+        google: { ...settings.oauth.google, prompt: 'select_account' as const },
+      }),
+      ...(settings.oauth.github && { github: settings.oauth.github }),
+      ...(settings.oauth.linkedin && { linkedin: settings.oauth.linkedin }),
+    },
 
-    // A Google sign-in never joins an existing account by matching email.
-    // The user signs in first (email OTP), then links Google with linkSocial().
+    // An OAuth sign-in (Google, GitHub, LinkedIn) never joins an existing
+    // account by matching email. The user signs in first (email OTP), then
+    // links the provider with linkSocial().
     account: {
       accountLinking: {
         enabled: true,
@@ -123,9 +133,6 @@ export function createAuthOptions(settings: AuthSettings) {
       ipAddress: {
         ...(settings.ipAddressHeaders.length > 0 && {
           ipAddressHeaders: settings.ipAddressHeaders,
-        }),
-        ...(settings.trustedProxies.length > 0 && {
-          trustedProxies: settings.trustedProxies,
         }),
       },
     },
@@ -224,7 +231,7 @@ export function createAuthOptions(settings: AuthSettings) {
       agentAuthPlugin({
         appName: settings.appName,
         appURL: settings.appURL,
-        trustProxy: settings.trustedProxies.length > 0,
+        trustProxy: settings.ipAddressHeaders.length > 0,
       }),
       ...(settings.recaptchaSecretKey
         ? [

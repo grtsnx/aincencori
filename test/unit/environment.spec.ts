@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { validateEnvironment } from '@/config/environment.js';
+import {
+  sharedParentDomain,
+  validateEnvironment,
+} from '@/config/environment.js';
 
 const production = {
   NODE_ENV: 'production',
@@ -83,9 +86,6 @@ describe('validateEnvironment', () => {
     expect(() =>
       validateEnvironment({ DATABASE_URL: 'mysql://localhost/app' }),
     ).toThrow(/DATABASE_URL/);
-    expect(() =>
-      validateEnvironment({ AUTH_COOKIE_DOMAIN: 'https://example.com' }),
-    ).toThrow(/AUTH_COOKIE_DOMAIN/);
   });
 
   it('rejects invalid ports and booleans', () => {
@@ -110,10 +110,38 @@ describe('validateEnvironment', () => {
     ).toBe(true);
   });
 
-  it('requires both Google credentials or neither', () => {
-    expect(() => validateEnvironment({ GOOGLE_CLIENT_ID: 'id' })).toThrow(
-      /GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET/,
-    );
+  it('requires both ID and secret for each sign-in provider', () => {
+    for (const provider of ['GOOGLE', 'GITHUB', 'LINKEDIN']) {
+      expect(() =>
+        validateEnvironment({ [`${provider}_CLIENT_ID`]: 'id' }),
+      ).toThrow(
+        new RegExp(`${provider}_CLIENT_ID and ${provider}_CLIENT_SECRET`),
+      );
+    }
+    expect(
+      validateEnvironment({
+        GITHUB_CLIENT_ID: 'id',
+        GITHUB_CLIENT_SECRET: 'secret',
+      }).GITHUB_CLIENT_ID,
+    ).toBe('id');
+  });
+
+  it('shares the login cookie across subdomains automatically', () => {
+    const shared = validateEnvironment({
+      APP_URL: 'https://app.example.com',
+      BETTER_AUTH_URL: 'https://api.example.com',
+    });
+    expect(shared).toMatchObject({
+      AUTH_COOKIE_DOMAIN: 'example.com',
+      PASSKEY_RP_ID: 'example.com',
+    });
+
+    const local = validateEnvironment({
+      APP_URL: 'http://localhost:3001',
+      BETTER_AUTH_URL: 'http://localhost:3000',
+    });
+    expect(local.AUTH_COOKIE_DOMAIN).toBeUndefined();
+    expect(local.PASSKEY_RP_ID).toBe('localhost');
   });
 
   it('derives frontend, passkey and MCP defaults', () => {
@@ -125,9 +153,35 @@ describe('validateEnvironment', () => {
       }),
     ).toMatchObject({
       APP_URL: 'https://app.example.com',
-      PASSKEY_RP_ID: 'app.example.com',
+      PASSKEY_RP_ID: 'example.com',
       MCP_RESOURCE_URL: 'https://api.example.com/mcp',
       AUTH_IP_HEADERS: ['cf-connecting-ip', 'x-real-ip'],
     });
+  });
+});
+
+describe('sharedParentDomain', () => {
+  it('finds the parent two sites share', () => {
+    expect(
+      sharedParentDomain('https://app.example.com', 'https://api.example.com'),
+    ).toBe('example.com');
+    expect(
+      sharedParentDomain('https://example.com', 'https://api.example.com'),
+    ).toBe('example.com');
+  });
+
+  it('returns nothing when there is no shared parent to set', () => {
+    expect(
+      sharedParentDomain('https://app.example.com', 'https://app.example.com'),
+    ).toBeUndefined();
+    expect(
+      sharedParentDomain('https://app.example.com', 'https://api.other.org'),
+    ).toBeUndefined();
+    expect(
+      sharedParentDomain('http://localhost:3001', 'http://localhost:3000'),
+    ).toBeUndefined();
+    expect(
+      sharedParentDomain('http://127.0.0.1:3001', 'http://127.0.0.2:3000'),
+    ).toBeUndefined();
   });
 });
