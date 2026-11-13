@@ -43,6 +43,7 @@ import {
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { Prisma } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { readableImage } from '@/middleware/commons/index.js';
 import { R2Service } from '@/lib/r2/r2.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 
@@ -356,6 +357,17 @@ export class ChatService implements OnModuleInit {
     }
     // Files are saved while the model answers, so they never slow the chat.
     const files = this.storeFiles(userId, turn.attachments ?? []);
+    // The model gets small pictures enlarged, so it reads them right. The
+    // stored file stays the original.
+    if (turn.attachments?.length) {
+      turn.attachments = await Promise.all(
+        turn.attachments.map(async (file) =>
+          file.kind === 'image'
+            ? { ...file, data_url: await readableImage(file.data_url) }
+            : file,
+        ),
+      );
+    }
     const handler = this.cencori.agentChatHandler(agent, {
       context: () => this.context(auth.user, headers),
       user: () => userId,
