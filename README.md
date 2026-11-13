@@ -1,106 +1,107 @@
 # Agentic
 
-Agentic is a stateless NestJS API foundation for provider-specific agent experiments. The application exposes versioned APIs, health checks, OpenAPI documents, structured responses, and global error handling.
+A NestJS API with sign-in, users, organizations, admin tools and AI agent access. Auth is handled by [Better Auth](https://better-auth.com), data lives in Postgres through Prisma.
 
-## Requirements
+## Run it locally
 
-- Bun 1.3.14
-- Node.js 24 or later for the production runtime
-- Docker or another OCI-compatible container runtime for deployment
-
-## Local development
+You need Bun 1.3.14+, Node.js 24+ and Docker.
 
 ```bash
 cp .env.example .env
-docker compose up -d --wait   # local Postgres on port 5433
-bun install --frozen-lockfile # also generates the Prisma client
-bun run db:migrate            # creates the tables
+docker compose up -d --wait   # Postgres on port 5433
+bun install --frozen-lockfile
+bun run db:migrate
 bun run start:dev
 ```
 
-## Auth
+Then open the API docs:
 
-Auth uses [Better Auth](https://better-auth.com) directly, with Prisma and Postgres. No NestJS wrapper library is used.
+- Scalar: http://localhost:3000/docs
+- Swagger: http://localhost:3000/api
 
-- Better Auth serves sign-up, sign-in and sign-out under `/api/auth/*` (for example `POST /api/auth/sign-up/email`).
-- Every Nest route needs a signed-in user unless it is marked `@Public()` or `@OptionalAuth()`. Read the user with `@CurrentSession()`.
-- `GET /v1/auth/session` returns the signed-in user.
-- Shared Better Auth options live in `src/config/better-auth.ts`. After changing them, run `bun run auth:generate` and then `bun run db:migrate`.
+## What's built
 
-Swagger UI runs at `http://localhost:3000/api`, and Scalar runs at `http://localhost:3000/docs`. Both use the version-specific OpenAPI documents at `/api/v1-json` and `/api/v2-json`. The application prints every enabled documentation URL when it starts.
+**Sign-in**
 
-## Configuration
+- Email codes (one-time codes sent by email). There are no passwords.
+- Google, GitHub and LinkedIn. Each turns on when its ID and secret are set in `.env`.
+- Passkeys and two-factor (2FA).
+- A Google, GitHub or LinkedIn sign-in never takes over an existing account just because the email matches. The user signs in first, then links the provider.
+- Throwaway email domains are blocked, and `ada+1@gmail.com` can't make a second account for `ada@gmail.com`.
+- Optional Google reCAPTCHA on the email code routes.
 
-The application validates configuration before it starts. Invalid ports, booleans, and CORS origins stop startup.
+**Users, organizations and admin**
 
-| Variable             | Default                                            | Purpose                                                                     |
-| -------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
-| `NODE_ENV`           | `development`                                      | Selects development, test, or production behavior.                          |
-| `PORT`               | `3000`                                             | Sets the HTTP port.                                                         |
-| `PLATFORM_NAME`      | `Agentic`                                          | Names the API and OpenAPI document.                                         |
-| `CORS_ORIGINS`       | empty                                              | Lists exact, comma-separated browser origins. Empty disables CORS.          |
-| `SWAGGER_ENABLED`    | on outside production                              | Enables Swagger, Scalar, and OpenAPI JSON. Set it explicitly in production. |
-| `DATABASE_URL`       | none (required in production)                      | Postgres connection URL.                                                    |
-| `BETTER_AUTH_SECRET` | random per run (required in production)            | Signs sessions. At least 32 characters.                                     |
-| `BETTER_AUTH_URL`    | `http://localhost:<PORT>` (required in production) | This API's origin, without a path.                                          |
-| `AUTH_COOKIE_DOMAIN` | empty                                              | Parent domain to share the session cookie across subdomains.                |
-| `OBSERVE_ENABLED`    | `false`                                            | Enables NestJS Observe when valid credentials are present.                  |
+- Users can see their profile, sign-in methods and sessions, and stay signed in to several accounts at once.
+- Organizations have teams, invites, and custom roles with chosen permissions.
+- Admins can list, ban and impersonate users, invite staff, and create staff roles with permissions. Staff live in a built-in "Staff" organization.
 
-Never use `*` in `CORS_ORIGINS`. The server accepts only complete HTTP or HTTPS origins without paths.
+**AI agents (Agent Auth)**
 
-## Health checks
+- Agents act for a user, who approves each thing an agent may do. For now agents can only read the user's profile.
+- Agents find the setup at `/.well-known/agent-configuration`.
 
-- `GET /v1/health/live` proves that the process can answer requests.
-- `GET /v1/health/ready` checks the process's memory limits.
+**Security**
 
-Both routes also support API version 2. The checks do not depend on external websites, databases, or Redis.
+- Security headers, CSRF checks, rate limits and request IDs on every route.
+- Every route needs a signed-in user unless it's marked `@Public()`.
+- Passwords (if any are ever stored) are hashed with Argon2id.
 
-## Verification
+## API docs
 
-All tests live under `test/`.
+The docs are grouped into Auth, Agent Auth, User, Organization and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
+
+There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under `/api/auth` and appear in both.
+
+## Where things go
+
+```
+src/
+  modules/<name>/   one feature: <name>.service.ts, .controller.ts, .module.ts (exactly these 3)
+  lib/<name>/       one outside tool (Better Auth, Prisma, hashing): .module.ts, .service.ts (exactly these 2)
+  dto/<feature>/    request and response shapes, all exported from dto/index.ts
+  config/           settings: environment.ts, auth/ (Better Auth), docs/ (doc wording and samples)
+  middleware/       guards, decorators, filters, interceptors
+```
+
+## Settings
+
+Everything is in `.env.example` with a comment. The main ones:
+
+| Setting                              | What it's for                                                  |
+| ------------------------------------ | -------------------------------------------------------------- |
+| `DATABASE_URL`                       | Postgres connection                                            |
+| `BETTER_AUTH_SECRET`                 | Signs sessions (32+ characters). Required in production        |
+| `BETTER_AUTH_URL`                    | This API's address                                             |
+| `APP_URL`                            | The frontend's address                                         |
+| `BETTER_AUTH_API_KEY`                | Sends sign-in emails and powers the Better Auth dashboard      |
+| `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*` | Sign-in providers. Set both ID and secret, or leave both empty |
+| `RECAPTCHA_SECRET_KEY`               | Turns on reCAPTCHA                                             |
+| `AUTH_IP_HEADERS`                    | Only when hosted behind a proxy, e.g. `cf-connecting-ip`       |
+
+Without `BETTER_AUTH_API_KEY`, development prints sign-in codes in the server log instead of emailing them. The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
+
+## Changing the database
+
+- Our own tables: edit `prisma/schema.prisma`, then `bun run db:migrate`.
+- Better Auth's tables: change the options in `src/config/auth/better-auth.ts`, then run `bun run auth:generate` and `bun run db:migrate`. Don't edit Better Auth's tables by hand.
+
+## Tests and checks
 
 ```bash
-bun run format:check
 bun run lint
 bun run typecheck
-bun run test
-bun run test:e2e
-bun run test:cov
+bun run test       # unit tests
+bun run test:e2e   # API tests; the database ones run when DATABASE_URL is set
 bun run build
 ```
 
-## Container deployment
+CI runs all of these on every push, then builds and scans the Docker image. Tagging a version (`git tag v1.0.0 && git push origin v1.0.0`) publishes the image.
 
-Build and run the same OCI image on Docker, Kubernetes, Nomad, ECS, Cloud Run, Fly.io, Railway, Render, or any compatible platform:
+## Known issues
 
-```bash
-docker build --tag agentic:local .
-docker run --rm --read-only --tmpfs /tmp --publish 3000:3000 agentic:local
-```
-
-The image uses pinned Bun and Node digests, contains production dependencies only, and runs as the unprivileged `node` user.
-
-## CI/CD
-
-`.github/workflows/ci.yml` installs the lockfile exactly, checks formatting and types, runs all tests, audits dependencies, builds the application and container, and scans the runtime image. Every external action is pinned to a full commit SHA.
-
-`.github/workflows/release.yml` verifies semantic-version tags, then publishes Linux AMD64 and ARM64 images to GitHub Container Registry. It creates an SBOM and signs a provenance attestation through GitHub OIDC. Configure protection rules and required reviewers on the repository's `production` environment before the first release.
-
-Create a release with an immutable semantic version:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-The workflow delivers a portable image. Each hosting platform can deploy that immutable image digest with its own native rollout and rollback controls.
-
-## Reliability and state
-
-The service is stateless. It does not pretend that memory or a container filesystem is durable. Add workflow and idempotency modules only with a shared production store and tested transaction boundaries. Until then, replicas can start, stop, and roll back without losing application-owned state because the application owns none.
-
-The application enables graceful NestJS shutdown hooks. Its global exception filter also handles exceptions thrown by middleware, assigns a safe request ID, logs unexpected server errors, and keeps internal error details out of client responses.
-
-## NestJS guidance applied
-
-This project follows the current NestJS guidance for [exception filters](https://docs.nestjs.com/exception-filters), [security headers](https://docs.nestjs.com/techniques/security/cors), [CSRF protection](https://docs.nestjs.com/security/csrf), [validation](https://docs.nestjs.com/application/validation), [rate limiting](https://docs.nestjs.com/security/rate-limiting), and [shutdown hooks](https://docs.nestjs.com/fundamentals/lifecycle-events).
+- **MCP sign-in doesn't work yet.** A Better Auth bug with Prisma and Postgres stops it from saving its setup, and the server logs an error at startup. Everything else works.
+- **Better Auth's schema generator writes one table wrong** (Agent Auth grants). `scripts/fix-auth-schema.mjs` repairs it automatically after `auth:generate`.
+- **`better-call` is pinned to 1.4.5** in `package.json` so all Better Auth packages share one copy. Remove the pin once Agent Auth updates.
+- **Agent Auth is marked unstable** by Better Auth and may change.
+- **Frontend pages still needed:** accept invite, approve agent, and sign-in/consent pages for agents.
