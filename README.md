@@ -120,6 +120,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | `BETTER_AUTH_URL`                                                            | This API's address                                             |
 | `APP_URL`                                                                    | The frontend's address                                         |
 | `SENDBYTE_API_KEY` or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Sends emails. Locally SMTP defaults to Mailpit                 |
+| `MAIL_REPLY_TO`                                                              | Optional: where replies to our emails go                       |
 | `MAIL_FROM`                                                                  | The sender address. Required in production                     |
 | `BETTER_AUTH_API_KEY`                                                        | Optional: Better Auth dashboard and Sentinel abuse protection  |
 | `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*`                                         | Sign-in providers. Set both ID and secret, or leave both empty |

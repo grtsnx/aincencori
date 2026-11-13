@@ -299,3 +299,29 @@ describe('SendByteTransport', () => {
     ).rejects.toThrow('SendByte answered 429 (rate_limit_exceeded)');
   });
 });
+
+describe('SendByteTransport reply-to', () => {
+  it('sends the reply-to address when one is set', async () => {
+    const { SendByteTransport } = await import('@/lib/email/email.module.js');
+    const request = vi
+      .fn()
+      .mockResolvedValue(Response.json({ id: 'em_1' }, { status: 201 }));
+
+    await new SendByteTransport('sk_test_x', request).send(
+      {
+        from: { address: 'no-reply@example.com' },
+        to: [{ address: 'ada@example.com' }],
+        cc: [],
+        bcc: [],
+        replyTo: [{ name: 'Support', address: 'support@example.com' }],
+        subject: 'Hi',
+        text: 'Hi',
+      } as never,
+      { signal: new AbortController().signal, attempt: 1 },
+    );
+
+    expect(JSON.parse(request.mock.calls[0][1].body).reply_to).toBe(
+      'Support <support@example.com>',
+    );
+  });
+});

@@ -203,6 +203,7 @@ const environmentSchema = z
     SMTP_USER: optionalString(),
     SMTP_PASSWORD: optionalString(),
     MAIL_FROM: optionalString(),
+    MAIL_REPLY_TO: optionalString(),
   })
   .superRefine((environment, context) => {
     if (environment.NODE_ENV === 'production') {
@@ -327,6 +328,7 @@ export interface Environment {
   SMTP_USER?: string;
   SMTP_PASSWORD?: string;
   MAIL_FROM: string;
+  MAIL_REPLY_TO?: string;
   // Worked out, not set in .env.
   AUTH_IP_HEADERS: string[];
   AUTH_TRUSTED_PROXIES: string[];

@@ -97,6 +97,8 @@ export class SendByteTransport extends MailTransport {
         return {
           transport,
           from: config.getOrThrow<string>('MAIL_FROM'),
+          // Where a user's reply goes. Without it replies go to MAIL_FROM.
+          replyTo: config.get<string>('MAIL_REPLY_TO') || undefined,
           // The outbox in EmailService retries instead.
           retry: false,
         };
