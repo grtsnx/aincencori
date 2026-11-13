@@ -7,9 +7,11 @@ import {
 import { AppService } from './app.service.js';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
+import { Public } from '@/middleware';
 
 @Controller({ version: ['1', '2'] })
 @ApiTags('Server')
+@Public()
 export class AppController {
   constructor(
     private readonly appService: AppService,

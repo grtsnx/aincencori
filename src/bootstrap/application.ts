@@ -8,6 +8,8 @@ import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { AppModule, ObserveInstrument } from '@/app';
 import type { Environment } from '@/config/index.js';
+import { authBasePath } from '@/config/better-auth.js';
+import { BetterAuthService } from '@/lib/better-auth/better-auth.service.js';
 import { RequestIdMiddleware } from '@/middleware';
 import { configureSwagger } from './swagger.js';
 
@@ -40,6 +42,13 @@ export function configureApplication(
       credentials: true,
     });
   }
+
+  // Better Auth reads the raw request body, so its routes are mounted here:
+  // after security headers, CSRF and CORS, before Nest adds its JSON parser on init.
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .all(`${authBasePath}/{*any}`, app.get(BetterAuthService).handler);
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -74,6 +83,10 @@ export async function createApplication(): Promise<{
     OBSERVE_APP_SECRET: config.get<string>('OBSERVE_APP_SECRET'),
     OBSERVE_SERVICE_ID: config.get<string>('OBSERVE_SERVICE_ID'),
     SWAGGER_ENABLED: config.getOrThrow<boolean>('SWAGGER_ENABLED'),
+    DATABASE_URL: config.get<string>('DATABASE_URL'),
+    BETTER_AUTH_SECRET: config.get<string>('BETTER_AUTH_SECRET'),
+    BETTER_AUTH_URL: config.getOrThrow<string>('BETTER_AUTH_URL'),
+    AUTH_COOKIE_DOMAIN: config.get<string>('AUTH_COOKIE_DOMAIN'),
   };
   configureApplication(app, environment);
   return { app, environment };

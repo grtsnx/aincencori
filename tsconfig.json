@@ -21,6 +21,7 @@
     "paths": {
       "@/app": ["./src/app/app.module.ts"],
       "@/middleware": ["./src/middleware/index.ts"],
+      "@/dto": ["./src/dto/index.ts"],
       "@/*": ["./src/*"]
     }
   }

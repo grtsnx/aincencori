@@ -2,7 +2,9 @@
 
 FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS dependencies
 WORKDIR /app
-COPY package.json bun.lock ./
+COPY package.json bun.lock prisma.config.ts ./
+COPY prisma ./prisma
+# postinstall runs prisma generate, which writes the client into src/generated.
 RUN bun install --frozen-lockfile
 
 FROM dependencies AS build
@@ -13,7 +15,8 @@ RUN bun run build
 FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS production-dependencies
 WORKDIR /app
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+# The client is already compiled into dist, so skip postinstall here.
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
 FROM node:26.13.0-alpine3.23@sha256:44a3247313f9bc069a4ec25d01b66254ed7dc4d0408727d8720dc827f0753423 AS runtime
 ENV NODE_ENV=production \

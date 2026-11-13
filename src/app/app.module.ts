@@ -5,7 +5,11 @@ import { createObserveModule } from '@nestjs/observe';
 import { TerminusModule } from '@nestjs/terminus';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnvironment } from '@/config/index.js';
-import { HttpExceptionFilter, ResponseInterceptor } from '@/middleware';
+import {
+  AuthGuard,
+  HttpExceptionFilter,
+  ResponseInterceptor,
+} from '@/middleware';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { LibModule } from '@/lib/lib.module.js';
@@ -42,6 +46,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
   ],

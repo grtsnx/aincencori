@@ -1,0 +1,26 @@
+# Local Postgres for this project. Start it with `docker compose up -d --wait`.
+# It listens on 5433 so it can run beside other projects that use 5432.
+# The address matches DATABASE_URL in .env.example.
+name: aincencori
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: aincencori-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: agentic
+    ports:
+      - '127.0.0.1:5433:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d agentic']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
