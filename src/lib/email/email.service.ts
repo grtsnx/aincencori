@@ -94,6 +94,23 @@ export class EmailService implements OnModuleInit {
       .catch(() => this.logger.warn('Email queued; the sweep will send it.'));
   }
 
+  // Health: emails waiting to be sent, and ones that gave up.
+  async outboxCounts(): Promise<{ waiting: number; failed: number }> {
+    const db = this.prisma.db;
+    const [waiting, failed] = await Promise.all([
+      db.emailOutbox.count({
+        where: { status: { in: ['pending', 'sending'] } },
+      }),
+      db.emailOutbox.count({ where: { status: 'failed' } }),
+    ]);
+    return { waiting, failed };
+  }
+
+  // Health: the email service in use.
+  get provider(): 'resend' | 'smtp' {
+    return this.config.get<string>('RESEND_API_KEY') ? 'resend' : 'smtp';
+  }
+
   // Tests only: the variables of the last email to an address (e.g. otpCode).
   lastTestEmail(to: string): Record<string, string> | undefined {
     return this.testEmails.get(to);

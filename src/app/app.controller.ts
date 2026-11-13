@@ -8,7 +8,6 @@ import { AppService } from './app.service.js';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '@/middleware';
-import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
 @Controller({ version: ['1', '2'] })
 @ApiTags('Server')
@@ -18,7 +17,6 @@ export class AppController {
     private readonly appService: AppService,
     private readonly health: HealthCheckService,
     private readonly memory: MemoryHealthIndicator,
-    private readonly prisma: PrismaService,
   ) {}
 
   @ApiOperation({
@@ -49,15 +47,22 @@ export class AppController {
 
   @ApiOperation({
     summary: 'Readiness',
-    description: 'Shows the server can take traffic.',
+    description: 'Checks database, Redis, Cencori, email and workers.',
   })
   @ApiOkResponse({
+    description:
+      'Ready. Answers 503 only when the database, Redis or memory fail; ' +
+      'Cencori, email and workers are shown but never fail it.',
     schema: {
       type: 'object',
       example: {
-        database: { status: 'up' },
+        database: { status: 'up', latencyMs: 2 },
+        redis: { status: 'up', latencyMs: 1 },
         memory_heap: { status: 'up' },
         memory_rss: { status: 'up' },
+        cencori: { status: 'up', latencyMs: 180 },
+        email: { status: 'up', provider: 'smtp', waiting: 0, failed: 0 },
+        workers: { status: 'up', count: 2 },
       },
     },
   })
@@ -65,14 +70,15 @@ export class AppController {
   @Get('health/ready')
   @HealthCheck({ swaggerDocumentation: false })
   async ready() {
-    const result = await this.health.check([
-      () => this.memory.checkHeap('memory_heap', 500 * 1024 * 1024),
-      () => this.memory.checkRSS('memory_rss', 1_500_000_000),
-      async () => {
-        await this.prisma.db.$queryRaw`SELECT 1`;
-        return { database: { status: 'up' as const } };
-      },
+    const [result, optional] = await Promise.all([
+      this.health.check([
+        async () => ({ database: await this.appService.database() }),
+        async () => ({ redis: await this.appService.redis() }),
+        () => this.memory.checkHeap('memory_heap', 500 * 1024 * 1024),
+        () => this.memory.checkRSS('memory_rss', 1_500_000_000),
+      ]),
+      this.appService.optional(),
     ]);
-    return result.details;
+    return { ...result.details, ...optional };
   }
 }

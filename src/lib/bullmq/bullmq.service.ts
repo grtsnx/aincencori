@@ -113,6 +113,19 @@ export class BullmqService implements OnModuleDestroy {
     await this.queue(name).removeJobScheduler(id);
   }
 
+  // Health: checks Redis answers. Throws when it doesn't.
+  async ping(): Promise<void> {
+    if (this.inline) return;
+    const client = await this.queue('health').getBackend().client;
+    await client.runCommand('ping', []);
+  }
+
+  // Health: how many worker servers are listening for this job.
+  async workerCount(name: string): Promise<number> {
+    if (this.inline) return 0;
+    return this.queue(name).getWorkersCount();
+  }
+
   // Tests only: the timetable set for a job, if any.
   testSchedule(name: string, id: string): Schedule | undefined {
     return this.testSchedules.get(`${name}:${id}`);
