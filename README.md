@@ -74,7 +74,7 @@ Then open the API docs:
   - **Integrations**: apps it can use.
 - A bot can rewrite its own instructions when asked; the user approves the change in the chat first.
 - The orchestrator is the default assistant ("Agentic", in `src/config/agents/agents.ts`). It answers first and hands the chat to its helpers or to one of the user's bots (those with a description).
-- The model for all agents is one line: `agentModel` in `src/config/agents/limits.ts`.
+- The model for all agents is set in one place: `agentModel` (now `gpt-6-luna`) and `agentThinking` in `src/config/agents/limits.ts`. Older OpenAI models (gpt-4.1, gpt-4o, gpt-5) are being shut down, so don't switch back to them.
 - Integrations (`/v1/integrations`): what a user connects for their bots. Apps like Gmail, Slack and Notion sign in through Cencori ("Connect"); a user can connect the same app several times (two Gmail accounts) and give each to a different bot. They can also add their own MCP server (https, public internet; token stored encrypted). Up to 10 per user.
 - A bot only uses the integrations its owner picked. The default assistant uses none. Every tool call on a user's own MCP server asks first.
 - The `/mcp` address is listed in the docs under "MCP".

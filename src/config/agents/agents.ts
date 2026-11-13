@@ -323,6 +323,9 @@ export function createBotAgent(
         bot.instructions,
         `The user is ${context.user.name}. Show data as widgets when it helps, ` +
           'and always finish with a short answer in words.',
+        'When the user asks you to remember something, or tells you a lasting ' +
+          'fact about themselves or their work, you must call save_memory ' +
+          'before you reply. Saying you will remember is not enough.',
         bot.memories.length > 0 &&
           `What you already know:\n${bot.memories.map((fact) => `- ${fact}`).join('\n')}`,
         bot.skills.length > 0 &&
