@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { PlanService } from '@/modules/plan/plan.service.js';
 
@@ -104,6 +105,7 @@ function createService(options: { approvalAtStep?: number } = {}) {
       },
     }),
   };
+  const usage = { assertAllowance: vi.fn().mockResolvedValue(undefined) };
   let call = 0;
   const chat = {
     usePlans: vi.fn(),
@@ -122,13 +124,23 @@ function createService(options: { approvalAtStep?: number } = {}) {
     bullmq as never,
     cencori as never,
     chat as never,
+    usage as never,
   );
   service.onModuleInit();
   const run = (attempt = 1) => {
     if (!job) throw new Error('The plan job was not registered.');
     return job({ planId: 'p1' }, { attempt });
   };
-  return { service, plan, steps: () => steps, chat, cencori, bullmq, run };
+  return {
+    service,
+    plan,
+    steps: () => steps,
+    chat,
+    cencori,
+    bullmq,
+    usage,
+    run,
+  };
 }
 
 describe('PlanService', () => {
@@ -208,6 +220,21 @@ describe('PlanService', () => {
     await run(3);
     expect(plan.status).toBe('failed');
     expect(plan.summary).toContain('You can resume it');
+  });
+
+  it('stops at once, without retrying, when the AI allowance is used up', async () => {
+    const { plan, usage, chat, run } = createService();
+    usage.assertAllowance.mockRejectedValue(
+      new HttpException('You have used this month\'s AI allowance.', 402),
+    );
+
+    await run(1);
+
+    expect(plan).toMatchObject({
+      status: 'failed',
+      summary: expect.stringContaining('allowance'),
+    });
+    expect(chat.ask).not.toHaveBeenCalled();
   });
 
   it('says so at once when the AI service is not set up', async () => {

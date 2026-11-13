@@ -25,6 +25,7 @@ const context: ChatContext = {
   },
   searchDocuments: () => Promise.resolve('Nothing found.'),
   startPlan: () => Promise.resolve({ id: 'p1' }),
+  toolDecision: () => 'ask',
 };
 const runContext = { context, sessionId: '', agentName: 'Agentic' };
 
@@ -177,6 +178,26 @@ describe('bot agents', () => {
     expect(agent.tools.map((t) => t.name)).toContain('use_skill');
   });
 
+  it('follows the user’s rules: ask, run without asking, or refuse', async () => {
+    const agent = createBotAgent(settings, parts());
+    const tool = call(agent, 'update_my_instructions') as unknown as {
+      needsApproval: (ctx: unknown, args: unknown, callId: string) => boolean;
+      invoke: (ctx: unknown, input: string, callId: string) => Promise<string>;
+    };
+    const withRule = (decision: 'allow' | 'ask' | 'deny') => ({
+      ...runContext,
+      context: { ...context, toolDecision: () => decision },
+    });
+    const input = JSON.stringify({ instructions: 'Be brief.' });
+
+    expect(tool.needsApproval(withRule('ask'), {}, 'c1')).toBe(true);
+    expect(tool.needsApproval(withRule('allow'), {}, 'c1')).toBe(false);
+    expect(tool.needsApproval(withRule('deny'), {}, 'c1')).toBe(false);
+    await expect(tool.invoke(withRule('deny'), input, 'c1')).resolves.toContain(
+      'turned this tool off',
+    );
+  });
+
   it('asks before changing its own instructions, not before saving a fact', () => {
     const agent = createBotAgent(settings, parts());
 
@@ -272,6 +293,8 @@ describe('saving a chat turn', () => {
     const upsert = vi.fn().mockResolvedValue({});
     const createMany = vi.fn().mockResolvedValue({});
     const r2 = { put: vi.fn().mockResolvedValue(undefined) };
+    const recordPending = vi.fn().mockResolvedValue(undefined);
+    const log = vi.fn();
     const service = new ChatService(
       { get: () => undefined } as never,
       {} as never,
@@ -279,8 +302,11 @@ describe('saving a chat turn', () => {
       { db: { chatSession: { upsert }, chatMessage: { createMany } } } as never,
       { handle: vi.fn(), add: vi.fn() } as never,
       r2 as never,
+      {} as never,
+      { recordPending } as never,
+      { log } as never,
     );
-    return { service, upsert, createMany, r2 };
+    return { service, upsert, createMany, r2, recordPending, log };
   };
 
   // Sends stream text through the recorder, split in odd places like a network would.
@@ -444,6 +470,9 @@ describe('chat deletion', () => {
           operations.push('remote-delete-job');
         }),
       } as never,
+      {} as never,
+      {} as never,
+      {} as never,
       {} as never,
     );
 

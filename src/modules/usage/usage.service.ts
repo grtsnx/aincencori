@@ -174,6 +174,7 @@ export class UsageService implements OnModuleInit {
       create: { userId, ...data },
       update: data,
     });
+    await this.syncPlan(userId, body.plan);
     this.activity.log({
       userId,
       actor: `staff:${auth.user.id}`,
@@ -185,6 +186,26 @@ export class UsageService implements OnModuleInit {
           : null,
     });
     return this.summary(userId);
+  }
+
+  // Tells Cencori the user's plan: the rate plan with the same slug (made in
+  // Cencori's Revenue settings) sets their markup there and goes on the
+  // invoices Cencori makes. No such rate plan: their default applies. If
+  // Cencori is away, our own allowance still holds.
+  private async syncPlan(userId: string, plan: string): Promise<void> {
+    if (!this.cencori.isConfigured) return;
+    try {
+      const { data } = await this.cencori.sdk.ratePlans.list();
+      const match = (data as { id: string; slug?: string }[]).find(
+        (ratePlan) => ratePlan.slug === plan,
+      );
+      await this.cencori.sdk.endUsers.upsert({
+        external_id: userId,
+        rate_plan_id: match?.id ?? null,
+      });
+    } catch {
+      this.logger.warn(`The plan of user ${userId} was not sent to Cencori.`);
+    }
   }
 
   private async summary(userId: string): Promise<UsageDto> {

@@ -166,7 +166,7 @@ export class RoutineDto {
   @ApiProperty({
     type: String,
     nullable: true,
-    enum: ['ok', 'failed', 'needs-approval'],
+    enum: ['ok', 'failed', 'needs-approval', 'no-allowance'],
     example: 'ok',
   })
   lastStatus: string | null;

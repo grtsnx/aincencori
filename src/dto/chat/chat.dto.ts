@@ -79,11 +79,15 @@ export class ChatApprovalDto {
   state: string;
 
   @ApiProperty({
-    description: 'Decision for each tool call, by call id',
-    example: { call_1: { approved: true } },
+    description:
+      'Decision for each tool call, by call id. remember: chat or always',
+    example: { call_1: { approved: true, remember: 'chat' } },
   })
   @IsObject()
-  decisions: Record<string, { approved: boolean; message?: string }>;
+  decisions: Record<
+    string,
+    { approved: boolean; message?: string; remember?: 'chat' | 'always' }
+  >;
 }
 
 // Send one of: a message (with attachments), a widget action, approval

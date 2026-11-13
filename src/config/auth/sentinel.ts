@@ -13,8 +13,17 @@ export const sentinelSecurity: SentinelOptions['security'] = {
   impossibleTravel: { enabled: true, action: 'challenge' },
   // Too many sign-ins or sign-ups from one IP or visitor.
   velocity: { enabled: true, action: 'challenge' },
-  // Many accounts from one visitor: logged for now, not blocked.
-  freeTrialAbuse: { enabled: true, action: 'log' },
+  // Many accounts from one device, to get more free AI allowance (see
+  // config/billing/plans.ts): the 3rd account is challenged, the 4th
+  // blocked. Counted over 90 days by the browser's fingerprint
+  // (sentinelClient on the frontend).
+  freeTrialAbuse: {
+    enabled: true,
+    thresholds: { challenge: 2, block: 3 },
+    maxAccountsPerVisitor: 3,
+    retentionSeconds: 90 * 24 * 60 * 60,
+    action: 'block',
+  },
   // Accounts that wake up after 60 quiet days: logged.
   staleUsers: { enabled: true, staleDays: 60, action: 'log' },
   // Extra email checks. Harmony already normalizes emails, so Sentinel doesn't.

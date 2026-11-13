@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -18,6 +19,7 @@ import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { ChatService } from '../chat/chat.service.js';
+import { UsageService } from '../usage/usage.service.js';
 
 interface Owner {
   user: { id: string };
@@ -48,6 +50,7 @@ export class PlanService implements OnModuleInit {
     private readonly bullmq: BullmqService,
     private readonly cencori: CencoriService,
     private readonly chat: ChatService,
+    private readonly usage: UsageService,
   ) {}
 
   onModuleInit(): void {
@@ -182,6 +185,16 @@ export class PlanService implements OnModuleInit {
       await this.finish(planId, 'failed', 'The AI service is not set up.');
       return;
     }
+    // The planner is not asked when the allowance is used up.
+    try {
+      await this.usage.assertAllowance(plan.userId);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        await this.finish(planId, 'failed', error.message);
+        return;
+      }
+      throw error;
+    }
     const lastTry = attempt >= runAttempts;
     try {
       const steps = plan.steps.length > 0 ? plan.steps : await this.split(plan);
@@ -198,11 +211,21 @@ export class PlanService implements OnModuleInit {
         message:
           'All steps of the plan are done. Give the user the finished ' +
           'result in full, then one line on what each step did.',
-        chatId,
+          chatId,
+        source: 'plan',
         stopNote: 'This plan paused',
       });
       await this.finish(planId, 'done', result.answer);
     } catch (error) {
+      // Out of AI allowance: trying again won't help.
+      if (error instanceof HttpException && error.getStatus() === 402) {
+        await this.prisma.db.planStep.updateMany({
+          where: { planId, status: 'running' },
+          data: { status: 'waiting', startedAt: null },
+        });
+        await this.finish(planId, 'failed', error.message);
+        return;
+      }
       if (!lastTry) throw error;
       this.logger.warn(`Plan ${planId} failed.`);
       await this.prisma.db.planStep.updateMany({
@@ -275,6 +298,7 @@ export class PlanService implements OnModuleInit {
       chatId,
       botId: plan.botId ?? undefined,
       title: `Plan: ${plan.goal}`,
+      source: 'plan',
       stopNote: 'This plan paused',
     });
     if (!chatId) {
@@ -291,7 +315,7 @@ export class PlanService implements OnModuleInit {
       await this.finish(
         plan.id,
         'needs-approval',
-        `Step ${step.position} needs your approval. Approve it in the plan's chat, then resume the plan.`,
+        `Step ${step.position} needs your approval. Approve it from your approvals inbox, then resume the plan.`,
       );
       return undefined;
     }

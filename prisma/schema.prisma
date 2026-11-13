@@ -497,7 +497,7 @@ model Routine {
   timezone   String
   enabled    Boolean   @default(true)
   lastRunAt  DateTime?
-  // "ok", "failed" or "needs-approval".
+  // "ok", "failed", "needs-approval" or "no-allowance".
   lastStatus String?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt

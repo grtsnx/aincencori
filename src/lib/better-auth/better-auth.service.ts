@@ -111,8 +111,8 @@ export class BetterAuthService implements OnModuleInit {
         getAndDelete: (key) => redis.getAndDelete(key),
         increment: (key, ttl) => redis.count(key, ttl),
       },
-      // A deleted user's chats, routines, bots, integrations, documents and
-      // plans go too (messages follow their chat; shared bots follow their
+      // A deleted user's chats, routines, bots, integrations, documents,
+      // plans, rules, usage and activity go too (messages follow their chat; shared bots follow their
       // bot; a routine's timetable stops itself on its next run). Their space and bots at Cencori are removed in the
       // background, which also signs their apps out.
       onUserDeleted: async (userId) => {
@@ -131,6 +131,14 @@ export class BetterAuthService implements OnModuleInit {
         await db.integration.deleteMany({ where: { userId } });
         await db.document.deleteMany({ where: { userId } });
         await db.plan.deleteMany({ where: { userId } });
+        await db.toolRule.deleteMany({ where: { userId } });
+        await db.pendingApproval.deleteMany({ where: { userId } });
+        await db.usageDay.deleteMany({ where: { userId } });
+        await db.billingPlan.deleteMany({ where: { userId } });
+        // Their own activity goes; what staff did to the account is kept.
+        await db.activityLog.deleteMany({
+          where: { userId, NOT: { actor: { startsWith: 'staff:' } } },
+        });
         await db.agentWorkspace.deleteMany({ where: { userId } });
         // Their stored chat files too.
         await bullmq.add(deleteFilesJob, { prefix: userFilesPrefix(userId) });

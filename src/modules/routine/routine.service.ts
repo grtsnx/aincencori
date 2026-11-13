@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -241,9 +242,12 @@ export class RoutineService implements OnModuleInit, OnModuleDestroy {
     let status: string;
     try {
       status = await this.chat.runRoutine(routine);
-    } catch {
-      status = 'failed';
-      this.logger.error(`Routine ${routine.id} failed.`);
+    } catch (error) {
+      // Out of AI allowance: skipped until it starts again.
+      const noAllowance =
+        error instanceof HttpException && error.getStatus() === 402;
+      status = noAllowance ? 'no-allowance' : 'failed';
+      if (!noAllowance) this.logger.error(`Routine ${routine.id} failed.`);
     }
     await this.prisma.db.routine.updateMany({
       where: { id: routine.id },
