@@ -462,9 +462,9 @@ model ChatSession {
 // Every message of a chat, kept by us. Cencori only answers; the history is
 // ours, so we can switch AI providers without losing it.
 model ChatMessage {
-  id          String      @id
+  id          String        @id
   sessionId   String
-  session     ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session     ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   // "user", "agent" or "human" (a person on our team).
   role        String
   // Which agent answered, for example "Agentic".
@@ -474,9 +474,14 @@ model ChatMessage {
   widgets     Json?
   // Names of attached files. The files themselves are not kept.
   attachments Json?
-  createdAt   DateTime    @default(now())
+  // The earlier message this one replies to (quoted, like in WhatsApp).
+  replyToId   String?
+  replyTo     ChatMessage?  @relation("Reply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     ChatMessage[] @relation("Reply")
+  createdAt   DateTime      @default(now())
 
   @@index([sessionId, createdAt])
+  @@index([replyToId])
   @@map("chatMessage")
 }
 

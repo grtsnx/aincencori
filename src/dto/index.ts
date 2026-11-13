@@ -43,6 +43,7 @@ export {
   ChatHistoryQueryDto,
   ChatMessageDto,
   ChatPollDto,
+  ChatQuoteDto,
   ChatReplyDto,
   ChatRequestDto,
   ChatSessionDto,

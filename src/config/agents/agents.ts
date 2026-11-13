@@ -295,6 +295,21 @@ const startPlan = guarded({
   },
 });
 
+// Shows the answer as a reply to an earlier message (quoted, like in
+// WhatsApp). The chat links them when it saves the answer.
+export const replyToMessageTool = 'reply_to_message';
+const replyToMessage = tool({
+  name: replyToMessageTool,
+  description:
+    'Show your answer as a reply to an earlier message of this chat, ' +
+    'quoted like in WhatsApp. Use it when you answer something said ' +
+    'earlier, not the latest message. quote: a few exact words from it. ' +
+    'Call it first, then write your full answer as usual.',
+  parameters: z.object({ quote: z.string().min(3).max(200) }),
+  execute: () =>
+    'Linked. Now write your full answer to the user; it shows under the quote.',
+}) as FunctionTool<ChatContext>;
+
 // ── Guardrails ───────────────────────────────────────────────────────────
 
 // Stops messages that look like they carry a secret key or password.
@@ -406,7 +421,7 @@ export function createGroupAgent(
       ]
         .filter(Boolean)
         .join('\n\n'),
-    tools: [askBotTool(group.members, ask)],
+    tools: [askBotTool(group.members, ask), replyToMessage],
     inputGuardrails: [noSecretsIn],
     outputGuardrails: [noSecretsOut(settings.secrets)],
     widgets: true,
@@ -442,6 +457,7 @@ export function createBotAgent(
   if (team) {
     if (team.others.length > 0) tools.push(askBotTool(team.others, team.ask));
   } else {
+    tools.push(replyToMessage);
     tools.push(
       guarded({
         name: 'update_my_instructions',
@@ -599,10 +615,12 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'search_my_documents and say which document a fact came from. ' +
       'For a big goal with several steps (research, compare, then write), ' +
       'offer to start a plan with start_plan. ' +
-      'If the user asks for a person, or you cannot help, hand the chat to a human.',
+      'If the user asks for a person, or you cannot help, hand the chat to a human. ' +
+      'A message starting with [Replying to ...] answers the quoted message.',
     tools: [
       searchMyDocuments as FunctionTool<ChatContext>,
       startPlan as FunctionTool<ChatContext>,
+      replyToMessage,
       writer.asTool({
         toolName: 'write_text',
         toolDescription: 'Draft an email, post or summary.',

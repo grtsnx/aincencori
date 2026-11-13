@@ -1,5 +1,6 @@
 // Counts what each AI call used. Cencori ends every model call with a
-// "turn.completed" event that carries the tokens and the cost; this fetch
+// "turn.completed" event, or "turn.paused" when it stops for a tool (each
+// tool step, and approvals), both with the tokens and the cost. This fetch
 // reads a copy of the stream as it passes, so nothing is slowed down.
 
 export interface ModelUsage {
@@ -30,6 +31,8 @@ export function usageFromEvent(data: unknown): ModelUsage | null {
   };
 }
 
+const countedEvents = new Set(['turn.completed', 'turn.paused']);
+
 // Reads server-sent events from a stream and reports each model call's usage.
 async function readUsage(
   body: ReadableStream<Uint8Array>,
@@ -42,7 +45,7 @@ async function readUsage(
   let data = '';
   const line = (text: string) => {
     if (text === '') {
-      if (event === 'turn.completed' && data) {
+      if (countedEvents.has(event) && data) {
         try {
           const usage = usageFromEvent(JSON.parse(data));
           if (usage) onUsage(usage);

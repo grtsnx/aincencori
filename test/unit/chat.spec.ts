@@ -43,6 +43,7 @@ describe('chat agents', () => {
     expect(agent.tools.map((t) => t.name)).toEqual([
       'search_my_documents',
       'start_plan',
+      'reply_to_message',
       'write_text',
       'handoff_to_human',
     ]);
@@ -147,6 +148,7 @@ describe('bot agents', () => {
       'web_search',
       'web_fetch',
       'save_memory',
+      'reply_to_message',
       'update_my_instructions',
     ]);
     const text = await agent.resolveInstructions(runContext);
@@ -238,7 +240,10 @@ describe('groups of bots', () => {
       ask,
     );
 
-    expect(lead.tools.map((t) => t.name)).toEqual(['ask_bot']);
+    expect(lead.tools.map((t) => t.name)).toEqual([
+      'ask_bot',
+      'reply_to_message',
+    ]);
     const text = await lead.resolveInstructions(runContext);
     expect(text).toContain('You lead "Sales team"');
     expect(text).toContain('Prospector goes first.');
@@ -292,6 +297,11 @@ describe('saving a chat turn', () => {
   const build = () => {
     const upsert = vi.fn().mockResolvedValue({});
     const createMany = vi.fn().mockResolvedValue({});
+    // Earlier messages of the chat, newest first (for quoted replies).
+    const findMany = vi.fn().mockResolvedValue([
+      { id: 'm2', text: 'Thanks!' },
+      { id: 'm1', text: 'Please check the Acme invoice from March.' },
+    ]);
     const r2 = { put: vi.fn().mockResolvedValue(undefined) };
     const recordPending = vi.fn().mockResolvedValue(undefined);
     const log = vi.fn();
@@ -299,7 +309,9 @@ describe('saving a chat turn', () => {
       { get: () => undefined } as never,
       {} as never,
       {} as never,
-      { db: { chatSession: { upsert }, chatMessage: { createMany } } } as never,
+      {
+        db: { chatSession: { upsert }, chatMessage: { createMany, findMany } },
+      } as never,
       { handle: vi.fn(), add: vi.fn() } as never,
       r2 as never,
       {} as never,
@@ -350,7 +362,15 @@ describe('saving a chat turn', () => {
       stream,
     );
 
-    expect(out).toBe(stream); // The browser gets the stream unchanged.
+    // The browser gets the stream unchanged, plus the saved message ids
+    // just before the end (so the user can reply to them).
+    const rows0 = createMany.mock.calls[0][0].data as { id: string }[];
+    expect(out).toBe(
+      stream.replace(
+        'event: done',
+        `event: saved\ndata: ${JSON.stringify({ userMessageId: rows0[0].id, agentMessageId: rows0[1].id })}\n\nevent: done`,
+      ),
+    );
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'ses_1' },
@@ -375,6 +395,25 @@ describe('saving a chat turn', () => {
       text: 'You are in Acme.',
       widgets: [{ type: 'Card', children: [] }],
     });
+  });
+
+  it('links replies: the user’s to the message they quoted, the agent’s to the words it quoted', async () => {
+    const { service, createMany } = build();
+    const stream =
+      'event: tool_call\ndata: {"callId":"c1","name":"reply_to_message",' +
+      '"arguments":"{\\"quote\\":\\"acme  INVOICE\\"}"}\n\n' +
+      'event: text\ndata: {"delta":"It is paid.","agent":"Agentic"}\n\n' +
+      'event: done\ndata: {"sessionId":"ses_1"}\n\n';
+
+    await pass(
+      service,
+      { sessionId: 'ses_1', message: 'And this one?', replyTo: 'm2' },
+      stream,
+    );
+
+    const rows = createMany.mock.calls[0][0].data;
+    expect(rows[0]).toMatchObject({ role: 'user', replyToId: 'm2' });
+    expect(rows[1]).toMatchObject({ role: 'agent', replyToId: 'm1' });
   });
 
   it('stores attached files and keeps where they are on the message', async () => {

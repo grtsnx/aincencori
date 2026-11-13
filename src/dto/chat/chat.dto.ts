@@ -129,6 +129,16 @@ export class ChatRequestDto {
   @MaxLength(32_000)
   message?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Reply to an earlier message of this chat (its id), like in WhatsApp',
+    example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  replyTo?: string;
+
   @ApiPropertyOptional({ type: [ChatAttachmentDto] })
   @IsOptional()
   @IsArray()
@@ -270,6 +280,24 @@ export class ChatFileDto {
   url: string | null;
 }
 
+// The message another one replies to, shortened for the quote bubble.
+export class ChatQuoteDto {
+  @ApiProperty({ example: '3f9aB2xY-7aae-4ca4-86fd-933f1a45603f' })
+  id: string;
+
+  @ApiProperty({ enum: ['user', 'agent', 'human'], example: 'user' })
+  role: 'user' | 'agent' | 'human';
+
+  @ApiProperty({ type: String, nullable: true, example: null })
+  agent: string | null;
+
+  @ApiProperty({
+    description: 'The start of its text',
+    example: 'Can you check the Acme invoice?',
+  })
+  text: string;
+}
+
 export class ChatHistoryMessageDto {
   @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
   id: string;
@@ -302,6 +330,13 @@ export class ChatHistoryMessageDto {
     type: [ChatFileDto],
   })
   attachments: ChatFileDto[];
+
+  @ApiProperty({
+    type: ChatQuoteDto,
+    nullable: true,
+    description: 'The message this one replies to',
+  })
+  replyTo: ChatQuoteDto | null;
 
   @ApiProperty({ example: '2026-11-13T09:31:00.000Z' })
   createdAt: Date;

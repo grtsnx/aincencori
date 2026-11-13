@@ -142,6 +142,74 @@ describe('Chat (e2e)', () => {
       expect(await db.chatMessage.count({ where: { sessionId: id } })).toBe(0);
     });
 
+    it('replies to a message, like WhatsApp, and shows the quote in the history', async () => {
+      const db = app.get(PrismaService).db;
+      const user = await db.user.findUniqueOrThrow({ where: { email } });
+      const id = `ses_${randomUUID()}`;
+      await db.chatSession.create({
+        data: { id, userId: user.id, title: 'Replies' },
+      });
+      await db.chatMessage.createMany({
+        data: [
+          {
+            id: `${id}-q`,
+            sessionId: id,
+            role: 'agent',
+            agent: 'Agentic',
+            text: 'Your Acme invoice is due on Friday.',
+            createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 1)),
+          },
+          {
+            id: `${id}-r`,
+            sessionId: id,
+            role: 'user',
+            text: 'Can we pay it Monday?',
+            replyToId: `${id}-q`,
+            createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 2)),
+          },
+        ],
+      });
+      const server = app.getHttpServer();
+
+      // A reply needs the chat, and a message of that chat.
+      await request(server)
+        .post('/v1/chat')
+        .set('Cookie', cookies)
+        .send({ message: 'Yes?', replyTo: `${id}-q` })
+        .expect(400);
+      await request(server)
+        .post('/v1/chat')
+        .set('Cookie', cookies)
+        .send({ sessionId: id, message: 'Yes?', replyTo: 'not-here' })
+        .expect(404);
+      // A real quote passes the checks (then Cencori is not set up here).
+      await request(server)
+        .post('/v1/chat')
+        .set('Cookie', cookies)
+        .send({ sessionId: id, message: 'Yes?', replyTo: `${id}-q` })
+        .expect(503);
+
+      const history = await request(server)
+        .get(`/v1/chat/${id}/messages`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(history.body.data[0].replyTo).toBeNull();
+      expect(history.body.data[1].replyTo).toEqual({
+        id: `${id}-q`,
+        role: 'agent',
+        agent: 'Agentic',
+        text: 'Your Acme invoice is due on Friday.',
+      });
+
+      // Deleting the quoted message keeps the reply, without the quote.
+      await db.chatMessage.delete({ where: { id: `${id}-q` } });
+      const after = await db.chatMessage.findUniqueOrThrow({
+        where: { id: `${id}-r` },
+      });
+      expect(after.replyToId).toBeNull();
+      await db.chatSession.delete({ where: { id } });
+    });
+
     it('opens attached files from the history and removes them with the chat', async () => {
       const db = app.get(PrismaService).db;
       const r2 = app.get(R2Service);

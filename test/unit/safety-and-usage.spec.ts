@@ -9,6 +9,8 @@ const stream = (text: string) =>
 describe('usage meter', () => {
   it('counts each model call from the stream, and passes it on unchanged', async () => {
     const body =
+      'event: turn.paused\ndata: {"usage":{"input_tokens":44,"output_tokens":14},' +
+      '"trace":{"provider_cost_usd":0.00001}}\n\n' +
       'event: output_text.delta\ndata: {"delta":"Hi"}\n\n' +
       'event: turn.completed\ndata: {"usage":{"input_tokens":7,"output_tokens":1},' +
       '"trace":{"cost_usd":0,"provider_cost_usd":0.0000012}}\n\n';
@@ -18,6 +20,12 @@ describe('usage meter', () => {
     const response = await fetch('https://cencori.example/v1/sessions');
 
     await expect(response.text()).resolves.toBe(body);
+    await vi.waitFor(() => expect(onUsage).toHaveBeenCalledTimes(2));
+    expect(onUsage).toHaveBeenCalledWith({
+      inputTokens: 44,
+      outputTokens: 14,
+      costUsd: 0.00001,
+    });
     await vi.waitFor(() =>
       expect(onUsage).toHaveBeenCalledWith({
         inputTokens: 7,

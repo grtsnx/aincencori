@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -20,6 +21,7 @@ import {
   createGroupAgent,
   createChatAgent,
   type RoutineActions,
+  replyToMessageTool,
 } from '@/config/agents/agents.js';
 import {
   deleteCencoriSessionJob as deleteAtCencori,
@@ -397,6 +399,8 @@ export class ChatService implements OnModuleInit {
     if (bot?.cencori && !turn.sessionId && !turn.approval && !turn.poll) {
       turn.sessionId = await this.startBotSession(userId, bot, turn);
     }
+    // A reply to an earlier message: the AI is shown what is quoted.
+    const quoted = turn.replyTo ? await this.quoted(userId, turn) : undefined;
     // Files are saved while the model answers, so they never slow the chat.
     const files = this.storeFiles(userId, turn.attachments ?? []);
     // The model gets small pictures enlarged, so it reads them right. The
@@ -433,7 +437,13 @@ export class ChatService implements OnModuleInit {
       new Request(new URL(request.originalUrl, 'http://localhost'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(turn),
+        body: JSON.stringify({
+          ...turn,
+          replyTo: undefined,
+          ...(quoted && turn.message
+            ? { message: `${quoted}\n\n${turn.message}` }
+            : {}),
+        }),
         signal: abort.signal,
       }),
     );
@@ -515,6 +525,9 @@ export class ChatService implements OnModuleInit {
     }
     const rows = await this.prisma.db.chatMessage.findMany({
       where: { sessionId },
+      include: {
+        replyTo: { select: { id: true, role: true, agent: true, text: true } },
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit ?? 50,
       ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
@@ -527,6 +540,14 @@ export class ChatService implements OnModuleInit {
         agent: row.agent,
         text: row.text,
         widgets: (row.widgets as Record<string, unknown>[] | null) ?? [],
+        replyTo: row.replyTo
+          ? {
+              id: row.replyTo.id,
+              role: row.replyTo.role as ChatHistoryMessageDto['role'],
+              agent: row.replyTo.agent,
+              text: row.replyTo.text.slice(0, 200),
+            }
+          : null,
         // Each file gets a private link that works for 15 minutes.
         attachments: await Promise.all(
           storedFiles(row.attachments).map(async (file) => ({
@@ -727,6 +748,21 @@ export class ChatService implements OnModuleInit {
       item.type === 'widget' ? [item.widget] : [],
     );
     const waiting = result.interruptions.map((item) => item.toolName);
+    // The agent quoted an earlier message (reply_to_message).
+    const quote = result.newItems.flatMap((item) => {
+      if (item.type !== 'tool_call' || item.toolName !== replyToMessageTool) {
+        return [];
+      }
+      try {
+        const args = JSON.parse(item.arguments) as { quote?: unknown };
+        return typeof args.quote === 'string' ? [args.quote] : [];
+      } catch {
+        return [];
+      }
+    })[0];
+    const agentReplyTo = quote
+      ? await this.findQuoted(result.sessionId, quote)
+      : null;
     // Nobody is there to approve a step, so say what is waiting.
     const text = needsApproval
       ? `${answer}\n\n${input.stopNote ?? 'This stopped'}: ${waiting.join(', ')} needs your approval. Approve it from your approvals inbox.`.trim()
@@ -772,6 +808,7 @@ export class ChatService implements OnModuleInit {
             agent: result.lastAgent.name,
             text,
             widgets: widgets as never,
+            replyToId: agentReplyTo,
           },
         ],
       }),
@@ -986,6 +1023,10 @@ export class ChatService implements OnModuleInit {
     let agent: string | undefined;
     const widgets: unknown[] = [];
     let saved = false;
+    // Words the agent quoted (reply_to_message), and the ids it saved.
+    let agentQuote: string | undefined;
+    let savedIds: { userMessageId?: string; agentMessageId?: string } | null =
+      null;
 
     const save = async (sessionId: string) => {
       if (saved) return;
@@ -1003,13 +1044,19 @@ export class ChatService implements OnModuleInit {
         update: { updatedAt: new Date() },
       });
       const rows = [];
+      const ids: { userMessageId?: string; agentMessageId?: string } = {};
+      const agentReplyTo = agentQuote
+        ? await this.findQuoted(sessionId, agentQuote)
+        : null;
       if (userText || hasFiles) {
+        ids.userMessageId = randomUUID();
         rows.push({
-          id: randomUUID(),
+          id: ids.userMessageId,
           sessionId,
           role: 'user',
           text: userText,
           attachments: (await files) as never,
+          replyToId: body.replyTo ?? null,
           createdAt: startedAt,
         });
       }
@@ -1026,20 +1073,35 @@ export class ChatService implements OnModuleInit {
         });
       }
       if (text || widgets.length > 0) {
+        ids.agentMessageId = randomUUID();
         rows.push({
-          id: randomUUID(),
+          id: ids.agentMessageId,
           sessionId,
           role: 'agent',
           agent,
           text,
           widgets: widgets as never,
+          replyToId: agentReplyTo,
         });
       }
       if (rows.length > 0) await db.chatMessage.createMany({ data: rows });
+      savedIds = ids;
     };
 
-    const read = async (event: string) => {
+    const read = async (event: string): Promise<string | undefined> => {
       const { name, data } = parseEvent(event);
+      if (
+        name === 'tool_call' &&
+        data.name === replyToMessageTool &&
+        typeof data.arguments === 'string'
+      ) {
+        try {
+          const args = JSON.parse(data.arguments) as { quote?: unknown };
+          if (typeof args.quote === 'string') agentQuote = args.quote;
+        } catch {
+          // Not JSON: no quote.
+        }
+      }
       if (name === 'text' && typeof data.delta === 'string') {
         text += data.delta;
         if (typeof data.agent === 'string') agent = data.agent;
@@ -1074,6 +1136,7 @@ export class ChatService implements OnModuleInit {
       ) {
         await save(data.sessionId);
       }
+      return name;
     };
 
     return new TransformStream({
@@ -1084,10 +1147,21 @@ export class ChatService implements OnModuleInit {
         // Each finished event goes to the browser right away. Only the final
         // "done" waits for the save (a few ms, after all text is shown).
         for (const event of events) {
+          let name: string | undefined;
           try {
-            await read(event);
+            name = await read(event);
           } catch {
             this.logger.error('A chat turn could not be saved.');
+          }
+          // Once saved, the app learns the new messages' ids, so the user
+          // can reply to them straight away.
+          if ((name === 'done' || name === 'approval') && savedIds) {
+            controller.enqueue(
+              encoder.encode(
+                `event: saved\ndata: ${JSON.stringify(savedIds)}\n\n`,
+              ),
+            );
+            savedIds = null;
           }
           controller.enqueue(encoder.encode(`${event}\n\n`));
         }
@@ -1104,6 +1178,53 @@ export class ChatService implements OnModuleInit {
         }
       },
     });
+  }
+
+  // The line the AI sees above a reply: what the user quoted.
+  private async quoted(userId: string, turn: ChatRequestDto): Promise<string> {
+    if (!turn.sessionId) {
+      throw new BadRequestException('A reply needs the chat (sessionId).');
+    }
+    const message = await this.prisma.db.chatMessage.findFirst({
+      where: {
+        id: turn.replyTo,
+        sessionId: turn.sessionId,
+        session: { userId },
+      },
+      select: { role: true, text: true, widgets: true },
+    });
+    if (!message) throw new NotFoundException('Message not found.');
+    const text =
+      message.text.trim().slice(0, 1000) ||
+      (message.widgets ? '(a card or list)' : '(a file)');
+    const whose =
+      message.role === 'user'
+        ? 'my earlier message'
+        : message.role === 'human'
+          ? 'a message from your team'
+          : 'your earlier answer';
+    return `[Replying to ${whose}: "${text.replace(/\s+/g, ' ')}"]`;
+  }
+
+  // The latest message of a chat that contains these words, for an agent's
+  // quoted reply. Null when none does (the reply is then shown plainly).
+  private async findQuoted(
+    sessionId: string,
+    quote: string,
+  ): Promise<string | null> {
+    const wanted = quote.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (wanted.length < 3) return null;
+    const recent = await this.prisma.db.chatMessage.findMany({
+      where: { sessionId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 200,
+      select: { id: true, text: true },
+    });
+    return (
+      recent.find((message) =>
+        message.text.toLowerCase().replace(/\s+/g, ' ').includes(wanted),
+      )?.id ?? null
+    );
   }
 
   // Platform admins, or staff whose role has the chat permission.
