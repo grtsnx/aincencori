@@ -132,10 +132,12 @@ function sampleFor(name: string, schema: Schema): unknown {
   return 'example';
 }
 
-// Puts a sample value on every field of every schema that has none.
-function fillExamples(node: unknown): void {
+// Puts a sample value on every field of every schema that has none. Lists
+// and nested objects get full sample items (built from their schema), not
+// empty [] or {}.
+function fillExamples(node: unknown, schemas: Record<string, Schema>): void {
   if (Array.isArray(node)) {
-    node.forEach(fillExamples);
+    for (const item of node) fillExamples(item, schemas);
     return;
   }
   if (!node || typeof node !== 'object') return;
@@ -145,7 +147,7 @@ function fillExamples(node: unknown): void {
   if (properties) {
     for (const [name, property] of Object.entries(properties)) {
       if (property && !property.$ref && property.example === undefined) {
-        const value = sampleFor(name, property);
+        const value = sampleOf(property, schemas, name);
         if (value !== undefined) property.example = value;
       }
     }
@@ -160,7 +162,7 @@ function fillExamples(node: unknown): void {
     }
   }
 
-  for (const value of Object.values(schema)) fillExamples(value);
+  for (const value of Object.values(schema)) fillExamples(value, schemas);
 }
 
 // Example error body for Better Auth routes: { "message": "..." }.
@@ -178,43 +180,61 @@ function sampleAuthErrors(operation: Schema): void {
 }
 
 // A sample value for a whole schema: objects, lists, refs and combinations.
+// Models that point back at each other (a user has sessions, a session has a
+// user) are expanded once per path, and each model's sample is built once.
+const refSamples = new WeakMap<object, Map<string, unknown>>();
+
 function sampleOf(
   schema: Schema | undefined,
   schemas: Record<string, Schema>,
   name = '',
-  depth = 0,
+  seen: ReadonlySet<string> = new Set(),
 ): unknown {
-  if (!schema || depth > 8) return undefined;
+  if (!schema) return undefined;
   if (typeof schema.$ref === 'string') {
-    return sampleOf(
-      schemas[schema.$ref.split('/').pop() ?? ''],
-      schemas,
-      name,
-      depth + 1,
-    );
+    const ref = schema.$ref.split('/').pop() ?? '';
+    if (seen.has(ref) || seen.size >= 4) return undefined;
+    let cache = refSamples.get(schemas);
+    if (!cache) {
+      cache = new Map();
+      refSamples.set(schemas, cache);
+    }
+    if (!cache.has(ref)) {
+      cache.set(
+        ref,
+        sampleOf(schemas[ref], schemas, name, new Set([...seen, ref])),
+      );
+    }
+    return cache.get(ref);
   }
   if (schema.example !== undefined) return schema.example;
   const parts = (schema.allOf ?? schema.oneOf ?? schema.anyOf) as
     Schema[] | undefined;
   if (parts) {
-    const samples = (schema.allOf ? parts : parts.slice(0, 1)).map((part) =>
-      sampleOf(part, schemas, name, depth + 1),
-    );
-    return samples.every((value) => value && typeof value === 'object')
+    const samples = (schema.allOf ? parts : parts.slice(0, 1))
+      .map((part) => sampleOf(part, schemas, name, seen))
+      .filter((value) => value !== undefined);
+    return samples.length > 0 &&
+      samples.every((value) => value && typeof value === 'object')
       ? Object.assign({}, ...samples)
       : samples[0];
   }
   const properties = schema.properties as Record<string, Schema> | undefined;
   if (properties) {
     return Object.fromEntries(
-      Object.entries(properties).map(([key, value]) => [
-        key,
-        sampleOf(value, schemas, key, depth + 1),
-      ]),
+      Object.entries(properties).flatMap(([key, value]) => {
+        const sample = sampleOf(value, schemas, key, seen);
+        return sample === undefined ? [] : [[key, sample]];
+      }),
     );
   }
   if (schema.type === 'array') {
-    const item = sampleOf(schema.items as Schema, schemas, name, depth + 1);
+    const item = sampleOf(
+      schema.items as Schema,
+      schemas,
+      name.replace(/s$/, ''),
+      seen,
+    );
     return item === undefined ? [] : [item];
   }
   return sampleFor(name, schema);
@@ -389,8 +409,12 @@ export function configureSwagger(
     sampleNestResponses(document);
     // Better Auth lives under /v1/auth, so only v1 lists its routes.
     if (version === '1') withAuthRoutes(document, betterAuth.openApiDocument());
-    fillExamples(document.paths);
-    fillExamples(document.components);
+    const schemas = (document.components?.schemas ?? {}) as Record<
+      string,
+      Schema
+    >;
+    fillExamples(document.components, schemas);
+    fillExamples(document.paths, schemas);
     sampleAllResponses(document);
     return document;
   };
