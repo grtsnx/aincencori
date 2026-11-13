@@ -20,6 +20,9 @@ import {
 import { organizationAc, organizationRoles } from './access.js';
 import { agentAuthPlugin } from './agent.js';
 
+// Scopes OAuth and MCP apps may ask for (Better Auth's defaults).
+const oauthScopes = ['openid', 'profile', 'email', 'offline_access'];
+
 // Better Auth serves every auth route under this path.
 export const authBasePath = '/api/auth';
 
@@ -211,6 +214,12 @@ export function createAuthOptions(settings: AuthSettings) {
         loginPage: `${settings.appURL}/sign-in`,
         consentPage: `${settings.appURL}/consent`,
         resource: settings.mcpResource,
+        scopes: oauthScopes,
+        // Register our MCP server with the scopes it accepts. Left out, the
+        // plugin saves "no list", which a Postgres list column cannot hold.
+        resources: [
+          { identifier: settings.mcpResource, allowedScopes: oauthScopes },
+        ],
       }),
       cimd({ fetchClientMetadataResource, metadataProfile: 'mcp-2026-07-28' }),
       agentAuthPlugin({

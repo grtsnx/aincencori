@@ -100,7 +100,6 @@ CI runs all of these on every push, then builds and scans the Docker image. Tagg
 
 ## Known issues
 
-- **MCP sign-in doesn't work yet.** A Better Auth bug with Prisma and Postgres stops it from saving its setup, and the server logs an error at startup. Everything else works.
 - **Better Auth's schema generator writes one table wrong** (Agent Auth grants). `scripts/fix-auth-schema.mjs` repairs it automatically after `auth:generate`.
 - **`better-call` is pinned to 1.4.5** in `package.json` so all Better Auth packages share one copy. Remove the pin once Agent Auth updates.
 - **Agent Auth is marked unstable** by Better Auth and may change.

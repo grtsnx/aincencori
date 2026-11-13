@@ -432,5 +432,33 @@ describe('Better Auth (e2e)', () => {
       });
       expect(account.password).toMatch(/^\$argon2id\$/);
     });
+
+    it('registers the MCP server and lets a user create an OAuth app', async () => {
+      const server = app.getHttpServer();
+      const db = app.get(PrismaService).db;
+      const cookies = await signIn();
+
+      // Saved at startup with explicit scopes (an empty list cannot be stored).
+      const resource = await db.oauthResource.findUniqueOrThrow({
+        where: { identifier: 'http://localhost:3000/mcp' },
+      });
+      expect(resource.allowedScopes).toEqual(
+        expect.arrayContaining(['openid', 'email']),
+      );
+
+      const created = await request(server)
+        .post('/api/auth/oauth2/create-client')
+        .set('Cookie', cookies)
+        .send({
+          client_name: 'E2E MCP app',
+          redirect_uris: ['https://app.example.com/oauth/callback'],
+        })
+        .expect(201);
+      expect(created.body.client_id).toBeDefined();
+
+      await db.oauthClient.deleteMany({
+        where: { clientId: created.body.client_id },
+      });
+    });
   });
 });
