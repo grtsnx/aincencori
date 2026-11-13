@@ -11,6 +11,7 @@ import {
   type AuthSettings,
 } from '@/config/auth/better-auth.js';
 import type { PrismaClient } from '@/generated/prisma/client.js';
+import { HashService } from '@/lib/hash/hash.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 
 function createAuth(prisma: PrismaClient, settings: AuthSettings) {
@@ -48,6 +49,7 @@ export class BetterAuthService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     prisma: PrismaService,
+    hasher: HashService,
   ) {
     const nodeEnv = config.getOrThrow<string>('NODE_ENV');
     this.production = nodeEnv === 'production';
@@ -78,6 +80,7 @@ export class BetterAuthService implements OnModuleInit {
       testing: nodeEnv === 'test',
       sendEmail: (template, to, variables) =>
         this.sendEmail(template, to, variables),
+      passwordHasher: hasher,
     });
     this.handler = toNodeHandler(this.auth);
   }

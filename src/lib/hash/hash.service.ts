@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Algorithm, hash, verify } from '@node-rs/argon2';
+import { hash, verify } from '@node-rs/argon2';
 
 // Argon2id with OWASP's recommended minimum cost (19 MiB, 2 passes, 1 lane).
 const options = {
-  algorithm: Algorithm.Argon2id,
+  algorithm: 2, // Argon2id (Algorithm.Argon2id; a const enum, so not importable here)
   memoryCost: 19_456,
   timeCost: 2,
   parallelism: 1,

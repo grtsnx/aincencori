@@ -21,5 +21,6 @@ export const auth = betterAuth(
     trustedProxies: [],
     testing: false,
     sendEmail: async () => {},
+    passwordHasher: { hash: async (v) => v, verify: async () => false },
   }),
 );
