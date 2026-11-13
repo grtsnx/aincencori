@@ -8,7 +8,7 @@ You need Bun 1.3.14+, Node.js 24+ and Docker.
 
 ```bash
 cp .env.example .env
-docker compose up -d --wait   # Postgres (5433), Valkey (6380) and Mailpit (inbox: http://localhost:8025)
+docker compose up -d --wait   # Postgres (5433), PgBouncer (6433), Valkey (6380) and Mailpit (inbox: http://localhost:8025)
 bun install --frozen-lockfile
 bun run db:migrate
 bun run start:dev        # the API
@@ -63,6 +63,20 @@ Then open the API docs:
 - Production: the same Docker image runs both. API: the default command. Worker: `node --enable-source-maps dist/worker.js` (it has no web port, so turn off the HTTP health check for it).
 - Emails are sent by the worker too: right away, plus a 5-second sweep for retries.
 
+**MCP server (for outside AI apps)**
+
+- `/mcp` lets any MCP app (Claude, Cursor, other agents) use a user's own services: profile, organizations, routines and chats. Admin and staff features are never offered.
+- The user signs the app in through Better Auth (OAuth). Every call runs as that user.
+- Our own chat agent can manage routines too ("remind me every morning at 8"). Creating, pausing or deleting one asks the user to approve first.
+
+**Built for heavy traffic**
+
+- Run as many API and worker servers as you need; nothing lives inside one server.
+- Sessions are read from Redis (no database read per request) and still saved in Postgres. A role edited straight in the database shows up at the user's next sign-in; changes through the API apply at once.
+- Both rate limits (ours and Better Auth's) count in Redis, so they hold across all servers.
+- The app reaches Postgres through PgBouncer, a connection pooler (locally port 6433), so many servers share a few real connections. Migrations go straight to Postgres with `DIRECT_DATABASE_URL`. Each server keeps `DATABASE_POOL_SIZE` connections to the pooler (default 10).
+- Emails go out 10 at a time, so a burst of sign-ups drains fast.
+
 **Security**
 
 - Security headers, CSRF checks, rate limits and request IDs on every route.
@@ -71,7 +85,7 @@ Then open the API docs:
 
 **Email**
 
-- Sent with `@nestjs/mail`: Resend when `RESEND_API_KEY` is set, otherwise SMTP. Locally every email lands in Mailpit at http://localhost:8025.
+- Sent with `@nestjs/mail`: SendByte when `SENDBYTE_API_KEY` is set, otherwise SMTP. Locally every email lands in Mailpit at http://localhost:8025.
 - Emails are saved (encrypted) to an outbox table first, then sent by the worker with retries.
 
 ## API docs
@@ -97,19 +111,19 @@ src/
 
 Everything is in `.env.example` with a comment. The main ones:
 
-| Setting                                                                    | What it's for                                                  |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `DATABASE_URL`                                                             | Postgres connection                                            |
-| `REDIS_URL`                                                                | Redis or Valkey for background jobs. Required in production    |
-| `BETTER_AUTH_SECRET`                                                       | Signs sessions (32+ characters). Required in production        |
-| `BETTER_AUTH_URL`                                                          | This API's address                                             |
-| `APP_URL`                                                                  | The frontend's address                                         |
-| `RESEND_API_KEY` or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Sends emails. Locally SMTP defaults to Mailpit                 |
-| `MAIL_FROM`                                                                | The sender address. Required in production                     |
-| `BETTER_AUTH_API_KEY`                                                      | Optional: Better Auth dashboard and Sentinel abuse protection  |
-| `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*`                                       | Sign-in providers. Set both ID and secret, or leave both empty |
-| `RECAPTCHA_SECRET_KEY`                                                     | Turns on reCAPTCHA                                             |
-| `CENCORI_API_KEY`                                                          | Turns on the AI chat. Without it chat routes answer 503        |
+| Setting                                                                      | What it's for                                                  |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `DATABASE_URL`                                                               | Postgres connection                                            |
+| `REDIS_URL`                                                                  | Redis or Valkey: sessions, rate limits, jobs. Required in prod |
+| `BETTER_AUTH_SECRET`                                                         | Signs sessions (32+ characters). Required in production        |
+| `BETTER_AUTH_URL`                                                            | This API's address                                             |
+| `APP_URL`                                                                    | The frontend's address                                         |
+| `SENDBYTE_API_KEY` or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Sends emails. Locally SMTP defaults to Mailpit                 |
+| `MAIL_FROM`                                                                  | The sender address. Required in production                     |
+| `BETTER_AUTH_API_KEY`                                                        | Optional: Better Auth dashboard and Sentinel abuse protection  |
+| `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*`                                         | Sign-in providers. Set both ID and secret, or leave both empty |
+| `RECAPTCHA_SECRET_KEY`                                                       | Turns on reCAPTCHA                                             |
+| `CENCORI_API_KEY`                                                            | Turns on the AI chat. Without it chat routes answer 503        |
 
 Production also needs `AUTH_IP_HEADERS`: the one header your host sets with the visitor's real IP (plus `AUTH_TRUSTED_PROXIES` when that header is `x-forwarded-for`). The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
 

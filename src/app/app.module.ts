@@ -13,6 +13,7 @@ import {
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { LibModule } from '@/lib/lib.module.js';
+import { RedisService } from '@/lib/redis/redis.service.js';
 import { V1Module } from '@/modules/v1.modules.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -35,8 +36,24 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
         serviceId: config.get<string>('OBSERVE_SERVICE_ID') ?? '',
       }),
     }),
-    ThrottlerModule.forRoot({
-      throttlers: [{ ttl: 60_000, limit: 100 }],
+    // Counted in Redis, so the limit holds across every API server. If
+    // Redis is away the request is let through instead of failing.
+    ThrottlerModule.forRootAsync({
+      inject: [RedisService],
+      useFactory: (redis: RedisService) => ({
+        throttlers: [{ ttl: 60_000, limit: 100 }],
+        storage: {
+          increment: (key, ttl, limit, blockDuration) =>
+            redis
+              .throttle(`throttle:${key}`, ttl, limit, blockDuration)
+              .catch(() => ({
+                totalHits: 1,
+                timeToExpire: 0,
+                isBlocked: false,
+                timeToBlockExpire: 0,
+              })),
+        },
+      }),
     }),
     TerminusModule,
     LibModule,

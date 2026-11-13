@@ -60,6 +60,13 @@ describe('validateEnvironment', () => {
     ).toThrow(/REDIS_URL/);
   });
 
+  it('keeps 10 database connections per server unless told otherwise', () => {
+    expect(validateEnvironment({}).DATABASE_POOL_SIZE).toBe(10);
+    expect(
+      validateEnvironment({ DATABASE_POOL_SIZE: '25' }).DATABASE_POOL_SIZE,
+    ).toBe(25);
+  });
+
   it('disables Swagger by default in production', () => {
     expect(validateEnvironment(production).SWAGGER_ENABLED).toBe(false);
   });
@@ -294,9 +301,9 @@ describe('clientIpHeaders', () => {
 });
 
 describe('email settings', () => {
-  it('needs Resend or SMTP in production', () => {
+  it('needs SendByte or SMTP in production', () => {
     expect(() => validateEnvironment({ ...production, SMTP_HOST: '' })).toThrow(
-      /RESEND_API_KEY or SMTP_HOST/,
+      /SENDBYTE_API_KEY or SMTP_HOST/,
     );
     expect(
       validateEnvironment({
@@ -304,9 +311,9 @@ describe('email settings', () => {
         SMTP_HOST: '',
         SMTP_USER: '',
         SMTP_PASSWORD: '',
-        RESEND_API_KEY: 're_x',
-      }).RESEND_API_KEY,
-    ).toBe('re_x');
+        SENDBYTE_API_KEY: 'sk_test_x',
+      }).SENDBYTE_API_KEY,
+    ).toBe('sk_test_x');
   });
 
   it('uses Mailpit locally and port 587 for a real SMTP host', () => {

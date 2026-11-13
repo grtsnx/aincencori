@@ -18,6 +18,41 @@ export interface ChatContext {
     { id: string; name: string; slug: string; role: string }[]
   >;
   rename: (name: string) => Promise<void>;
+  // The user's routines (scheduled agent tasks).
+  routines: {
+    list: () => Promise<RoutineSummary[]>;
+    create: (input: RoutineInput) => Promise<RoutineSummary>;
+    setEnabled: (id: string, enabled: boolean) => Promise<RoutineSummary>;
+    remove: (id: string) => Promise<void>;
+  };
+}
+
+export interface RoutineSummary {
+  id: string;
+  name: string;
+  cron: string;
+  timezone: string;
+  enabled: boolean;
+  nextRunAt: string | null;
+}
+
+export interface RoutineInput {
+  name: string;
+  prompt: string;
+  cron: string;
+  timezone: string;
+}
+
+// What the routine module gives the chat, per user id.
+export interface RoutineActions {
+  list: (userId: string) => Promise<RoutineSummary[]>;
+  create: (userId: string, input: RoutineInput) => Promise<RoutineSummary>;
+  setEnabled: (
+    userId: string,
+    id: string,
+    enabled: boolean,
+  ) => Promise<RoutineSummary>;
+  remove: (userId: string, id: string) => Promise<void>;
 }
 
 export interface AgentSettings {
@@ -83,6 +118,71 @@ const renameMe = tool({
   },
 });
 
+const routineLine = (routine: RoutineSummary) =>
+  `${routine.name} (${routine.cron}, ${routine.timezone})`;
+
+const listRoutines = tool({
+  name: 'list_routines',
+  description: "List the user's routines (scheduled agent tasks) with ids.",
+  parameters: z.object({}),
+  execute: async (_args, { context }: { context: ChatContext }) => {
+    const routines = await context.routines.list();
+    if (routines.length === 0) return 'The user has no routines.';
+    return {
+      widget: {
+        type: 'ListView',
+        title: 'Your routines',
+        items: routines.map((routine) => ({
+          title: routine.name,
+          subtitle: `${routine.cron} (${routine.timezone}) · id ${routine.id}`,
+          badge: routine.enabled ? 'on' : 'paused',
+          badgeColor: routine.enabled ? 'success' : 'muted',
+        })),
+      },
+    };
+  },
+});
+
+// The three below change data, so the user approves each one in the chat.
+const createRoutine = tool({
+  name: 'create_routine',
+  description:
+    'Create a routine: a prompt the agent runs on a schedule. ' +
+    'cron has 5 fields (minute hour day month weekday), at most every 15 ' +
+    'minutes. timezone is an IANA name like Africa/Lagos; ask if unknown.',
+  parameters: z.object({
+    name: z.string().min(1).max(100),
+    prompt: z.string().min(1).max(4000),
+    cron: z.string().max(100),
+    timezone: z.string().max(100),
+  }),
+  needsApproval: true,
+  execute: async (input, { context }: { context: ChatContext }) =>
+    `Created: ${routineLine(await context.routines.create(input))}.`,
+});
+
+const setRoutineEnabled = tool({
+  name: 'set_routine_enabled',
+  description: 'Pause (false) or resume (true) a routine, by its id.',
+  parameters: z.object({ id: z.string(), enabled: z.boolean() }),
+  needsApproval: true,
+  execute: async ({ id, enabled }, { context }: { context: ChatContext }) => {
+    const routine = await context.routines.setEnabled(id, enabled);
+    return `${routine.name} is now ${routine.enabled ? 'on' : 'paused'}.`;
+  },
+});
+
+const deleteRoutine = tool({
+  name: 'delete_routine',
+  description: 'Delete a routine, by its id.',
+  parameters: z.object({ id: z.string() }),
+  needsApproval: true,
+  execute: async ({ id }, { context }: { context: ChatContext }) => {
+    await context.routines.remove(id);
+    return 'Routine deleted.';
+  },
+});
+
 // ── Guardrails ───────────────────────────────────────────────────────────
 
 // Stops messages that look like they carry a secret key or password.
@@ -113,7 +213,7 @@ const noSecretsOut = (secrets: string[]): OutputGuardrail<ChatContext> => ({
 // ── Agents ───────────────────────────────────────────────────────────────
 
 // The chat starts with the main agent. It answers itself, hands the chat to a
-// specialist (Account, Research), asks the Writer for drafts, or hands it to a
+// specialist (Account, Research, Routines), asks the Writer for drafts, or hands it to a
 // person on our team.
 export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
   const account = new Agent<ChatContext>({
@@ -123,6 +223,22 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'You help with the user’s own account: profile, name and organizations. ' +
       'Use your tools and show results as widgets.',
     tools: [myProfile, myOrganizations, renameMe as FunctionTool<ChatContext>],
+    widgets: true,
+  });
+
+  const routines = new Agent<ChatContext>({
+    name: 'Routines',
+    handoffDescription: 'Scheduled tasks: create, list, pause, delete.',
+    instructions:
+      'You manage the user’s routines: prompts the agent runs on a schedule. ' +
+      'Turn what the user says ("every weekday at 8") into a cron pattern. ' +
+      'List routines first when you need an id.',
+    tools: [
+      listRoutines,
+      createRoutine,
+      setRoutineEnabled,
+      deleteRoutine,
+    ] as FunctionTool<ChatContext>[],
     widgets: true,
   });
 
@@ -158,7 +274,8 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     instructions: ({ context }: { context: ChatContext }) =>
       `You are Agentic, a helpful assistant. The user is ${context.user.name}. ` +
       'Keep answers short and plain. Show data as widgets when it helps. ' +
-      'Hand account questions to Account and web questions to Research. ' +
+      'Hand account questions to Account, web questions to Research and ' +
+      'scheduled or repeating tasks to Routines. ' +
       'Use the writer tool for drafts. If the user asks for a person, ' +
       'or you cannot help, hand the chat to a human.',
     tools: [
@@ -171,7 +288,7 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
           settings.onHumanHandoff({ sessionId, reason }),
       }),
     ],
-    handoffs: [account, research],
+    handoffs: [account, research, routines],
     inputGuardrails: [noSecretsIn],
     outputGuardrails: [noSecretsOut(settings.secrets)],
     widgets: true,

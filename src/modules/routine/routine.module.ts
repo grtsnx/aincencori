@@ -7,5 +7,7 @@ import { RoutineService } from './routine.service.js';
   imports: [ChatModule],
   controllers: [RoutineController],
   providers: [RoutineService],
+  // The MCP server offers routines to outside AI apps.
+  exports: [RoutineService],
 })
 export class RoutineModule {}

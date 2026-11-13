@@ -20,10 +20,14 @@ import type {
   UpdateRoutineDto,
 } from '@/dto';
 import type { Routine } from '@/generated/prisma/client.js';
-import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { ChatService } from '../chat/chat.service.js';
+
+// Whose routines: the signed-in user, or the user an agent or MCP app acts for.
+export interface Owner {
+  user: { id: string };
+}
 
 // Background job: one run of one routine.
 const runRoutine = 'routine-run';
@@ -47,13 +51,18 @@ export class RoutineService implements OnModuleInit {
       ({ routineId }) => this.run(routineId),
       { concurrency: routineConcurrency },
     );
+    // Lets the chat agent manage the user's routines ("every morning at 8...").
+    this.chat.useRoutines({
+      list: (userId) => this.list({ user: { id: userId } }, {}),
+      create: (userId, input) => this.create({ user: { id: userId } }, input),
+      setEnabled: (userId, id, enabled) =>
+        this.update(id, { user: { id: userId } }, { enabled }),
+      remove: (userId, id) => this.remove(id, { user: { id: userId } }),
+    });
   }
 
   // The user's routines, newest first, one page at a time.
-  async list(
-    auth: AuthSession,
-    query: ListRoutinesQueryDto,
-  ): Promise<RoutineDto[]> {
+  async list(auth: Owner, query: ListRoutinesQueryDto): Promise<RoutineDto[]> {
     const routines = await this.prisma.db.routine.findMany({
       where: { userId: auth.user.id },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -63,11 +72,11 @@ export class RoutineService implements OnModuleInit {
     return routines.map(toDto);
   }
 
-  async get(id: string, auth: AuthSession): Promise<RoutineDto> {
+  async get(id: string, auth: Owner): Promise<RoutineDto> {
     return toDto(await this.own(id, auth));
   }
 
-  async create(auth: AuthSession, body: CreateRoutineDto): Promise<RoutineDto> {
+  async create(auth: Owner, body: CreateRoutineDto): Promise<RoutineDto> {
     checkSchedule(body.cron, body.timezone);
     const count = await this.prisma.db.routine.count({
       where: { userId: auth.user.id },
@@ -94,7 +103,7 @@ export class RoutineService implements OnModuleInit {
 
   async update(
     id: string,
-    auth: AuthSession,
+    auth: Owner,
     body: UpdateRoutineDto,
   ): Promise<RoutineDto> {
     const current = await this.own(id, auth);
@@ -107,14 +116,14 @@ export class RoutineService implements OnModuleInit {
     return toDto(routine);
   }
 
-  async remove(id: string, auth: AuthSession): Promise<void> {
+  async remove(id: string, auth: Owner): Promise<void> {
     await this.own(id, auth);
     await this.bullmq.unschedule(runRoutine, id);
     await this.prisma.db.routine.delete({ where: { id } });
   }
 
   // Runs it once now, outside its schedule. The answer arrives as a chat.
-  async runNow(id: string, auth: AuthSession): Promise<RoutineDto> {
+  async runNow(id: string, auth: Owner): Promise<RoutineDto> {
     await this.own(id, auth);
     await this.bullmq.add(runRoutine, { routineId: id }, { attempts: 1 });
     return toDto(await this.own(id, auth));
@@ -123,7 +132,7 @@ export class RoutineService implements OnModuleInit {
   // Past runs of a routine (each one is a chat), newest first.
   async runs(
     id: string,
-    auth: AuthSession,
+    auth: Owner,
     query: ListRoutinesQueryDto,
   ): Promise<ChatSessionDto[]> {
     await this.own(id, auth);
@@ -173,7 +182,7 @@ export class RoutineService implements OnModuleInit {
     }
   }
 
-  private async own(id: string, auth: AuthSession): Promise<Routine> {
+  private async own(id: string, auth: Owner): Promise<Routine> {
     const routine = await this.prisma.db.routine.findUnique({ where: { id } });
     if (!routine || routine.userId !== auth.user.id) {
       throw new NotFoundException('Routine not found.');

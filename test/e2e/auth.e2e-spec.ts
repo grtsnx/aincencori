@@ -352,10 +352,13 @@ describe('Better Auth (e2e)', () => {
         .get(PrismaService)
         .db.user.update({ where: { email }, data: { role: 'admin' } });
 
+      // Sessions are read from Redis, so a role edited straight in the
+      // database shows up at the next sign-in.
+      const adminCookies = await signIn();
       const allowed = await request(server)
         .get('/v1/admin/users')
         .query({ search: email, limit: 5 })
-        .set('Cookie', cookies)
+        .set('Cookie', adminCookies)
         .expect(200);
       expect(allowed.body.data.users).toEqual([
         expect.objectContaining({ email, role: 'admin' }),

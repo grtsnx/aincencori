@@ -13,7 +13,11 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Agent } from 'cencori/agents';
-import { type ChatContext, createChatAgent } from '@/config/agents/agents.js';
+import {
+  type ChatContext,
+  createChatAgent,
+  type RoutineActions,
+} from '@/config/agents/agents.js';
 import { maxAgentTurns } from '@/config/agents/limits.js';
 import { staffOrganizationSlug } from '@/config/auth/access.js';
 import type {
@@ -49,7 +53,7 @@ const secretSettings = [
   'BETTER_AUTH_SECRET',
   'BETTER_AUTH_API_KEY',
   'CENCORI_API_KEY',
-  'RESEND_API_KEY',
+  'SENDBYTE_API_KEY',
   'SMTP_PASSWORD',
   'GOOGLE_CLIENT_SECRET',
   'GITHUB_CLIENT_SECRET',
@@ -65,6 +69,8 @@ const secretSettings = [
 export class ChatService implements OnModuleInit {
   private readonly logger = new Logger(ChatService.name);
   private readonly agent: Agent<ChatContext>;
+  // Set by the routine module when the app starts.
+  private routineActions?: RoutineActions;
 
   constructor(
     private readonly config: ConfigService,
@@ -82,6 +88,11 @@ export class ChatService implements OnModuleInit {
       onHumanHandoff: ({ sessionId, reason }) =>
         this.logger.warn(`Chat ${sessionId} needs a person: ${reason}`),
     });
+  }
+
+  // The routine module hands over what the agent may do with routines.
+  useRoutines(actions: RoutineActions): void {
+    this.routineActions = actions;
   }
 
   onModuleInit(): void {
@@ -344,6 +355,20 @@ export class ChatService implements OnModuleInit {
           throw new Error('Name changes need a chat, not a routine.');
         await this.betterAuth.auth.api.updateUser({ headers, body: { name } });
       },
+      routines: this.routinesFor(user.id),
+    };
+  }
+
+  private routinesFor(userId: string): ChatContext['routines'] {
+    const actions = () => {
+      if (!this.routineActions) throw new Error('Routines are not available.');
+      return this.routineActions;
+    };
+    return {
+      list: () => actions().list(userId),
+      create: (input) => actions().create(userId, input),
+      setEnabled: (id, enabled) => actions().setEnabled(userId, id, enabled),
+      remove: (id) => actions().remove(userId, id),
     };
   }
 

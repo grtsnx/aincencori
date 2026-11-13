@@ -15,6 +15,10 @@ export class PrismaService implements OnModuleDestroy {
     this.client ??= new PrismaClient({
       adapter: new PrismaPg({
         connectionString: this.configService.getOrThrow<string>('DATABASE_URL'),
+        // Connections this server keeps open. Servers x this number must
+        // stay under what Postgres (or its pooler) allows.
+        max: this.configService.getOrThrow<number>('DATABASE_POOL_SIZE'),
+        idleTimeoutMillis: 30_000,
         connectionTimeoutMillis: 5_000,
         query_timeout: 10_000,
       }),

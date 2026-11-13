@@ -68,6 +68,9 @@ export interface AuthSettings {
   sendEmail: AuthMailer;
   // A profile picture for a new user without one (Gravatar, else DiceBear).
   profileImage: (email: string) => Promise<string>;
+  // Fast shared storage (Redis). With it, sessions and rate limits are read
+  // from Redis instead of Postgres on every request.
+  secondaryStorage?: NonNullable<BetterAuthOptions['secondaryStorage']>;
   // Removes what we keep for a user (their chats) when the user is deleted.
   onUserDeleted?: (userId: string) => Promise<void>;
   // Argon2id, from lib/hash. Used for every password Better Auth stores.
@@ -157,7 +160,15 @@ export function createAuthOptions(settings: AuthSettings) {
     },
 
     // Shared across instances, so limits hold when the API scales out.
-    rateLimit: { storage: 'database' as const },
+    // With Redis: sessions are read from Redis (no database read per
+    // request) and still saved in Postgres; rate limits count in Redis.
+    ...(settings.secondaryStorage
+      ? {
+          secondaryStorage: settings.secondaryStorage,
+          session: { storeSessionInDatabase: true },
+          rateLimit: { storage: 'secondary-storage' as const },
+        }
+      : { rateLimit: { storage: 'database' as const } }),
 
     // MCP clients get tokens from /oauth2/token, not /token.
     disabledPaths: ['/token'],

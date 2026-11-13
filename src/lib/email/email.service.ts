@@ -10,7 +10,11 @@ import { PrismaService } from '@/lib/prisma/prisma.service.js';
 // Background job that sends due emails from the outbox (on worker servers).
 const sendEmails = 'email-outbox';
 
-const batchSize = 10;
+// Each pass takes up to 50 emails and sends 10 at a time, and keeps going
+// (up to 20 passes) while there are more: a burst of sign-ups drains fast.
+const batchSize = 50;
+const parallel = 10;
+const maxPasses = 20;
 const leaseMs = 5 * 60_000;
 const retentionMs = 30 * 24 * 60 * 60_000;
 const maxAttempts = 8;
@@ -33,7 +37,7 @@ interface OutboxRow {
 // sent by a background job on the worker servers, with retries, so a provider
 // outage loses nothing. A new email is sent right away; a 5-second sweep picks
 // up retries and anything missed.
-// Sending uses @nestjs/mail (Resend or SMTP, see email.module.ts).
+// Sending uses @nestjs/mail (SendByte or SMTP, see email.module.ts).
 @Injectable()
 export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
@@ -107,8 +111,8 @@ export class EmailService implements OnModuleInit {
   }
 
   // Health: the email service in use.
-  get provider(): 'resend' | 'smtp' {
-    return this.config.get<string>('RESEND_API_KEY') ? 'resend' : 'smtp';
+  get provider(): 'sendbyte' | 'smtp' {
+    return this.config.get<string>('SENDBYTE_API_KEY') ? 'sendbyte' : 'smtp';
   }
 
   // Tests only: the variables of the last email to an address (e.g. otpCode).
@@ -121,25 +125,35 @@ export class EmailService implements OnModuleInit {
     this.processing = true;
     try {
       await this.pruneOldMessages(now);
-      const rows = (await this.prisma.db.emailOutbox.findMany({
-        where: {
-          availableAt: { lte: now },
-          OR: [
-            { status: 'pending' },
-            {
-              status: 'sending',
-              lockedAt: { lt: new Date(now.getTime() - leaseMs) },
-            },
-          ],
-        },
-        orderBy: { createdAt: 'asc' },
-        take: batchSize,
-      })) as OutboxRow[];
-
-      for (const row of rows) await this.processOne(row);
+      for (let pass = 0; pass < maxPasses; pass++) {
+        const rows = await this.dueMessages(now);
+        for (let i = 0; i < rows.length; i += parallel) {
+          await Promise.all(
+            rows.slice(i, i + parallel).map((row) => this.processOne(row)),
+          );
+        }
+        if (rows.length < batchSize) break;
+      }
     } finally {
       this.processing = false;
     }
+  }
+
+  private async dueMessages(now: Date): Promise<OutboxRow[]> {
+    return (await this.prisma.db.emailOutbox.findMany({
+      where: {
+        availableAt: { lte: now },
+        OR: [
+          { status: 'pending' },
+          {
+            status: 'sending',
+            lockedAt: { lt: new Date(now.getTime() - leaseMs) },
+          },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: batchSize,
+    })) as OutboxRow[];
   }
 
   private async processOne(row: OutboxRow): Promise<void> {
@@ -181,7 +195,7 @@ export class EmailService implements OnModuleInit {
         subject: email.subject,
         html: email.html,
         text: email.text,
-        // The outbox id, so a retried send is not delivered twice (Resend).
+        // The outbox id, so a retried send is not delivered twice (SendByte).
         idempotencyKey: row.id,
         // The outbox retries; one attempt per pass.
         retry: false,

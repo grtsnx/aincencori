@@ -5,7 +5,7 @@ Follow these rules exactly. If a change doesn't fit them, ask before breaking on
 ## Folder layout (NestJS)
 
 - `src/modules/<name>/`: one feature. **Exactly 3 files**: `<name>.service.ts`, `<name>.controller.ts`, `<name>.module.ts`. Nothing else in the folder.
-- `src/lib/<name>/`: one outside tool or service we wrap, named after it (Better Auth, Prisma, email, Cencori, BullMQ). **Exactly 2 files**: `<name>.module.ts`, `<name>.service.ts`. Nothing else in the folder. Helpers, tokens, types or extra services do not go here.
+- `src/lib/<name>/`: one outside tool or service we wrap, named after it (Better Auth, Prisma, email, Cencori, BullMQ, Redis). **Exactly 2 files**: `<name>.module.ts`, `<name>.service.ts`. Nothing else in the folder. Helpers, tokens, types or extra services do not go here.
 - `src/dto/<feature>/*.dto.ts`: request and response shapes, grouped by feature. **One** `src/dto/index.ts` at the root exports them all (imported as `@/dto`). No index files inside feature folders.
 - `src/config/`: settings, grouped by topic in folders (`config/auth/`, `config/docs/`, `config/email/`). `environment.ts` and `index.ts` stay at the root.
 - `src/middleware/`: guards, decorators, filters, interceptors, and shared helpers in `middleware/commons/` (for example hashing and token encryption).
@@ -20,7 +20,7 @@ Follow these rules exactly. If a change doesn't fit them, ask before breaking on
 
 ## Email
 
-- Use `@nestjs/mail` (the official NestJS mail package). Resend when `RESEND_API_KEY` is set, otherwise SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`; locally Mailpit from `compose.yaml`).
+- Use `@nestjs/mail` (the official NestJS mail package). SendByte when `SENDBYTE_API_KEY` is set, otherwise SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`; locally Mailpit from `compose.yaml`).
 - Every email goes through the outbox in `lib/email/email.service.ts` (encrypted, retried). Email wording lives in `config/email/templates.ts`.
 
 ## API docs (Swagger at /api, Scalar at /docs)

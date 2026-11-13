@@ -11,6 +11,12 @@ const context: ChatContext = {
   user: { id: 'u1', name: 'Ada', email: 'ada@example.com' },
   organizations: () => Promise.resolve([]),
   rename: () => Promise.resolve(),
+  routines: {
+    list: () => Promise.resolve([]),
+    create: () => Promise.reject(new Error('unused')),
+    setEnabled: () => Promise.reject(new Error('unused')),
+    remove: () => Promise.resolve(),
+  },
 };
 const runContext = { context, sessionId: '', agentName: 'Agentic' };
 
@@ -20,7 +26,11 @@ describe('chat agents', () => {
 
     expect(agent.name).toBe('Agentic');
     expect(agent.widgets).toBe(true);
-    expect(agent.handoffs.map((a) => a.name)).toEqual(['Account', 'Research']);
+    expect(agent.handoffs.map((a) => a.name)).toEqual([
+      'Account',
+      'Research',
+      'Routines',
+    ]);
     expect(agent.tools.map((t) => t.name)).toEqual([
       'write_text',
       'handoff_to_human',
@@ -30,7 +40,13 @@ describe('chat agents', () => {
       'The user is Ada.',
     );
 
-    const [account, research] = agent.handoffs;
+    const [account, research, routines] = agent.handoffs;
+    expect(routines.tools.map((t) => t.name)).toEqual([
+      'list_routines',
+      'create_routine',
+      'set_routine_enabled',
+      'delete_routine',
+    ]);
     expect(account.tools.map((t) => t.name)).toEqual([
       'get_my_profile',
       'list_my_organizations',

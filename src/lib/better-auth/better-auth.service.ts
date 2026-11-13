@@ -17,6 +17,7 @@ import {
   GravatarService,
 } from '@/lib/gravatar/gravatar.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { RedisService } from '@/lib/redis/redis.service.js';
 import { hashValue, verifyHash } from '@/middleware/commons/hash.js';
 
 function createAuth(prisma: PrismaClient, settings: AuthSettings) {
@@ -55,6 +56,7 @@ export class BetterAuthService implements OnModuleInit {
     prisma: PrismaService,
     email: EmailService,
     gravatar: GravatarService,
+    redis: RedisService,
   ) {
     const nodeEnv = config.getOrThrow<string>('NODE_ENV');
     // A provider is on when both its ID and secret are set.
@@ -93,6 +95,13 @@ export class BetterAuthService implements OnModuleInit {
         email.enqueue(template, to, variables),
       passwordHasher: { hash: hashValue, verify: verifyHash },
       // Tests never call Gravatar; they get the DiceBear avatar directly.
+      secondaryStorage: {
+        get: (key) => redis.get(key),
+        set: (key, value, ttl) => redis.set(key, value, ttl),
+        delete: (key) => redis.delete(key),
+        getAndDelete: (key) => redis.getAndDelete(key),
+        increment: (key, ttl) => redis.count(key, ttl),
+      },
       // A deleted user's chats and routines go too (messages follow their
       // chat; a routine's timetable stops itself on its next run).
       onUserDeleted: async (userId) => {

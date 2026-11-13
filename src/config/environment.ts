@@ -162,6 +162,13 @@ const environmentSchema = z
         })
         .optional(),
     ),
+    // Read by the Prisma CLI only (prisma.config.ts), for migrations.
+    DIRECT_DATABASE_URL: optionalString(),
+    DATABASE_POOL_SIZE: z.preprocess(
+      (value) =>
+        typeof value === 'string' && value.trim() === '' ? undefined : value,
+      z.coerce.number().int().min(1).max(200).optional(),
+    ),
     REDIS_URL: optionalString().pipe(
       z
         .string()
@@ -189,7 +196,7 @@ const environmentSchema = z
     LINKEDIN_CLIENT_ID: optionalString(),
     LINKEDIN_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
-    RESEND_API_KEY: optionalString(),
+    SENDBYTE_API_KEY: optionalString(),
     CENCORI_API_KEY: optionalString(),
     CENCORI_AGENT_ID: optionalString(),
     AGENT_MCP_URL: z.preprocess(
@@ -229,11 +236,11 @@ const environmentSchema = z
         }
       }
 
-      // Sign-in codes need a way out: Resend or an SMTP server.
-      if (!environment.RESEND_API_KEY && !environment.SMTP_HOST) {
+      // Sign-in codes need a way out: SendByte or an SMTP server.
+      if (!environment.SENDBYTE_API_KEY && !environment.SMTP_HOST) {
         context.addIssue({
           code: 'custom',
-          message: 'Set RESEND_API_KEY or SMTP_HOST in production',
+          message: 'Set SENDBYTE_API_KEY or SMTP_HOST in production',
           path: ['SMTP_HOST'],
         });
       }
@@ -309,6 +316,8 @@ export interface Environment {
   OBSERVE_SERVICE_ID?: string;
   SWAGGER_ENABLED: boolean;
   DATABASE_URL?: string;
+  DIRECT_DATABASE_URL?: string;
+  DATABASE_POOL_SIZE: number;
   REDIS_URL: string;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
@@ -322,7 +331,7 @@ export interface Environment {
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
-  RESEND_API_KEY?: string;
+  SENDBYTE_API_KEY?: string;
   CENCORI_API_KEY?: string;
   CENCORI_AGENT_ID?: string;
   AGENT_MCP_URL?: string;
@@ -410,6 +419,7 @@ export function validateEnvironment(
     MCP_RESOURCE_URL: `${betterAuthUrl}/mcp`,
     // Locally: the Valkey container from compose.yaml.
     REDIS_URL: parsed.REDIS_URL ?? 'redis://localhost:6380',
+    DATABASE_POOL_SIZE: parsed.DATABASE_POOL_SIZE ?? 10,
     // Locally: the Mailpit container from compose.yaml (inbox at :8025).
     SMTP_HOST: parsed.SMTP_HOST ?? 'localhost',
     SMTP_PORT: smtpPort,

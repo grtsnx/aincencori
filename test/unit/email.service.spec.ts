@@ -103,8 +103,9 @@ describe('EmailService (outbox + @nestjs/mail)', () => {
       key: secret,
       data: JSON.stringify(message),
     });
-    const rows = ['mail_1', 'mail_2'].map((id) => ({
-      id,
+    // 11 emails: 10 go out together, the 11th in the next group.
+    const rows = Array.from({ length: 11 }, (_, i) => ({
+      id: `mail_${i + 1}`,
       payload,
       status: 'pending',
       attempts: 0,
@@ -120,10 +121,14 @@ describe('EmailService (outbox + @nestjs/mail)', () => {
 
     await service.processDueMessages(start);
 
-    const secondClaim = updateMany.mock.calls[2]?.[0].data;
-    expect(secondClaim.lockedAt).toEqual(
-      new Date(start.getTime() + 6 * 60_000),
-    );
+    const claim = (id: string) =>
+      updateMany.mock.calls
+        .map(([call]) => call)
+        .find((call) => call.where.id === id && call.data.status === 'sending')
+        ?.data.lockedAt;
+    expect(claim('mail_1')).toEqual(start);
+    expect(claim('mail_11')).toEqual(new Date(start.getTime() + 6 * 60_000));
+    expect(sender).toHaveBeenCalledTimes(11);
   });
 
   it('does not send a message another worker already claimed', async () => {
@@ -230,5 +235,67 @@ describe('EmailService (outbox + @nestjs/mail)', () => {
 
     expect(create).not.toHaveBeenCalled();
     expect(service.lastTestEmail(message.to)).toEqual(message.variables);
+  });
+});
+
+describe('SendByteTransport', () => {
+  const message = {
+    from: { name: 'Agentic', address: 'no-reply@example.com' },
+    to: [{ address: 'ada@example.com' }],
+    cc: [],
+    bcc: [],
+    replyTo: [],
+    subject: 'Your code',
+    html: '<p>123456</p>',
+    text: '123456',
+  } as never;
+  const options = {
+    signal: new AbortController().signal,
+    idempotencyKey: 'outbox_1',
+    attempt: 1,
+  };
+
+  it('posts the email to SendByte with the key and the outbox id', async () => {
+    const { SendByteTransport } = await import('@/lib/email/email.module.js');
+    const request = vi
+      .fn()
+      .mockResolvedValue(Response.json({ id: 'em_1' }, { status: 201 }));
+
+    const result = await new SendByteTransport('sk_test_x', request).send(
+      message,
+      options,
+    );
+
+    const [url, init] = request.mock.calls[0];
+    expect(url).toBe('https://api.sendbyte.africa/v1/emails');
+    expect(init.headers.authorization).toBe('Bearer sk_test_x');
+    expect(JSON.parse(init.body)).toEqual({
+      from: 'Agentic <no-reply@example.com>',
+      to: ['ada@example.com'],
+      subject: 'Your code',
+      html: '<p>123456</p>',
+      text: '123456',
+      idempotency_key: 'outbox_1',
+    });
+    expect(result).toEqual({
+      accepted: ['ada@example.com'],
+      providerMessageId: 'em_1',
+    });
+  });
+
+  it('fails on an error answer, so the outbox retries', async () => {
+    const { SendByteTransport } = await import('@/lib/email/email.module.js');
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json(
+          { error: { code: 'rate_limit_exceeded' } },
+          { status: 429 },
+        ),
+      );
+
+    await expect(
+      new SendByteTransport('sk_test_x', request).send(message, options),
+    ).rejects.toThrow('SendByte answered 429 (rate_limit_exceeded)');
   });
 });

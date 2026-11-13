@@ -189,4 +189,14 @@ describe('AppController (e2e)', () => {
   afterEach(async () => {
     await app.close();
   });
+
+  it('asks MCP apps to sign in before using /mcp', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/mcp')
+      .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+      .expect(401);
+    expect(response.headers['www-authenticate']).toContain(
+      '/.well-known/oauth-protected-resource/mcp',
+    );
+  });
 });

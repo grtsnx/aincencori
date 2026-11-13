@@ -1,4 +1,4 @@
-# Local Postgres, Valkey and Mailpit for this project. Start them with `docker compose up -d --wait`.
+# Local Postgres, PgBouncer, Valkey and Mailpit for this project. Start them with `docker compose up -d --wait`.
 # It listens on 5433 so it can run beside other projects that use 5432.
 # The address matches DATABASE_URL in .env.example.
 name: aincencori
@@ -20,6 +20,31 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  # PgBouncer: a connection pooler in front of Postgres. The app connects
+  # here (port 6433), so many servers can share a few real connections.
+  # Migrations go straight to Postgres (DIRECT_DATABASE_URL, port 5433).
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    container_name: aincencori-pgbouncer
+    environment:
+      DB_HOST: postgres
+      DB_PORT: '5432'
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: agentic
+      AUTH_TYPE: scram-sha-256
+      # A connection is lent for one transaction, then given back.
+      POOL_MODE: transaction
+      # App connections allowed in, and real Postgres connections used.
+      MAX_CLIENT_CONN: '1000'
+      DEFAULT_POOL_SIZE: '20'
+    ports:
+      - '127.0.0.1:6433:5432'
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   # Valkey (open-source Redis) for background jobs and routines. Port 6380.
