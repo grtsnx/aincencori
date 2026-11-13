@@ -48,7 +48,7 @@ Then open the API docs:
 - `POST /v1/chat` streams the answer as events: text, widgets (cards, lists, charts), tool calls, approvals and handoffs. The frontend can use Cencori's `<AgentChat>`.
 - The main agent "Agentic" hands account questions to "Account" and web questions to "Research", asks "Writer" for drafts, and can hand the chat to a person on our team.
 - Tools that change data (like changing your name) wait for the user to approve them in the chat.
-- Images and files (PDF, text, CSV...) can be attached, up to 5 per message, for the default assistant and every bot. The files are kept in Cloudflare R2 (`STORAGE_URL`; locally MinIO), private, and opened from the chat history through links that last 15 minutes. Deleting a chat or a user deletes their files.
+- Images and files (PDF, text, CSV...) can be attached, up to 5 per message, for the default assistant and every bot. The files are kept in Cloudflare R2 (`STORAGE_URL`; locally MinIO), private, and opened from the chat history through links that last 15 minutes. Deleting a chat or a user deletes their files. Small pictures are enlarged before the model sees them, because models misread tiny images; the stored file stays the original.
 - Guardrails block pasted keys and passwords, and any answer that contains one of our secrets.
 - Every message is saved in our own database (`chatMessage`), so the history is ours and we can switch AI providers without losing it. Chats and messages load in small pages.
 - Each chat belongs to the user who started it. Staff with the `chat` permission can read and reply to chats handed to a person, then hand them back.
@@ -72,7 +72,7 @@ Then open the API docs:
   - **Skills**: playbooks it can run. Stored by us, and sent to Cencori for a safety scan and version history.
   - **Routines**: jobs that run on their own (`/v1/routines` with `botId`).
   - **Integrations**: apps it can use.
-- Voice calls (LiveKit): `POST /v1/voice/call` gives the app a ticket to talk live with the default assistant, a bot or a group. Our voice worker (`src/voice-worker.ts`, run with `bun run start:voice`) joins the call, turns speech into text, asks the bot through the normal chat, and speaks the answer. A call uses the bot's memories, skills and integrations and is saved as a chat. Needs `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from a LiveKit Cloud project; without them the route answers 503.
+- Voice calls (LiveKit): `POST /v1/voice/call` gives the app a ticket to talk live with the default assistant, a bot or a group. The bot starts speaking while it is still writing its answer (first words in about 1.5 seconds in our tests), and the user can talk over it. Our voice worker (`src/voice-worker.ts`, run with `bun run start:voice`) joins the call, turns speech into text, asks the bot through the normal chat, and speaks the answer. A call uses the bot's memories, skills and integrations and is saved as a chat. Needs `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from a LiveKit Cloud project; without them the route answers 503.
 - Groups (`/v1/groups`): 2 to 6 of a user's bots on one chat (`POST /v1/chat` with `groupId`). A built-in lead reads each message and asks the bots that fit; the bots can ask each other too. The history shows what each bot said. Bots are asked at most 8 times per message, which keeps cost in check and stops them talking in circles.
 - A bot can rewrite its own instructions when asked; the user approves the change in the chat first.
 - The orchestrator is the default assistant ("Agentic", in `src/config/agents/agents.ts`). It answers first and hands the chat to its helpers or to one of the user's bots (those with a description).
@@ -167,6 +167,8 @@ bun run build
 CI runs all of these on every push, then builds and scans the Docker image. Tagging a version (`git tag v1.0.0 && git push origin v1.0.0`) publishes the image.
 
 ## Known issues
+
+- **The Docker image has not been rebuilt since `sharp` (pictures) and `@livekit/agents` (voice) were added.** Both ship compiled code; check the image builds and starts on its Alpine base before deploying.
 
 - **Voice calls are untested with real audio.** The call ticket, the worker's start-up and the spoken answer style are tested; a real call needs LiveKit Cloud keys and a frontend with LiveKit's client.
 
