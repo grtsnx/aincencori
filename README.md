@@ -11,7 +11,8 @@ cp .env.example .env
 docker compose up -d --wait   # Postgres (5433), Valkey (6380) and Mailpit (inbox: http://localhost:8025)
 bun install --frozen-lockfile
 bun run db:migrate
-bun run start:dev
+bun run start:dev        # the API
+bun run start:worker     # in a second terminal: background jobs (emails, routines)
 ```
 
 Then open the API docs:
@@ -58,6 +59,9 @@ Then open the API docs:
 - Routines: the agent runs a prompt on a schedule ("every morning at 8, summarize the news") in the user's time zone. Each run is saved as a chat. Users can pause, edit, run now, and see past runs.
 - Limits (in `src/config/agents/limits.ts`): 25 routines per user, at most one run every 15 minutes.
 - Background jobs use BullMQ on Redis or Valkey (`REDIS_URL`; locally the Valkey container). Failed jobs retry with growing waits. Tests run jobs straight away and need no Redis.
+- Jobs run on **worker** servers (`src/worker.ts`), never on the API servers, so busy routines don't slow the app. API servers only add jobs. Run as many workers as you need; they share Postgres and Redis.
+- Production: the same Docker image runs both. API: the default command. Worker: `node --enable-source-maps dist/worker.js` (it has no web port, so turn off the HTTP health check for it).
+- Emails are sent by the worker too: right away, plus a 5-second sweep for retries.
 
 **Security**
 
@@ -68,7 +72,7 @@ Then open the API docs:
 **Email**
 
 - Sent with `@nestjs/mail`: Resend when `RESEND_API_KEY` is set, otherwise SMTP. Locally every email lands in Mailpit at http://localhost:8025.
-- Emails are saved (encrypted) to an outbox table first and sent in the background with retries.
+- Emails are saved (encrypted) to an outbox table first, then sent by the worker with retries.
 
 ## API docs
 
