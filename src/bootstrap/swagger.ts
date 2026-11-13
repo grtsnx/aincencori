@@ -19,7 +19,7 @@ const tags: { name: string; description: string }[] = [
   { name: 'User', description: 'Manage your own account' },
   { name: 'Organization', description: 'Manage organizations and teams' },
   { name: 'Admin', description: 'Manage all users' },
-]
+];
 
 const userPaths = [
   '/update-user',
@@ -56,8 +56,25 @@ function authTag(path: string): string | null {
   return 'Auth';
 }
 
+// Titles that would otherwise be long or unclear. Every title is at most 4 words.
+const titles: Record<string, string> = {
+  '/email-otp/send-verification-otp': 'Send email code',
+  '/email-otp/check-verification-otp': 'Check email code',
+  '/email-otp/verify-email': 'Verify email with code',
+  '/email-otp/request-password-reset': 'Request password reset code',
+  '/email-otp/reset-password': 'Reset password with code',
+  '/email-otp/request-email-change': 'Request email change code',
+  '/email-otp/change-email': 'Change email with code',
+  '/sign-in/email-otp': 'Sign in with code',
+  '/two-factor/get-totp-uri': 'Get 2FA setup link',
+  '/two-factor/verify-backup-code': 'Verify 2FA backup code',
+  '/two-factor/generate-backup-codes': 'New 2FA backup codes',
+  '/multi-session/list-device-sessions': 'List device sessions',
+};
+
 // A short title from the route: /admin/set-role -> "Set role".
 function shortTitle(path: string): string {
+  if (titles[path]) return titles[path];
   const groups = new Set(['admin', 'organization']);
   const parts = path.split('/').filter(Boolean);
   const words = (

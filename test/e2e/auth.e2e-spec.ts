@@ -105,6 +105,38 @@ describe('Better Auth (e2e)', () => {
     });
   });
 
+  it('keeps every docs title and section description to 4 words', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1-json')
+      .expect(200);
+    const words = (text: string) => text.trim().split(/\s+/).length;
+
+    const titles = Object.values(
+      response.body.paths as Record<
+        string,
+        Record<string, { summary: string }>
+      >,
+    ).flatMap((operations) =>
+      Object.values(operations).map((operation) => operation.summary),
+    );
+    expect(titles.filter((title) => words(title) > 4)).toEqual([]);
+
+    const sections = response.body.tags as {
+      name: string;
+      description: string;
+    }[];
+    expect(sections.map((section) => section.name)).toEqual([
+      'Server',
+      'Auth',
+      'User',
+      'Organization',
+      'Admin',
+    ]);
+    expect(
+      sections.filter((section) => words(section.description) > 4),
+    ).toEqual([]);
+  });
+
   // Needs Postgres (DATABASE_URL). Skipped where no database is configured.
   describe.skipIf(!process.env.DATABASE_URL)('with a database', () => {
     const email = `e2e-${randomUUID()}@example.com`;
@@ -168,6 +200,36 @@ describe('Better Auth (e2e)', () => {
         .get('/v1/auth/session')
         .set('Cookie', cookies)
         .expect(401);
+    });
+
+    it('shows my profile, sign-in methods and sessions', async () => {
+      const server = app.getHttpServer();
+      const cookies = await signIn();
+
+      const profile = await request(server)
+        .get('/v1/user')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(profile.body.data).toMatchObject({
+        email,
+        role: 'user',
+        twoFactorEnabled: false,
+        lastLoginMethod: 'email-otp',
+      });
+
+      const accounts = await request(server)
+        .get('/v1/user/accounts')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(Array.isArray(accounts.body.data)).toBe(true);
+
+      const sessions = await request(server)
+        .get('/v1/user/sessions')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(sessions.body.data).toEqual(
+        expect.arrayContaining([expect.objectContaining({ current: true })]),
+      );
     });
 
     it('creates an organization with a team and lists it', async () => {
