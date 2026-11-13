@@ -139,6 +139,13 @@ describe('API docs and versioning (e2e)', () => {
         const ok = responses['200'] as {
           content: Record<string, { schema: Schema }>;
         };
+        // Streams (the chat) send events, not the JSON wrapper.
+        if (ok.content['text/event-stream']) {
+          expect(Object.keys(responses)).toEqual(
+            expect.arrayContaining(['429', '500']),
+          );
+          continue;
+        }
         expect(
           Object.keys(
             ok.content['application/json'].schema.properties as Schema,

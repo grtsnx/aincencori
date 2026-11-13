@@ -42,6 +42,16 @@ Then open the API docs:
 - Agents act for a user, who approves each thing an agent may do. For now agents can only read the user's profile.
 - Agents find the setup at `/.well-known/agent-configuration`.
 
+**Chat with AI agents (Cencori)**
+
+- `POST /v1/chat` streams the answer as events: text, widgets (cards, lists, charts), tool calls, approvals and handoffs. The frontend can use Cencori's `<AgentChat>`.
+- The main agent "Agentic" hands account questions to "Account" and web questions to "Research", asks "Writer" for drafts, and can hand the chat to a person on our team.
+- Tools that change data (like changing your name) wait for the user to approve them in the chat.
+- Images and files can be attached. Cencori remembers facts about each user across chats.
+- Guardrails block pasted keys and passwords, and any answer that contains one of our secrets.
+- Each chat belongs to the user who started it. Staff with the `chat` permission can read and reply to chats handed to a person, then hand them back.
+- Agents live in `src/config/agents/agents.ts`. Optional: `CENCORI_AGENT_ID` runs an agent built in the Cencori dashboard, `AGENT_MCP_URL` adds an MCP server's tools.
+
 **Security**
 
 - Security headers, CSRF checks, rate limits and request IDs on every route.
@@ -55,7 +65,7 @@ Then open the API docs:
 
 ## API docs
 
-The docs are grouped into Auth, Agent Auth, User, Organization and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
+The docs are grouped into Auth, Agent Auth, User, Organization, Chat and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
 
 There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under `/v1/auth` (v2 gets its own when we start v2).
 
@@ -87,6 +97,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | `BETTER_AUTH_API_KEY`                                                      | Optional: Better Auth dashboard and Sentinel abuse protection  |
 | `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*`                                       | Sign-in providers. Set both ID and secret, or leave both empty |
 | `RECAPTCHA_SECRET_KEY`                                                     | Turns on reCAPTCHA                                             |
+| `CENCORI_API_KEY`                                                          | Turns on the AI chat. Without it chat routes answer 503        |
 
 Production also needs `AUTH_IP_HEADERS`: the one header your host sets with the visitor's real IP (plus `AUTH_TRUSTED_PROXIES` when that header is `x-forwarded-for`). The login cookie is shared automatically when the frontend and API share a parent domain (`app.example.com` and `api.example.com`).
 

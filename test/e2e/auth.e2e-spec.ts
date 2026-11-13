@@ -152,6 +152,7 @@ describe('Better Auth (e2e)', () => {
       'Agent Auth',
       'User',
       'Organization',
+      'Chat',
       'Admin',
     ]);
     expect(

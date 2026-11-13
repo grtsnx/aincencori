@@ -104,6 +104,12 @@ export function configureApplication(
     toBetterAuth(request, response, next);
   }) as RequestHandler);
   server.use('/.well-known', authBodyParser, authBodyLimitError);
+  // Chat messages can carry images and files (up to 5, as data URLs).
+  server.post(
+    '/v1/chat',
+    express.json({ limit: 25 * 1_048_576 }),
+    authBodyLimitError,
+  );
   server.all('/.well-known/{*any}', handler);
 
   app.useGlobalPipes(

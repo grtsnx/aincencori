@@ -202,6 +202,8 @@ function sampleNestResponses(document: OpenAPIObject): void {
         // 204 has no body, so no wrapper.
         if (code < 200 || code >= 300 || code === 204) continue;
         const content = response.content as Record<string, Schema> | undefined;
+        // Streams (the chat) send events, not the JSON wrapper.
+        if (content?.['text/event-stream']) continue;
         const data = content?.['application/json']?.schema ?? {};
         response.description ||= 'Success';
         response.content = {

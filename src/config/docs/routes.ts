@@ -9,6 +9,7 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Agent Auth', description: 'Safe AI agent access' },
   { name: 'User', description: 'Manage your own account' },
   { name: 'Organization', description: 'Manage organizations and teams' },
+  { name: 'Chat', description: 'Talk to AI agents' },
   { name: 'Admin', description: 'Manage all users' },
 ];
 
