@@ -572,11 +572,24 @@ export class ChatService implements OnModuleInit {
       input.message,
       turn.options,
     );
+    // Read by hand (not for-await): stopping a for-await early would end
+    // the run without ever reporting its result.
+    const events = streamed[Symbol.asyncIterator]();
+    let ended = false;
     try {
-      for await (const event of streamed) {
+      while (true) {
+        const step = await events.next();
+        if (step.done) {
+          ended = true;
+          break;
+        }
+        const event = step.value;
         if (event.type === 'text_delta' && event.delta) yield event.delta;
       }
     } finally {
+      // Cut short: let the bot finish its answer unheard, so the turn is
+      // whole in the history and the chat can carry on.
+      while (!ended) ended = (await events.next()).done === true;
       const result = await streamed.completed;
       input.onSaved?.(await this.finishAsk(turn, input, result));
     }
