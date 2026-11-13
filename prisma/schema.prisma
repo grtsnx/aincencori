@@ -447,6 +447,8 @@ model ChatSession {
   routineId String?
   // The bot this chat is with. Empty: the default assistant.
   botId     String?
+  // The group of bots this chat is with, if any.
+  groupId   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   messages  ChatMessage[]
@@ -557,9 +559,38 @@ model Bot {
   memories       BotMemory[]
   skills         BotSkill[]
   routines       Routine[]
+  groups         GroupMember[]
 
   @@index([userId, createdAt])
   @@map("bot")
+}
+
+// A team of a user's bots that work on one chat together. A lead (built in)
+// reads each message, asks the right bots, and they can ask each other.
+model BotGroup {
+  id           String        @id
+  userId       String
+  name         String
+  description  String?
+  // Optional: how the team should work together.
+  instructions String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  members      GroupMember[]
+
+  @@index([userId, createdAt])
+  @@map("botGroup")
+}
+
+model GroupMember {
+  groupId String
+  group   BotGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  botId   String
+  bot     Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, botId])
+  @@index([botId])
+  @@map("groupMember")
 }
 
 // A fact a bot knows ("The user's company is Acme"). Added by the user or

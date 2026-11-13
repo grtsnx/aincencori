@@ -35,3 +35,12 @@ export const maxSkillsPerBot = 20;
 
 // Bots the default assistant may hand a chat to.
 export const maxBotsForAssistant = 10;
+
+// Groups of bots: how many per user, how many bots in one, and how many
+// times bots may be asked while answering one message (keeps cost in check
+// and stops bots talking in circles).
+export const maxGroupsPerUser = 20;
+export const maxBotsPerGroup = 6;
+export const maxGroupAsks = 8;
+// Steps one bot may take to answer a question inside a group.
+export const maxGroupBotTurns = 4;

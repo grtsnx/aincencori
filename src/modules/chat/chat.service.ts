@@ -14,14 +14,20 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Agent } from 'cencori/agents';
 import {
+  type AskBot,
   type BotParts,
   type ChatContext,
   createBotAgent,
+  createGroupAgent,
   createChatAgent,
   type RoutineActions,
 } from '@/config/agents/agents.js';
 import { deleteFilesJob, userFilesPrefix } from '@/config/agents/jobs.js';
-import { maxAgentTurns } from '@/config/agents/limits.js';
+import {
+  maxAgentTurns,
+  maxGroupAsks,
+  maxGroupBotTurns,
+} from '@/config/agents/limits.js';
 import { staffOrganizationSlug } from '@/config/auth/access.js';
 import type {
   ChatHistoryMessageDto,
@@ -79,6 +85,21 @@ export interface BotRuntime extends BotParts {
   cencori?: { agentId: string; tenantId: string; installationId: string };
 }
 
+// A group of a user's bots, ready for a chat.
+export interface GroupRuntime {
+  id: string;
+  name: string;
+  instructions?: string | null;
+  members: BotRuntime[];
+}
+
+// What one bot said inside a group while a message was being answered.
+interface GroupSaid {
+  bot: string;
+  text: string;
+  at: Date;
+}
+
 // How the chat gets bots from the bot module.
 export interface BotLoader {
   // One of the user's bots, for a chat with it.
@@ -115,6 +136,8 @@ export class ChatService implements OnModuleInit {
   private routineActions?: RoutineActions;
   // Set by the bot module: loads one of the user's bots for a chat.
   private bots?: BotLoader;
+  // Set by the group module: loads one of the user's groups for a chat.
+  private groups?: (userId: string, groupId: string) => Promise<GroupRuntime>;
   private readonly secrets: string[];
 
   constructor(
@@ -145,21 +168,98 @@ export class ChatService implements OnModuleInit {
     this.bots = loader;
   }
 
-  // Which agent answers: the user's bot when the chat is with one, else the
-  // default assistant. A chat keeps the bot it started with.
+  // The group module hands over how to load a user's group.
+  useGroups(
+    load: (userId: string, groupId: string) => Promise<GroupRuntime>,
+  ): void {
+    this.groups = load;
+  }
+
+  // Which agent answers: the user's group or bot when the chat is with one,
+  // else the default assistant. A chat keeps what it started with.
   private async agentFor(
     userId: string,
     body: ChatRequestDto,
-  ): Promise<{ agent: Agent<ChatContext>; bot?: BotRuntime }> {
-    let botId = body.botId;
+  ): Promise<{
+    agent: Agent<ChatContext>;
+    bot?: BotRuntime;
+    group?: { id: string; said: GroupSaid[] };
+  }> {
+    let { botId, groupId } = body;
     if (body.sessionId) {
       const chat = await this.prisma.db.chatSession.findUnique({
         where: { id: body.sessionId },
       });
-      if (chat?.userId === userId) botId = chat.botId ?? undefined;
+      if (chat?.userId === userId) {
+        botId = chat.botId ?? undefined;
+        groupId = chat.groupId ?? undefined;
+      }
     }
+    if (groupId) return this.groupAgent(userId, groupId);
     if (!botId) return { agent: await this.assistantFor(userId) };
     return this.botAgent(userId, botId);
+  }
+
+  // A group chat: a lead asks the group's bots, and they may ask each other.
+  // Every answer a bot gives is kept in "said" for the chat history.
+  private async groupAgent(
+    userId: string,
+    groupId: string,
+  ): Promise<{
+    agent: Agent<ChatContext>;
+    group: { id: string; said: GroupSaid[] };
+  }> {
+    if (!this.groups) throw new NotFoundException('Group not found.');
+    const group = await this.groups(userId, groupId);
+    const said: GroupSaid[] = [];
+    let asks = 0;
+
+    // canAskOthers: a bot asked by the lead may ask the other bots; a bot
+    // asked by another bot may not, so questions never go round in circles.
+    const askFrom =
+      (canAskOthers: boolean): AskBot =>
+      async (name, question, context) => {
+        const member = group.members.find((bot) => bot.name === name);
+        if (!member) return `There is no bot named "${name}" in this group.`;
+        if (++asks > maxGroupAsks) {
+          return 'The bots have been asked enough for this message. Answer with what you have.';
+        }
+        const agent = createBotAgent({ secrets: this.secrets }, member, {
+          others: canAskOthers
+            ? group.members.filter((bot) => bot.name !== name)
+            : [],
+          ask: askFrom(false),
+        });
+        try {
+          const result = await this.cencori.agentRun(agent, question, {
+            context,
+            user: userId,
+            metadata: { userId, groupId },
+            maxTurns: maxGroupBotTurns,
+          });
+          // The bot's side talk lives in its own Cencori session; we keep
+          // what it said, so that session is removed.
+          await this.bullmq
+            .add(deleteAtCencori, { sessionId: result.sessionId })
+            .catch(() => undefined);
+          const text =
+            result.interruptions.length > 0
+              ? `${name} needs the user's approval for a step, which is not possible inside a group. Ask the user to do this with ${name} directly.`
+              : typeof result.finalOutput === 'string'
+                ? result.finalOutput
+                : '';
+          said.push({ bot: name, text, at: new Date() });
+          return text || `${name} had nothing to say.`;
+        } catch {
+          this.logger.warn(`Bot ${member.id} failed inside group ${groupId}.`);
+          return `${name} could not answer right now.`;
+        }
+      };
+
+    return {
+      agent: createGroupAgent({ secrets: this.secrets }, group, askFrom(true)),
+      group: { id: group.id, said },
+    };
   }
 
   private async botAgent(
@@ -227,8 +327,8 @@ export class ChatService implements OnModuleInit {
     const abort = new AbortController();
     response.on('close', () => abort.abort());
 
-    const { agent, bot } = await this.agentFor(userId, body);
-    const { botId: _botId, ...turn } = body;
+    const { agent, bot, group } = await this.agentFor(userId, body);
+    const { botId: _botId, groupId: _groupId, ...turn } = body;
     // A bot with app connections (Gmail...) starts its chat in a session
     // that carries them, so Cencori can offer those tools.
     if (bot?.cencori && !turn.sessionId && !turn.approval && !turn.poll) {
@@ -245,7 +345,7 @@ export class ChatService implements OnModuleInit {
       // The default assistant: Cencori remembers facts about this user
       // across chats. A bot keeps its own memories instead (see BotParts),
       // so one bot's facts never reach another.
-      ...(bot ? {} : { memory: { userId } }),
+      ...(bot || group ? {} : { memory: { userId } }),
       metadata: { userId },
       maxTurns: maxAgentTurns,
     });
@@ -270,7 +370,9 @@ export class ChatService implements OnModuleInit {
       .get('content-type')
       ?.includes('text/event-stream');
     const stream = isStream
-      ? answer.body.pipeThrough(this.recordTurn(userId, turn, bot?.id, files))
+      ? answer.body.pipeThrough(
+          this.recordTurn(userId, turn, bot?.id, files, group),
+        )
       : answer.body;
     Readable.fromWeb(stream as NodeReadableStream).pipe(response);
   }
@@ -611,6 +713,7 @@ export class ChatService implements OnModuleInit {
     body: ChatRequestDto,
     botId?: string,
     files: Promise<StoredFile[]> = Promise.resolve([]),
+    group?: { id: string; said: GroupSaid[] },
   ): TransformStream<Uint8Array, Uint8Array> {
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -634,6 +737,7 @@ export class ChatService implements OnModuleInit {
           userId,
           title: userText.slice(0, 80) || 'New chat',
           botId,
+          groupId: group?.id,
         },
         update: { updatedAt: new Date() },
       });
@@ -646,6 +750,18 @@ export class ChatService implements OnModuleInit {
           text: userText,
           attachments: (await files) as never,
           createdAt: startedAt,
+        });
+      }
+      // In a group: what each bot said, in order, before the lead's answer.
+      for (const turn of group?.said ?? []) {
+        if (!turn.text) continue;
+        rows.push({
+          id: randomUUID(),
+          sessionId,
+          role: 'agent',
+          agent: turn.bot,
+          text: turn.text,
+          createdAt: turn.at,
         });
       }
       if (text || widgets.length > 0) {

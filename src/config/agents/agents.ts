@@ -267,9 +267,80 @@ export interface BotParts {
 }
 
 // A bot a user made. Same guardrails as the default assistant.
+// Asks one bot of a group a question and returns its answer.
+export type AskBot = (
+  bot: string,
+  question: string,
+  context: ChatContext,
+) => Promise<string>;
+
+// The tool a group's lead (and each member) uses to ask another bot.
+function askBotTool(
+  others: { name: string; description?: string | null }[],
+  ask: AskBot,
+): FunctionTool<ChatContext> {
+  const names = others.map((bot) => bot.name) as [string, ...string[]];
+  return tool({
+    name: 'ask_bot',
+    description:
+      'Ask another bot of this group and get its answer. The bot does not ' +
+      'see this chat, so put everything it needs in the question. Bots:\n' +
+      others
+        .map((bot) => `- ${bot.name}: ${bot.description ?? 'no description'}`)
+        .join('\n'),
+    parameters: z.object({
+      bot: z.enum(names),
+      question: z.string().min(1).max(8000),
+    }),
+    execute: ({ bot, question }, { context }: { context: ChatContext }) =>
+      ask(bot, question, context),
+  }) as FunctionTool<ChatContext>;
+}
+
+// The lead of a group of bots: it reads each message, asks the bots that
+// fit (they can also ask each other), and gives the user one answer.
+export function createGroupAgent(
+  settings: Pick<AgentSettings, 'secrets'>,
+  group: {
+    name: string;
+    instructions?: string | null;
+    members: { name: string; description?: string | null }[];
+  },
+  ask: AskBot,
+): Agent<ChatContext> {
+  return new Agent<ChatContext>({
+    model: agentModel,
+    modelSettings: { reasoningEffort: agentThinking },
+    name: group.name,
+    instructions: ({ context }) =>
+      [
+        `You lead "${group.name}", a team of the user's bots. The user is ` +
+          `${context.user.name}.`,
+        'For each message, decide which bots can help and ask them with ' +
+          'ask_bot. Pass one bot’s answer to the next when their work builds ' +
+          'on each other. Do not do a bot’s job yourself. Then give the user ' +
+          'one clear answer, saying which bot did what. For small talk, just ' +
+          'answer.',
+        group.instructions && `How this team works:\n${group.instructions}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    tools: [askBotTool(group.members, ask)],
+    inputGuardrails: [noSecretsIn],
+    outputGuardrails: [noSecretsOut(settings.secrets)],
+    widgets: true,
+  });
+}
+
 export function createBotAgent(
   settings: Pick<AgentSettings, 'secrets'>,
   bot: BotParts,
+  // Set when the bot answers inside a group: the other bots it may ask.
+  // In a group it cannot rewrite its own instructions (no one to approve).
+  team?: {
+    others: { name: string; description?: string | null }[];
+    ask: AskBot;
+  },
 ): Agent<ChatContext> {
   const tools: FunctionTool<ChatContext>[] = [
     webSearch(),
@@ -286,20 +357,26 @@ export function createBotAgent(
         return 'Saved.';
       },
     }) as FunctionTool<ChatContext>,
-    tool({
-      name: 'update_my_instructions',
-      description:
-        'Rewrite your own instructions when the user asks you to change ' +
-        'how you behave. Send the full new instructions, not just the change.',
-      parameters: z.object({ instructions: z.string().min(1).max(8000) }),
-      // Changes how the bot behaves from now on, so the user approves it.
-      needsApproval: true,
-      execute: async ({ instructions }) => {
-        await bot.updateInstructions(instructions);
-        return 'Instructions updated. They apply from the next message.';
-      },
-    }) as FunctionTool<ChatContext>,
   ];
+  if (team) {
+    if (team.others.length > 0) tools.push(askBotTool(team.others, team.ask));
+  } else {
+    tools.push(
+      tool({
+        name: 'update_my_instructions',
+        description:
+          'Rewrite your own instructions when the user asks you to change ' +
+          'how you behave. Send the full new instructions, not just the change.',
+        parameters: z.object({ instructions: z.string().min(1).max(8000) }),
+        // Changes how the bot behaves from now on, so the user approves it.
+        needsApproval: true,
+        execute: async ({ instructions }) => {
+          await bot.updateInstructions(instructions);
+          return 'Instructions updated. They apply from the next message.';
+        },
+      }) as FunctionTool<ChatContext>,
+    );
+  }
   if (bot.skills.length > 0) {
     tools.push(
       tool({
@@ -328,6 +405,10 @@ export function createBotAgent(
           'before you reply. Saying you will remember is not enough.',
         bot.memories.length > 0 &&
           `What you already know:\n${bot.memories.map((fact) => `- ${fact}`).join('\n')}`,
+        team &&
+          'You are answering as part of a team of bots. Answer the question ' +
+            'you were asked, fully and briefly; your answer goes back to the ' +
+            'bot that asked.',
         bot.skills.length > 0 &&
           'Your skills (call use_skill with the name to read the steps):\n' +
             bot.skills

@@ -101,6 +101,16 @@ export class ChatRequestDto {
   botId?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Chat with one of your groups of bots. Send it with every message of a group chat',
+    example: '9c1ad96f-7aae-4ca4-86fd-933f1a45603f',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  groupId?: string;
+
+  @ApiPropertyOptional({
     description: 'Leave out to start a new chat',
     example: 'ses_3f9aB2xY7pLm1n',
   })
@@ -164,6 +174,14 @@ export class ChatSessionDto {
     example: null,
   })
   botId: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'The group of bots this chat is with, if any',
+    example: null,
+  })
+  groupId: string | null;
 
   @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
   createdAt: Date;
