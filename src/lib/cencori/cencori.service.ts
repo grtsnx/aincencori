@@ -3,7 +3,7 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { Cencori, RequestOptions } from 'cencori';
+import type { Cencori, RequestOptions, WebhookPayload } from 'cencori';
 import type {
   WebExtractResult,
   WebFetchRequest,
@@ -1388,6 +1388,13 @@ export class CencoriService {
     return this.client.skills.deprecateVersion(...args);
   }
 
+  /** Delete a skill. — `cencori.skills.remove` */
+  skillsRemove(
+    ...args: Parameters<Cencori['skills']['remove']>
+  ): ReturnType<Cencori['skills']['remove']> {
+    return this.client.skills.remove(...args);
+  }
+
   // ──────────────────────────────────────────────────────────────────────
   // Embedded Agents: Skill imports
   // ──────────────────────────────────────────────────────────────────────
@@ -1457,6 +1464,31 @@ export class CencoriService {
     ...args: Parameters<Cencori['webhooks']['replay']>
   ): ReturnType<Cencori['webhooks']['replay']> {
     return this.client.webhooks.replay(...args);
+  }
+
+  /** Every webhook event name you can subscribe to. — `cencori.webhooks.events` */
+  get webhookEvents(): Cencori['webhooks']['events'] {
+    return this.client.webhooks.events;
+  }
+
+  /**
+   * Check a delivery's `X-Webhook-Signature` against the raw body, so only
+   * real Cencori deliveries are trusted. — `cencori.webhooks.verify`
+   */
+  webhooksVerify(
+    ...args: Parameters<Cencori['webhooks']['verify']>
+  ): ReturnType<Cencori['webhooks']['verify']> {
+    return this.client.webhooks.verify(...args);
+  }
+
+  /** Verify and parse a delivery in one step (null if invalid). — `cencori.webhooks.parse` */
+  webhooksParse<T = Record<string, unknown>>(
+    rawBody: string,
+    signature: string | null | undefined,
+    secret: string,
+    options?: Parameters<Cencori['webhooks']['parse']>[3],
+  ): Promise<WebhookPayload<T> | null> {
+    return this.client.webhooks.parse<T>(rawBody, signature, secret, options);
   }
 
   // ──────────────────────────────────────────────────────────────────────

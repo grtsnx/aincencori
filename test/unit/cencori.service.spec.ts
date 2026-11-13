@@ -28,4 +28,22 @@ describe('CencoriService', () => {
     expect(service.isConfigured).toBe(true);
     expect(service.sdk).toBe(client);
   });
+
+  it('verifies webhooks and removes skills through the SDK', async () => {
+    const verify = vi.fn().mockResolvedValue(true);
+    const remove = vi.fn().mockResolvedValue({ ok: true });
+    const service = new CencoriService({
+      webhooks: { verify, events: ['run.completed'] },
+      skills: { remove },
+    } as never);
+
+    await expect(
+      service.webhooksVerify('{"a":1}', 'sig', 'whsec_x'),
+    ).resolves.toBe(true);
+    expect(verify).toHaveBeenCalledWith('{"a":1}', 'sig', 'whsec_x');
+    expect(service.webhookEvents).toEqual(['run.completed']);
+
+    await service.skillsRemove('skill_1');
+    expect(remove).toHaveBeenCalledWith('skill_1');
+  });
 });
