@@ -44,6 +44,9 @@ import {
 } from '@/lib/better-auth/better-auth.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { Prisma } from '@/generated/prisma/client.js';
+import { ActivityService } from '../activity/activity.service.js';
+import { ApprovalService } from '../approval/approval.service.js';
+import { UsageService } from '../usage/usage.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { assertStaff, readableImage } from '@/middleware';
 import { R2Service } from '@/lib/r2/r2.service.js';
@@ -86,6 +89,9 @@ export interface AskInput {
   groupId?: string;
   title?: string;
   routineId?: string;
+  // What started it, for the approvals inbox. Default: routine when
+  // routineId is set, else chat.
+  source?: 'chat' | 'routine' | 'plan';
   stopNote?: string;
   // The answer will be read aloud (a voice call): short, no formatting.
   spoken?: boolean;
@@ -174,6 +180,9 @@ export class ChatService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly bullmq: BullmqService,
     private readonly r2: R2Service,
+    private readonly usage: UsageService,
+    private readonly approvals: ApprovalService,
+    private readonly activity: ActivityService,
   ) {
     this.secrets = secretSettings
       .map((key) => this.config.get<string>(key))
@@ -368,8 +377,19 @@ export class ChatService implements OnModuleInit {
     const abort = new AbortController();
     response.on('close', () => abort.abort());
 
+    // Polls only read what a person wrote; everything else uses the AI.
+    if (!body.poll) await this.usage.assertAllowance(userId);
     const { agent, bot, group } = await this.agentFor(userId, body);
     const { botId: _botId, groupId: _groupId, ...turn } = body;
+    const rules = await this.approvals.rulesFor(userId);
+    // The user answered an approval card (here or from the inbox).
+    if (turn.approval) {
+      await this.approvals.resolve(
+        userId,
+        turn.approval.state,
+        turn.approval.decisions,
+      );
+    }
     // A bot with app connections (Gmail...) starts its chat in a session
     // that carries them, so Cencori can offer those tools.
     if (bot?.cencori && !turn.sessionId && !turn.approval && !turn.poll) {
@@ -389,7 +409,12 @@ export class ChatService implements OnModuleInit {
       );
     }
     const handler = this.cencori.agentChatHandler(agent, {
-      context: () => this.context(auth.user, headers),
+      context: () =>
+        this.context(auth.user, headers, {
+          rules,
+          botId: bot?.id,
+          chatId: turn.sessionId,
+        }),
       user: () => userId,
       authorizeSession: (sessionId) => this.owns(sessionId, userId),
       // Signs paused runs (approvals) so the browser can't change them.
@@ -398,7 +423,7 @@ export class ChatService implements OnModuleInit {
       // across chats. A bot keeps its own memories instead (see BotParts),
       // so one bot's facts never reach another.
       ...(bot || group ? {} : { memory: { userId } }),
-      metadata: { userId },
+      metadata: group ? { userId, groupId: group.id } : { userId },
       maxTurns: maxAgentTurns,
     });
 
@@ -636,6 +661,8 @@ export class ChatService implements OnModuleInit {
     if (input.chatId && !(await this.owns(input.chatId, userId))) {
       throw new NotFoundException('Chat not found.');
     }
+    await this.usage.assertAllowance(userId);
+    const rules = await this.approvals.rulesFor(userId);
     const { agent, bot, group } = await this.agentFor(userId, {
       sessionId: input.chatId,
       botId: input.botId,
@@ -659,13 +686,20 @@ export class ChatService implements OnModuleInit {
       startedAt: new Date(),
       agent: speaker,
       options: {
-        context: this.context(user),
+        context: this.context(user, undefined, {
+          rules,
+          botId: bot?.id,
+          chatId: input.chatId,
+        }),
         user: user.id,
         sessionId: input.chatId,
         ...(bot || group ? {} : { memory: { userId: user.id } }),
         metadata: {
           userId: user.id,
           ...(input.routineId && { routineId: input.routineId }),
+          ...(group && { groupId: group.id }),
+          ...(input.spoken && { kind: 'voice' }),
+          ...(input.source === 'plan' && { kind: 'plan' }),
         },
         maxTurns: maxAgentTurns,
       },
@@ -693,7 +727,7 @@ export class ChatService implements OnModuleInit {
     const waiting = result.interruptions.map((item) => item.toolName);
     // Nobody is there to approve a step, so say what is waiting.
     const text = needsApproval
-      ? `${answer}\n\n${input.stopNote ?? 'This stopped'}: ${waiting.join(', ')} needs your approval. Ask for it in a chat.`.trim()
+      ? `${answer}\n\n${input.stopNote ?? 'This stopped'}: ${waiting.join(', ')} needs your approval. Approve it from your approvals inbox.`.trim()
       : answer;
 
     await db.$transaction([
@@ -740,6 +774,27 @@ export class ChatService implements OnModuleInit {
         ],
       }),
     ]);
+    this.logTools(user.id, result.newItems);
+    // Nobody was there to approve: the steps wait in the inbox, signed like
+    // a chat's, so approving them carries the run on in this chat.
+    if (needsApproval && result.state) {
+      await this.approvals.recordPending({
+        userId: user.id,
+        chatId: result.sessionId,
+        botId: bot?.id,
+        source: input.source ?? (input.routineId ? 'routine' : 'chat'),
+        items: result.interruptions.map((item) => ({
+          callId: item.callId,
+          toolName: item.toolName,
+          arguments: item.arguments,
+          agentName: item.agentName,
+        })),
+        state: signRunState(
+          result.state,
+          this.config.getOrThrow<string>('BETTER_AUTH_SECRET'),
+        ),
+      });
+    }
     return {
       chatId: result.sessionId,
       answeredBy: result.lastAgent.name,
@@ -748,10 +803,39 @@ export class ChatService implements OnModuleInit {
     };
   }
 
+  // Each tool the AI ran goes in the user's activity log.
+  private logTools(
+    userId: string,
+    items: { type: string; toolName?: string; agentName?: string }[],
+  ): void {
+    for (const item of items) {
+      if (item.type !== 'tool_output' || !item.toolName) continue;
+      this.activity.log({
+        userId,
+        actor: `agent:${item.agentName ?? 'unknown'}`,
+        action: 'tool.ran',
+        target: item.toolName,
+      });
+    }
+  }
+
   // What the agent's tools can see and do, as the user. Without headers (a
   // routine, no browser) changes that need the user's session are refused.
-  private context(user: ChatUser, headers?: Headers): ChatContext {
+  private context(
+    user: ChatUser,
+    headers?: Headers,
+    where: {
+      rules: ToolRuleView[];
+      botId?: string;
+      chatId?: string;
+    } = { rules: [] },
+  ): ChatContext {
     return {
+      toolDecision: (tool) =>
+        decideTool(where.rules, tool, {
+          botId: where.botId,
+          chatId: where.chatId,
+        }),
       user: {
         id: user.id,
         name: user.name,
@@ -959,7 +1043,30 @@ export class ChatService implements OnModuleInit {
         if (typeof data.agent === 'string') agent = data.agent;
       } else if (name === 'widget' && data.widget) {
         widgets.push(data.widget);
-      } else if (
+      } else if (name === 'tool_output' && typeof data.name === 'string') {
+        this.activity.log({
+          userId,
+          actor: `agent:${typeof data.agent === 'string' ? data.agent : 'unknown'}`,
+          action: 'tool.ran',
+          target: data.name,
+        });
+      }
+      if (
+        name === 'approval' &&
+        typeof data.sessionId === 'string' &&
+        typeof data.state === 'string' &&
+        Array.isArray(data.items)
+      ) {
+        await this.approvals.recordPending({
+          userId,
+          chatId: data.sessionId,
+          botId,
+          source: 'chat',
+          items: data.items as PendingApprovalItemDto[],
+          state: data.state,
+        });
+      }
+      if (
         (name === 'done' || name === 'approval') &&
         typeof data.sessionId === 'string'
       ) {

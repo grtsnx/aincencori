@@ -6,6 +6,7 @@ import {
   Queue,
   Worker,
 } from 'bullmq';
+import { sendAlert } from '@/middleware';
 
 // What a job handler gets: the job's data, and which try this is (1, 2, ...).
 export type JobHandler<T> = (
@@ -53,8 +54,11 @@ export class BullmqService implements OnModuleDestroy {
   // Tests only: schedules that would be set.
   private readonly testSchedules = new Map<string, Schedule>();
 
+  private readonly alertWebhookUrl?: string;
+
   constructor(config: ConfigService) {
     this.inline = config.get<string>('NODE_ENV') === 'test';
+    this.alertWebhookUrl = config.get<string>('ALERT_WEBHOOK_URL');
     this.connection = {
       url: config.getOrThrow<string>('REDIS_URL'),
       // Workers wait on Redis; BullMQ needs this off.
@@ -188,11 +192,19 @@ export class BullmqService implements OnModuleDestroy {
       },
       { connection: this.connection, concurrency: registration.concurrency },
     );
-    worker.on('failed', (job) =>
+    worker.on('failed', (job) => {
       this.logger.error(
         `Job "${name}" ${job?.id ?? ''} failed (try ${job?.attemptsMade ?? '?'}).`,
-      ),
-    );
+      );
+      // No tries left: tell the team.
+      if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+        sendAlert(
+          this.alertWebhookUrl,
+          `Background job "${name}" failed for good`,
+          job.failedReason,
+        );
+      }
+    });
     worker.on('error', () =>
       this.logger.error(`Worker "${name}" lost its Redis connection.`),
     );

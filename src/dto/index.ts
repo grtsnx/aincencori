@@ -116,3 +116,22 @@ export {
   StartDictationDto,
   VoiceCallDto,
 } from './voice/voice.dto.js';
+export {
+  ActivityDto,
+  AdminActivityQueryDto,
+  ListActivityQueryDto,
+} from './activity/activity.dto.js';
+export {
+  PendingApprovalDto,
+  PendingApprovalItemDto,
+  SetToolRuleDto,
+  ToolInfoDto,
+  ToolRuleDto,
+} from './approval/approval.dto.js';
+export {
+  SetBillingPlanDto,
+  UsageDayDto,
+  UsageDto,
+  UsageOverviewDto,
+  UsageUserDto,
+} from './usage/usage.dto.js';

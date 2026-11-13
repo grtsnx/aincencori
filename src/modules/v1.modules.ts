@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { ActivityModule } from './activity/activity.module.js';
 import { AdminModule } from './admin/admin.module.js';
+import { ApprovalModule } from './approval/approval.module.js';
 import { AgentAuthModule } from './agent-auth/agent-auth.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BotModule } from './bot/bot.module.js';
@@ -12,11 +14,15 @@ import { McpModule } from './mcp/mcp.module.js';
 import { OrganizationModule } from './organization/organization.module.js';
 import { PlanModule } from './plan/plan.module.js';
 import { RoutineModule } from './routine/routine.module.js';
+import { UsageModule } from './usage/usage.module.js';
 import { UserModule } from './user/user.module.js';
 import { VoiceModule } from './voice/voice.module.js';
 
 @Module({
   imports: [
+    ActivityModule,
+    UsageModule,
+    ApprovalModule,
     AuthModule,
     AgentAuthModule,
     UserModule,

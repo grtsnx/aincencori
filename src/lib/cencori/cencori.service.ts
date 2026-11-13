@@ -26,6 +26,7 @@ import type {
   WebSearchRequest,
   WebSearchResponse,
 } from 'cencori/web';
+import { meteredFetch, type ModelUsage } from '@/middleware';
 
 /** DI token for the underlying Cencori SDK client (`null` when unconfigured). */
 export const CENCORI_CLIENT = Symbol('CENCORI_CLIENT');
@@ -34,6 +35,13 @@ export const CENCORI_CLIENT = Symbol('CENCORI_CLIENT');
 export const CENCORI_API_KEY = Symbol('CENCORI_API_KEY');
 
 /** Typed result of `aiGenerateObject` (the SDK does not export this type). */
+// Gets the usage of every AI run made for a user (see modules/usage).
+export type UsageRecorder = (
+  userId: string,
+  metadata: Record<string, string> | undefined,
+  usage: ModelUsage,
+) => void;
+
 export type GenerateObjectResponse<T> = Omit<
   Awaited<ReturnType<Cencori['ai']['generateObject']>>,
   'object'
@@ -1587,15 +1595,41 @@ export class CencoriService {
     return this.apiKey;
   }
 
+  // Set by the usage module: told what each user's AI runs used.
+  private recordUsage?: UsageRecorder;
+
+  useUsageRecorder(recorder: UsageRecorder): void {
+    this.recordUsage = recorder;
+  }
+
+  // Run options that count what the run uses for this user.
+  private metered<
+    T extends { metadata?: Record<string, string>; fetch?: typeof fetch },
+  >(options: T, userId: string | undefined): T {
+    const record = this.recordUsage;
+    if (!record || !userId) return options;
+    return {
+      ...options,
+      fetch: meteredFetch(
+        (usage) => record(userId, options.metadata, usage),
+        options.fetch,
+      ),
+    };
+  }
+
   /** `createAgentChatHandler` with our API key: a web Request in, a stream out. */
   agentChatHandler<Ctx>(
     agent: Agent<Ctx, unknown>,
     options: AgentChatHandlerOptions<Ctx> = {},
   ): (request: Request) => Promise<Response> {
-    return createAgentChatHandler(agent, {
-      ...options,
-      apiKey: this.agentApiKey,
-    });
+    const apiKey = this.agentApiKey;
+    return async (request) => {
+      const userId = await options.user?.(request);
+      return createAgentChatHandler(agent, {
+        ...this.metered(options, userId),
+        apiKey,
+      })(request);
+    };
   }
 
   /** Runs an agent to the end (no stream), for background work like routines. */
@@ -1605,7 +1639,7 @@ export class CencoriService {
     options: Omit<RunOptions<Ctx>, 'stream' | 'apiKey'> = {},
   ): Promise<RunResult<unknown>> {
     return run(agent, input, {
-      ...options,
+      ...this.metered(options, options.user),
       stream: false,
       apiKey: this.agentApiKey,
     });
@@ -1618,7 +1652,7 @@ export class CencoriService {
     options: Omit<RunOptions<Ctx>, 'stream' | 'apiKey'> = {},
   ): StreamedRunResult<unknown> {
     return run(agent, input, {
-      ...options,
+      ...this.metered(options, options.user),
       stream: true,
       apiKey: this.agentApiKey,
     });

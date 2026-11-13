@@ -29,3 +29,6 @@ export const runPlanJob = 'plan-run';
 
 // Safety review of a bot shared on the marketplace.
 export const reviewListingJob = 'listing-review';
+
+// Removes activity log entries older than activityRetentionDays, daily.
+export const purgeActivityJob = 'activity-purge';

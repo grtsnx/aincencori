@@ -20,6 +20,10 @@ const platformStatements = {
   chat: ['read', 'reply'],
   // Approve or reject bots shared on the marketplace.
   marketplace: ['review'],
+  // See what users spend on AI, and change their plan.
+  usage: ['read', 'update'],
+  // Read the activity log of every account.
+  activity: ['read'],
 } as const;
 
 // Everything a role (built-in or custom) can be given.
@@ -43,6 +47,8 @@ export const organizationRoles = {
     staff: ['invite', 'list', 'update'],
     chat: ['read', 'reply'],
     marketplace: ['review'],
+    usage: ['read', 'update'],
+    activity: ['read'],
   }),
   member: organizationAc.newRole({
     ...orgMemberAc.statements,

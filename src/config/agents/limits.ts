@@ -83,3 +83,9 @@ export const listingCategories = [
   'fun',
   'other',
 ] as const;
+
+// How long the activity log is kept, in days.
+export const activityRetentionDays = 365;
+
+// How long a step waits in the approvals inbox before it is dropped, in days.
+export const pendingApprovalDays = 14;

@@ -153,6 +153,7 @@ const environmentSchema = z
     OBSERVE_APP_KEY: z.string().trim().optional(),
     OBSERVE_APP_SECRET: z.string().trim().optional(),
     OBSERVE_SERVICE_ID: z.string().trim().optional(),
+    ALERT_WEBHOOK_URL: optionalString().pipe(z.url().optional()),
     SWAGGER_ENABLED: booleanValue('SWAGGER_ENABLED').optional(),
     DATABASE_URL: optionalString().pipe(
       z
@@ -338,6 +339,7 @@ export interface Environment {
   OBSERVE_APP_KEY?: string;
   OBSERVE_APP_SECRET?: string;
   OBSERVE_SERVICE_ID?: string;
+  ALERT_WEBHOOK_URL?: string;
   SWAGGER_ENABLED: boolean;
   DATABASE_URL?: string;
   DIRECT_DATABASE_URL?: string;

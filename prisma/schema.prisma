@@ -441,7 +441,7 @@ model EmailOutbox {
 // One chat with an agent. The id is Cencori's session id; we keep who owns it
 // so people can only continue their own chats.
 model ChatSession {
-  id        String   @id
+  id        String        @id
   userId    String
   title     String
   // Set when a routine started this chat (one chat per run).
@@ -450,8 +450,8 @@ model ChatSession {
   botId     String?
   // The group of bots this chat is with, if any.
   groupId   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
   messages  ChatMessage[]
 
   @@index([userId, updatedAt])
@@ -542,29 +542,29 @@ model AgentWorkspace {
 
 // A bot a user made: a name and instructions. Integrations are optional.
 model Bot {
-  id             String           @id
-  userId         String
-  name           String
+  id                String           @id
+  userId            String
+  name              String
   // One line on what it is for. The default assistant reads it to decide
   // when to hand a chat to this bot.
-  description    String?
-  instructions   String
-  enabled        Boolean          @default(true)
+  description       String?
+  instructions      String
+  enabled           Boolean          @default(true)
   // Set once the bot uses a Cencori app connection (Gmail, Slack...).
-  cencoriAgentId String?
-  installationId String?
+  cencoriAgentId    String?
+  installationId    String?
   // The connections that installation was made with, to spot changes.
   linkedConnections String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  integrations   BotIntegration[]
-  memories       BotMemory[]
-  skills         BotSkill[]
-  routines       Routine[]
-  groups         GroupMember[]
-  documents      BotDocument[]
-  plans          Plan[]
-  listing        Listing?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  integrations      BotIntegration[]
+  memories          BotMemory[]
+  skills            BotSkill[]
+  routines          Routine[]
+  groups            GroupMember[]
+  documents         BotDocument[]
+  plans             Plan[]
+  listing           Listing?
 
   @@index([userId, createdAt])
   @@map("bot")
@@ -614,17 +614,17 @@ model BotMemory {
 // A playbook a bot can run: steps for one kind of job. The bot sees the name
 // and description, and reads the full steps when it uses the skill.
 model BotSkill {
-  id           String   @id
-  botId        String
-  bot          Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  name         String
-  description  String
-  instructions String
+  id             String   @id
+  botId          String
+  bot            Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  name           String
+  description    String
+  instructions   String
   // The copy at Cencori (safety scan and version history), when synced.
   cencoriSkillId String?
-  version      Int      @default(1)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@unique([botId, name])
   @@index([botId, createdAt])
@@ -890,4 +890,98 @@ model ApprovalRequest {
   @@index([userId])
   @@index([status])
   @@map("approvalRequest")
+}
+
+// What a user's AI work used, one row per day and kind of work. Filled in
+// from what Cencori reports after every model call.
+model UsageDay {
+  userId       String
+  day          DateTime @db.Date
+  // "chat", "routine", "plan", "group", "voice" or "review".
+  kind         String
+  // Model calls (one answer can take several).
+  calls        Int      @default(0)
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costUsd      Float    @default(0)
+
+  @@id([userId, day, kind])
+  @@index([day])
+  @@map("usageDay")
+}
+
+// A user's plan, which sets their monthly AI allowance. No row: free.
+model BillingPlan {
+  userId          String   @id
+  // "free", "pro" or "business" (see config/billing/plans.ts).
+  plan            String   @default("free")
+  // Set by staff to give one user a different allowance (USD a month).
+  monthlyLimitUsd Float?
+  updatedAt       DateTime @updatedAt
+
+  @@map("billingPlan")
+}
+
+// The user's standing answer for a risky tool, so they are not asked every
+// time. The most specific rule wins: this chat, then this bot, then everywhere.
+model ToolRule {
+  id        String    @id
+  userId    String
+  // The tool's name, like "create_routine" or an app tool's name.
+  tool      String
+  // Only in this bot's chats. Empty: everywhere.
+  botId     String?
+  // Only in this chat. Empty: every chat.
+  chatId    String?
+  // "allow", "ask" or "deny".
+  decision  String
+  // Empty: until the user removes it.
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, tool])
+  @@map("toolRule")
+}
+
+// A step waiting for the user's OK: the approvals inbox. Made when a chat,
+// routine or plan stops at a risky tool; gone once the user decides.
+model PendingApproval {
+  id        String   @id
+  userId    String
+  chatId    String
+  botId     String?
+  // "chat", "routine" or "plan".
+  source    String
+  // [{ callId, toolName, arguments, agentName }]
+  items     Json
+  // The signed paused run, sent back with the decisions to carry on.
+  state     String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([chatId])
+  @@map("pendingApproval")
+}
+
+// What happened in an account: sign-ins, changes, tools the AI ran, and
+// staff actions. Users see their own; staff see all.
+model ActivityLog {
+  id        String   @id
+  // Whose account it is about. Empty: platform-wide.
+  userId    String?
+  // Who did it: the user, an AI agent ("agent:<name>") or staff.
+  actor     String
+  // Like "bot.created", "tool.ran" or "approval.allowed".
+  action    String
+  // What it was done to, like a bot id or tool name.
+  target    String?
+  // A short plain note.
+  detail    String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@map("activityLog")
 }
