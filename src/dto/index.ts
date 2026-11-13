@@ -1,7 +1,16 @@
 // Every DTO, grouped by feature folder.
 export {
   AdminUserDto,
+  CreateRoleDto,
+  InviteStaffDto,
   ListUsersQueryDto,
+  PermissionCatalogDto,
+  RoleDto,
+  StaffInvitationDto,
+  StaffMemberDto,
+  StaffUserDto,
+  UpdateRoleDto,
+  UpdateStaffRoleDto,
   UserListDto,
 } from './admin/admin.dto.js';
 export {

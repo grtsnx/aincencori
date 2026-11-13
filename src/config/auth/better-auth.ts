@@ -1,3 +1,4 @@
+import { agentAuth } from '@better-auth/agent-auth';
 import { passkey } from '@better-auth/passkey';
 import { cimd } from '@better-auth/cimd';
 import { fetchClientMetadataResource } from '@better-auth/cimd/node';
@@ -16,6 +17,8 @@ import {
   testUtils,
   twoFactor,
 } from 'better-auth/plugins';
+import { organizationAc, organizationRoles } from './access.js';
+import { agentCapabilities, executeAgentCapability } from './agent.js';
 
 // Better Auth serves every auth route under this path.
 export const authBasePath = '/api/auth';
@@ -47,6 +50,11 @@ export interface AuthSettings {
   // Adds Better Auth's test helpers. Never true in production.
   testing: boolean;
   sendEmail: AuthMailer;
+  // Argon2id, from lib/hash. Used for every password Better Auth stores.
+  passwordHasher: {
+    hash(value: string): Promise<string>;
+    verify(hashed: string, value: string): Promise<boolean>;
+  };
 }
 
 // Every option except the database. Used by the running app
@@ -72,8 +80,16 @@ export function createAuthOptions(settings: AuthSettings) {
     trustedOrigins: settings.trustedOrigins,
     telemetry: { enabled: false },
 
-    // Sign-in is email OTP, Google or passkey. No passwords.
-    emailAndPassword: { enabled: false },
+    // Sign-in is email OTP, Google or passkey. No password sign-in. Any password
+    // Better Auth still stores (for example set by an admin) is hashed with Argon2id.
+    emailAndPassword: {
+      enabled: false,
+      password: {
+        hash: (password: string) => settings.passwordHasher.hash(password),
+        verify: ({ hash, password }: { hash: string; password: string }) =>
+          settings.passwordHasher.verify(hash, password),
+      },
+    },
     socialProviders: settings.google
       ? { google: { ...settings.google, prompt: 'select_account' as const } }
       : {},
@@ -113,6 +129,9 @@ export function createAuthOptions(settings: AuthSettings) {
 
     plugins: [
       emailOTP({
+        // Codes are stored hashed. Better Auth compares them by exact match, so
+        // a salted hash like Argon2 cannot be used here.
+        storeOTP: 'hashed',
         otpLength: 6,
         expiresIn: 300,
         allowedAttempts: 3,
@@ -142,6 +161,8 @@ export function createAuthOptions(settings: AuthSettings) {
         issuer: settings.appName,
         // Users sign in without passwords, so 2FA cannot ask for one.
         allowPasswordless: true,
+        // Backup codes must be read back, so they are encrypted (not hashed).
+        backupCodeOptions: { storeBackupCodes: 'encrypted' },
         otpOptions: {
           async sendOTP({ user, otp }) {
             send('two-factor', user.email, {
@@ -155,6 +176,10 @@ export function createAuthOptions(settings: AuthSettings) {
       }),
       admin(),
       organization({
+        ac: organizationAc,
+        roles: organizationRoles,
+        // Organizations (and the Staff organization) create their own roles.
+        dynamicAccessControl: { enabled: true },
         teams: { enabled: true },
         async sendInvitationEmail(data) {
           send('invitation', data.email, {
@@ -177,6 +202,17 @@ export function createAuthOptions(settings: AuthSettings) {
         resource: settings.mcpResource,
       }),
       cimd({ fetchClientMetadataResource, metadataProfile: 'mcp-2026-07-28' }),
+      // AI agents act for a user who approves each capability first.
+      agentAuth({
+        providerName: settings.appName,
+        providerDescription: `${settings.appName} API for AI agents`,
+        modes: ['delegated'],
+        deviceAuthorizationPage: `${settings.appURL}/device/capabilities`,
+        trustProxy: settings.trustedProxies.length > 0,
+        capabilities: agentCapabilities,
+        onExecute: ({ capability, agentSession }) =>
+          executeAgentCapability(capability, agentSession),
+      }),
       ...(settings.recaptchaSecretKey
         ? [
             captcha({
