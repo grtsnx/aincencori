@@ -44,6 +44,11 @@ model User {
   oauthaccesstokens  OauthAccessToken[]
   oauthconsents      OauthConsent[]
 
+  agenthosts            AgentHost[]
+  agents                Agent[]
+  agentcapabilitygrants AgentCapabilityGrant[]
+  approvalrequests      ApprovalRequest[]
+
   @@unique([email])
   @@map("user")
 }
@@ -424,4 +429,111 @@ model OrganizationRole {
   @@index([organizationId])
   @@index([role])
   @@map("organizationRole")
+}
+
+model AgentHost {
+  id                       String            @id
+  name                     String?
+  userId                   String?
+  user                     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultCapabilities      String?
+  publicKey                String?
+  kid                      String?
+  jwksUrl                  String?
+  enrollmentTokenHash      String?
+  enrollmentTokenExpiresAt DateTime?
+  status                   String            @default("active")
+  activatedAt              DateTime?
+  expiresAt                DateTime?
+  lastUsedAt               DateTime?
+  createdAt                DateTime
+  updatedAt                DateTime
+  agents                   Agent[]
+  approvalrequests         ApprovalRequest[]
+
+  @@index([userId])
+  @@index([kid])
+  @@index([enrollmentTokenHash])
+  @@index([status])
+  @@map("agentHost")
+}
+
+model Agent {
+  id                    String                 @id
+  name                  String
+  userId                String?
+  user                  User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hostId                String
+  agenthost             AgentHost              @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  status                String                 @default("active")
+  mode                  String                 @default("delegated")
+  publicKey             String
+  kid                   String?
+  jwksUrl               String?
+  lastUsedAt            DateTime?
+  activatedAt           DateTime?
+  expiresAt             DateTime?
+  metadata              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+  agentcapabilitygrants AgentCapabilityGrant[]
+  approvalrequests      ApprovalRequest[]
+
+  @@index([userId])
+  @@index([hostId])
+  @@index([status])
+  @@index([kid])
+  @@map("agent")
+}
+
+model AgentCapabilityGrant {
+  id          String    @id
+  agentId     String
+  agent       Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  capability  String
+  deniedBy    String?
+  user        User?     @relation(fields: [deniedBy], references: [id], onDelete: Cascade) @relation(fields: [grantedBy], references: [id], onDelete: Cascade)
+  grantedBy   String?
+  expiresAt   DateTime?
+  createdAt   DateTime
+  updatedAt   DateTime
+  status      String    @default("active")
+  reason      String?
+  constraints String?
+
+  @@index([agentId])
+  @@index([capability])
+  @@index([grantedBy])
+  @@index([status])
+  @@map("agentCapabilityGrant")
+}
+
+model ApprovalRequest {
+  id                         String     @id
+  method                     String
+  agentId                    String?
+  agent                      Agent?     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  hostId                     String?
+  agenthost                  AgentHost? @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  userId                     String?
+  user                       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  capabilities               String?
+  status                     String     @default("pending")
+  userCodeHash               String?
+  loginHint                  String?
+  bindingMessage             String?
+  clientNotificationToken    String?
+  clientNotificationEndpoint String?
+  deliveryMode               String?
+  interval                   Int
+  lastPolledAt               DateTime?
+  expiresAt                  DateTime
+  createdAt                  DateTime
+  updatedAt                  DateTime
+
+  @@index([agentId])
+  @@index([hostId])
+  @@index([userId])
+  @@index([status])
+  @@map("approvalRequest")
 }

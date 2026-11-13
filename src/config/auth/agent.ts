@@ -1,4 +1,9 @@
-import type { AgentSession, Capability } from '@better-auth/agent-auth';
+import {
+  agentAuth,
+  type AgentSession,
+  type Capability,
+} from '@better-auth/agent-auth';
+import type { BetterAuthPlugin } from 'better-auth';
 import { APIError } from 'better-auth/api';
 
 // What AI agents may do for a user, once that user approves. Read-only for now:
@@ -36,4 +41,26 @@ export function executeAgentCapability(
         message: `Unknown capability: ${capability}`,
       });
   }
+}
+
+interface AgentAuthSettings {
+  appName: string;
+  appURL: string;
+  trustProxy: boolean;
+}
+
+// The Agent Auth plugin: AI agents act for a user who approves each capability
+// first. Typed as a plain plugin because its own types cannot be re-exported;
+// its routes still work, and verifyAgentRequest() stays fully typed.
+export function agentAuthPlugin(settings: AgentAuthSettings): BetterAuthPlugin {
+  return agentAuth({
+    providerName: settings.appName,
+    providerDescription: `${settings.appName} API for AI agents`,
+    modes: ['delegated'],
+    deviceAuthorizationPage: `${settings.appURL}/device/capabilities`,
+    trustProxy: settings.trustProxy,
+    capabilities: agentCapabilities,
+    onExecute: ({ capability, agentSession }) =>
+      executeAgentCapability(capability, agentSession),
+  }) as BetterAuthPlugin;
 }

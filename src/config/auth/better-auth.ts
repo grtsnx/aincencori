@@ -1,4 +1,3 @@
-import { agentAuth } from '@better-auth/agent-auth';
 import { passkey } from '@better-auth/passkey';
 import { cimd } from '@better-auth/cimd';
 import { fetchClientMetadataResource } from '@better-auth/cimd/node';
@@ -18,7 +17,7 @@ import {
   twoFactor,
 } from 'better-auth/plugins';
 import { organizationAc, organizationRoles } from './access.js';
-import { agentCapabilities, executeAgentCapability } from './agent.js';
+import { agentAuthPlugin } from './agent.js';
 
 // Better Auth serves every auth route under this path.
 export const authBasePath = '/api/auth';
@@ -202,16 +201,10 @@ export function createAuthOptions(settings: AuthSettings) {
         resource: settings.mcpResource,
       }),
       cimd({ fetchClientMetadataResource, metadataProfile: 'mcp-2026-07-28' }),
-      // AI agents act for a user who approves each capability first.
-      agentAuth({
-        providerName: settings.appName,
-        providerDescription: `${settings.appName} API for AI agents`,
-        modes: ['delegated'],
-        deviceAuthorizationPage: `${settings.appURL}/device/capabilities`,
+      agentAuthPlugin({
+        appName: settings.appName,
+        appURL: settings.appURL,
         trustProxy: settings.trustedProxies.length > 0,
-        capabilities: agentCapabilities,
-        onExecute: ({ capability, agentSession }) =>
-          executeAgentCapability(capability, agentSession),
       }),
       ...(settings.recaptchaSecretKey
         ? [
