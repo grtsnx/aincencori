@@ -16,6 +16,8 @@ import {
   DEFAULT_DICEBEAR_STYLE,
   GravatarService,
 } from '@/lib/gravatar/gravatar.service.js';
+import { deleteBotAgentJob, deleteWorkspaceJob } from '@/config/agents/jobs.js';
+import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { RedisService } from '@/lib/redis/redis.service.js';
 import { hashValue, verifyHash } from '@/middleware/commons/hash.js';
@@ -57,6 +59,7 @@ export class BetterAuthService implements OnModuleInit {
     email: EmailService,
     gravatar: GravatarService,
     redis: RedisService,
+    bullmq: BullmqService,
   ) {
     const nodeEnv = config.getOrThrow<string>('NODE_ENV');
     // A provider is on when both its ID and secret are set.
@@ -102,12 +105,32 @@ export class BetterAuthService implements OnModuleInit {
         getAndDelete: (key) => redis.getAndDelete(key),
         increment: (key, ttl) => redis.count(key, ttl),
       },
-      // A deleted user's chats and routines go too (messages follow their
-      // chat; a routine's timetable stops itself on its next run).
+      // A deleted user's chats, routines, bots and integrations go too
+      // (messages follow their chat; a routine's timetable stops itself on
+      // its next run). Their space and bots at Cencori are removed in the
+      // background, which also signs their apps out.
       onUserDeleted: async (userId) => {
-        await prisma.db.chatSession.deleteMany({ where: { userId } });
-        await prisma.db.routine.deleteMany({ where: { userId } });
-        await prisma.db.integration.deleteMany({ where: { userId } });
+        const db = prisma.db;
+        const [workspace, bots] = await Promise.all([
+          db.agentWorkspace.findUnique({ where: { userId } }),
+          db.bot.findMany({
+            where: { userId, cencoriAgentId: { not: null } },
+            select: { cencoriAgentId: true },
+          }),
+        ]);
+        await db.chatSession.deleteMany({ where: { userId } });
+        await db.routine.deleteMany({ where: { userId } });
+        await db.bot.deleteMany({ where: { userId } });
+        await db.integration.deleteMany({ where: { userId } });
+        await db.agentWorkspace.deleteMany({ where: { userId } });
+        if (workspace) {
+          await bullmq.add(deleteWorkspaceJob, {
+            tenantId: workspace.tenantId,
+          });
+        }
+        for (const bot of bots) {
+          await bullmq.add(deleteBotAgentJob, { agentId: bot.cencoriAgentId });
+        }
       },
       profileImage: (address) =>
         nodeEnv === 'test'

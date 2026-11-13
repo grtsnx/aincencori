@@ -482,6 +482,9 @@ model ChatMessage {
 model Routine {
   id         String    @id
   userId     String
+  // The bot that runs it. Empty: the default assistant.
+  botId      String?
+  bot        Bot?      @relation(fields: [botId], references: [id], onDelete: Cascade)
   name       String
   // What the agent is asked each time.
   prompt     String
@@ -495,6 +498,7 @@ model Routine {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
+  @@index([botId, createdAt])
   @@index([userId, createdAt])
   @@map("routine")
 }
@@ -537,6 +541,9 @@ model Bot {
   id             String           @id
   userId         String
   name           String
+  // One line on what it is for. The default assistant reads it to decide
+  // when to hand a chat to this bot.
+  description    String?
   instructions   String
   enabled        Boolean          @default(true)
   // Set once the bot uses a Cencori app connection (Gmail, Slack...).
@@ -547,9 +554,42 @@ model Bot {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   integrations   BotIntegration[]
+  memories       BotMemory[]
+  skills         BotSkill[]
+  routines       Routine[]
 
   @@index([userId, createdAt])
   @@map("bot")
+}
+
+// A fact a bot knows ("The user's company is Acme"). Added by the user or
+// saved by the bot itself during a chat.
+model BotMemory {
+  id        String   @id
+  botId     String
+  bot       Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([botId, createdAt])
+  @@map("botMemory")
+}
+
+// A playbook a bot can run: steps for one kind of job. The bot sees the name
+// and description, and reads the full steps when it uses the skill.
+model BotSkill {
+  id           String   @id
+  botId        String
+  bot          Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  name         String
+  description  String
+  instructions String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([botId, name])
+  @@index([botId, createdAt])
+  @@map("botSkill")
 }
 
 // Which integrations a bot may use.

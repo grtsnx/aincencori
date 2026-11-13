@@ -21,6 +21,13 @@ export {
   UserListDto,
 } from './admin/admin.dto.js';
 export {
+  BotDto,
+  BotIntegrationDto,
+  CreateBotDto,
+  ListBotsQueryDto,
+  UpdateBotDto,
+} from './bot/bot.dto.js';
+export {
   ChatActionDto,
   ChatApprovalDto,
   ChatAttachmentDto,

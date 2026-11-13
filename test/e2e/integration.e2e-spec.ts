@@ -120,6 +120,8 @@ describe('Integrations (e2e)', () => {
       const integration = created.body.data;
       expect(integration).toMatchObject({
         name: 'github',
+        app: 'mcp',
+        status: 'active',
         hasToken: true,
         enabled: true,
       });
@@ -179,6 +181,29 @@ describe('Integrations (e2e)', () => {
         .expect(204);
     });
 
+    it('lists the apps and refuses ones it does not know', async () => {
+      const server = app.getHttpServer();
+      // Cencori is off in tests, so only the user's own MCP server is offered.
+      const apps = await request(server)
+        .get('/v1/integrations/apps')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(apps.body.data).toEqual([
+        { slug: 'mcp', name: 'Your own MCP server', signIn: 'none' },
+      ]);
+      await request(server)
+        .post('/v1/integrations')
+        .set('Cookie', cookies)
+        .send({ name: 'mail', app: 'not-an-app' })
+        .expect(400);
+      // Your own MCP server needs an address.
+      await request(server)
+        .post('/v1/integrations')
+        .set('Cookie', cookies)
+        .send({ name: 'no-address' })
+        .expect(400);
+    });
+
     it('refuses bad names and addresses', async () => {
       const server = app.getHttpServer();
       await request(server)
@@ -197,7 +222,7 @@ describe('Integrations (e2e)', () => {
       const db = app.get(PrismaService).db;
       const id = randomUUID();
       await db.integration.create({
-        data: { id, userId: 'someone-else', name: 'theirs', url: mcpUrl },
+        data: { id, userId: 'someone-else', name: `theirs-${id}`, url: mcpUrl },
       });
       try {
         await request(app.getHttpServer())

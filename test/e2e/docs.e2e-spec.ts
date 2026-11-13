@@ -86,6 +86,12 @@ describe('API docs and versioning (e2e)', () => {
       expect(v2.some((path) => path.startsWith('/v1'))).toBe(false);
     });
 
+    it('shows the MCP address in v1', () => {
+      const mcp = (documents.v1.paths as Record<string, Schema>)['/mcp'];
+      expect((mcp.post as Operation).summary).toBe('Connect an AI app');
+      expect(Object.keys(documents.v2.paths as Schema)).not.toContain('/mcp');
+    });
+
     it('lists Better Auth routes in v1 only (they live under /v1/auth)', () => {
       expect(Object.keys(documents.v1.paths as Schema)).toContain(
         '/v1/auth/sign-in/email-otp',

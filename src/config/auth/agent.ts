@@ -47,6 +47,8 @@ interface AgentAuthSettings {
   appName: string;
   appURL: string;
   trustProxy: boolean;
+  // True when Redis is there: caches are then shared by every API server.
+  sharedCache: boolean;
 }
 
 // The Agent Auth plugin: AI agents act for a user who approves each capability
@@ -59,6 +61,10 @@ export function agentAuthPlugin(settings: AgentAuthSettings): BetterAuthPlugin {
     modes: ['delegated'],
     deviceAuthorizationPage: `${settings.appURL}/device/capabilities`,
     trustProxy: settings.trustProxy,
+    ...(settings.sharedCache && {
+      jtiCacheStorage: 'secondary-storage' as const,
+      jwksCacheStorage: 'secondary-storage' as const,
+    }),
     capabilities: agentCapabilities,
     onExecute: ({ capability, agentSession }) =>
       executeAgentCapability(capability, agentSession),

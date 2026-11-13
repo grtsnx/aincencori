@@ -284,6 +284,7 @@ export function createAuthOptions(settings: AuthSettings) {
         appName: settings.appName,
         appURL: settings.appURL,
         trustProxy: settings.trustProxy,
+        sharedCache: Boolean(settings.secondaryStorage),
       }),
       ...(settings.recaptchaSecretKey
         ? [

@@ -11,7 +11,9 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Organization', description: 'Manage organizations and teams' },
   { name: 'Chat', description: 'Talk to AI agents' },
   { name: 'Routines', description: 'Scheduled agent tasks' },
-  { name: 'Integrations', description: 'Your connected MCP servers' },
+  { name: 'Bots', description: 'Your own AI bots' },
+  { name: 'Integrations', description: 'Apps your bots use' },
+  { name: 'MCP', description: 'For outside AI apps' },
   { name: 'Admin', description: 'Manage all users' },
 ];
 
@@ -669,5 +671,67 @@ export const authRouteDocs: Record<
   '/organization/get-role': {
     title: 'Get a role',
     description: "Returns one custom role's permissions.",
+  },
+};
+
+// The one MCP address, shown in the docs so people know it exists. AI apps
+// (Claude, Cursor...) are given this address and find the tools themselves.
+export const mcpRouteDoc = {
+  tags: ['MCP'],
+  operationId: 'mcp',
+  summary: 'Connect an AI app',
+  description: 'Add this address in any MCP app; it signs you in.',
+  security: [{ bearer: [] }],
+  requestBody: {
+    required: true,
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          properties: {
+            jsonrpc: { type: 'string', example: '2.0' },
+            id: { type: 'integer', example: 1 },
+            method: { type: 'string', example: 'tools/list' },
+          },
+        },
+      },
+    },
+  },
+  responses: {
+    '200': {
+      description:
+        'Tools: get_profile, list_organizations, list_routines, ' +
+        'create_routine, update_routine, delete_routine, run_routine, ' +
+        'list_routine_runs, list_chats, get_chat_messages. No admin tools.',
+      content: {
+        'application/json': {
+          example: {
+            jsonrpc: '2.0',
+            id: 1,
+            result: {
+              tools: [
+                {
+                  name: 'list_routines',
+                  description:
+                    "The user's routines (scheduled agent tasks), newest first.",
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+    '401': {
+      description: 'Not signed in: the app is told where to sign in',
+      content: {
+        'application/json': {
+          example: {
+            jsonrpc: '2.0',
+            error: { code: -32000, message: 'missing authorization header' },
+            id: null,
+          },
+        },
+      },
+    },
   },
 };

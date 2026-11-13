@@ -15,3 +15,11 @@ export const maxIntegrationsPerUser = 10;
 
 // Bots each user may create.
 export const maxBotsPerUser = 50;
+
+// Per bot: facts it may keep (the newest ones go into each chat), and skills.
+export const maxMemoriesPerBot = 200;
+export const memoriesInPrompt = 50;
+export const maxSkillsPerBot = 20;
+
+// Bots the default assistant may hand a chat to.
+export const maxBotsForAssistant = 10;

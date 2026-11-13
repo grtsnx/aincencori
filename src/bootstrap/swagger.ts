@@ -8,6 +8,7 @@ import { apiReference } from '@scalar/nestjs-api-reference';
 import {
   authRouteDocs,
   docSections,
+  mcpRouteDoc,
   hiddenPaths,
   userPaths,
 } from '@/config/docs/routes.js';
@@ -409,6 +410,10 @@ export function configureSwagger(
     sampleNestResponses(document);
     // Better Auth lives under /v1/auth, so only v1 lists its routes.
     if (version === '1') withAuthRoutes(document, betterAuth.openApiDocument());
+    // The MCP address has no version; it is listed with v1.
+    if (version === '1') {
+      document.paths['/mcp'] = { post: structuredClone(mcpRouteDoc) } as never;
+    }
     const schemas = (document.components?.schemas ?? {}) as Record<
       string,
       Schema

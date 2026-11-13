@@ -154,7 +154,9 @@ describe('Better Auth (e2e)', () => {
       'Organization',
       'Chat',
       'Routines',
+      'Bots',
       'Integrations',
+      'MCP',
       'Admin',
     ]);
     expect(

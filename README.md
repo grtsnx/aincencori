@@ -67,7 +67,10 @@ Then open the API docs:
 
 - `/mcp` lets any MCP app (Claude, Cursor, other agents) use a user's own services: profile, organizations, routines and chats. Admin and staff features are never offered.
 - The user signs the app in through Better Auth (OAuth). Every call runs as that user.
-- Integrations (`/v1/integrations`): each user connects their own MCP servers (GitHub, Notion, their own...), as many as 10. The chat agent then uses that user's tools, asking before every call. Tokens are stored encrypted and never shown again. Addresses must be https and on the public internet (local development also allows localhost).
+- Bots (`/v1/bots`): a user gives a bot a name and instructions, then chats with it (`POST /v1/chat` with `botId`). Integrations are optional.
+- Integrations (`/v1/integrations`): what a user connects for their bots. Apps like Gmail, Slack and Notion sign in through Cencori ("Connect"); a user can connect the same app several times (two Gmail accounts) and give each to a different bot. They can also add their own MCP server (https, public internet; token stored encrypted). Up to 10 per user.
+- A bot only uses the integrations its owner picked. The default assistant uses none. Every tool call on a user's own MCP server asks first.
+- The `/mcp` address is listed in the docs under "MCP".
 - Our own chat agent can manage routines too ("remind me every morning at 8"). Creating, pausing or deleting one asks the user to approve first.
 
 **Built for heavy traffic**
@@ -91,7 +94,7 @@ Then open the API docs:
 
 ## API docs
 
-The docs are grouped into Auth, Agent Auth, User, Organization, Chat, Routines, Integrations and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
+The docs are grouped into Auth, Agent Auth, User, Organization, Chat, Routines, Bots, Integrations, MCP and Admin. Every route has a short title, a one-line description and sample data. A test fails if a title goes over 4 words or a field has no sample.
 
 There are two API versions, `/v1` and `/v2`. Better Auth's own routes live under `/v1/auth` (v2 gets its own when we start v2).
 
@@ -153,6 +156,10 @@ bun run build
 CI runs all of these on every push, then builds and scans the Docker image. Tagging a version (`git tag v1.0.0 && git push origin v1.0.0`) publishes the image.
 
 ## Known issues
+
+- **App sign-ins (Gmail, Slack...) need setup in Cencori first.** Until each app's sign-in is configured in the Cencori dashboard, "Connect" answers that the app is not ready.
+- **Bots using app connections are untested end to end.** Linking a signed-in connection to a bot follows Cencori's API as tested with stand-in data; a real Gmail tool call in a chat has not been run yet.
+- **Cencori cannot change a bot's connection list in place** (their API errors), so we remove and re-create the link when it changes.
 
 - **Better Auth's schema generator writes one table wrong** (Agent Auth grants). `scripts/fix-auth-schema.mjs` repairs it automatically after `auth:generate`.
 - **`better-call` is pinned to 1.4.5** in `package.json` so all Better Auth packages share one copy. Remove the pin once Agent Auth updates.

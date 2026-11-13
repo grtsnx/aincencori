@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AdminModule } from './admin/admin.module.js';
 import { AgentAuthModule } from './agent-auth/agent-auth.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { BotModule } from './bot/bot.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { IntegrationModule } from './integration/integration.module.js';
 import { McpModule } from './mcp/mcp.module.js';
@@ -19,6 +20,7 @@ import { UserModule } from './user/user.module.js';
     ChatModule,
     RoutineModule,
     IntegrationModule,
+    BotModule,
     McpModule,
   ],
   exports: [],
