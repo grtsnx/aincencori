@@ -443,11 +443,14 @@ model ChatSession {
   id        String   @id
   userId    String
   title     String
+  // Set when a routine started this chat (one chat per run).
+  routineId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   messages  ChatMessage[]
 
   @@index([userId, updatedAt])
+  @@index([routineId, createdAt])
   @@map("chatSession")
 }
 
@@ -470,6 +473,28 @@ model ChatMessage {
 
   @@index([sessionId, createdAt])
   @@map("chatMessage")
+}
+
+// A task the agent runs on a schedule for a user, like "every morning at 8,
+// summarize the news". Each run is saved as a chat.
+model Routine {
+  id         String    @id
+  userId     String
+  name       String
+  // What the agent is asked each time.
+  prompt     String
+  // When it runs: a cron pattern ("0 8 * * *") in the user's time zone.
+  cron       String
+  timezone   String
+  enabled    Boolean   @default(true)
+  lastRunAt  DateTime?
+  // "ok", "failed" or "needs-approval".
+  lastStatus String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+  @@map("routine")
 }
 
 model OrganizationRole {

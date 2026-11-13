@@ -1,4 +1,4 @@
-# Local Postgres and Mailpit for this project. Start them with `docker compose up -d --wait`.
+# Local Postgres, Valkey and Mailpit for this project. Start them with `docker compose up -d --wait`.
 # It listens on 5433 so it can run beside other projects that use 5432.
 # The address matches DATABASE_URL in .env.example.
 name: aincencori
@@ -22,6 +22,22 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Valkey (open-source Redis) for background jobs and routines. Port 6380.
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    container_name: aincencori-valkey
+    command: ['valkey-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    ports:
+      - '127.0.0.1:6380:6379'
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   # Catches every email locally. Inbox: http://localhost:8025 (SMTP on 1025).
   mailpit:
     image: axllent/mailpit:v1.33.1
@@ -33,3 +49,4 @@ services:
 
 volumes:
   postgres-data:
+  valkey-data:

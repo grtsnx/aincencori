@@ -162,6 +162,14 @@ const environmentSchema = z
         })
         .optional(),
     ),
+    REDIS_URL: optionalString().pipe(
+      z
+        .string()
+        .regex(/^rediss?:\/\//, {
+          error: 'REDIS_URL must be a redis:// or rediss:// URL',
+        })
+        .optional(),
+    ),
     BETTER_AUTH_SECRET: optionalString().pipe(
       z
         .string()
@@ -204,6 +212,8 @@ const environmentSchema = z
     if (environment.NODE_ENV === 'production') {
       for (const key of [
         'DATABASE_URL',
+        // Background jobs and routines.
+        'REDIS_URL',
         'BETTER_AUTH_SECRET',
         'BETTER_AUTH_URL',
         'APP_URL',
@@ -299,6 +309,7 @@ export interface Environment {
   OBSERVE_SERVICE_ID?: string;
   SWAGGER_ENABLED: boolean;
   DATABASE_URL?: string;
+  REDIS_URL: string;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
   AUTH_COOKIE_DOMAIN?: string;
@@ -397,6 +408,8 @@ export function validateEnvironment(
     // Passkeys belong to the shared parent domain when there is one.
     PASSKEY_RP_ID: cookieDomain ?? new URL(appUrl).hostname,
     MCP_RESOURCE_URL: `${betterAuthUrl}/mcp`,
+    // Locally: the Valkey container from compose.yaml.
+    REDIS_URL: parsed.REDIS_URL ?? 'redis://localhost:6380',
     // Locally: the Mailpit container from compose.yaml (inbox at :8025).
     SMTP_HOST: parsed.SMTP_HOST ?? 'localhost',
     SMTP_PORT: smtpPort,
