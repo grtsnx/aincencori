@@ -1,7 +1,11 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cencori } from 'cencori';
-import { CENCORI_CLIENT, CencoriService } from './cencori.service.js';
+import {
+  CENCORI_API_KEY,
+  CENCORI_CLIENT,
+  CencoriService,
+} from './cencori.service.js';
 
 // Cencori (AI models, agents, memory). Global: CencoriService can be injected
 // anywhere without importing this module.
@@ -19,6 +23,12 @@ import { CENCORI_CLIENT, CencoriService } from './cencori.service.js';
         if (!apiKey || config.get<string>('NODE_ENV') === 'test') return null;
         return new Cencori({ apiKey });
       },
+    },
+    {
+      provide: CENCORI_API_KEY,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService): string | null =>
+        config.get<string>('CENCORI_API_KEY') ?? null,
     },
     CencoriService,
   ],

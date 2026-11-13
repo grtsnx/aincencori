@@ -1,9 +1,20 @@
 import {
   Inject,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Cencori, RequestOptions, WebhookPayload } from 'cencori';
+import {
+  type Agent,
+  type AgentChatHandlerOptions,
+  createAgentChatHandler,
+  type HumanMessage,
+  type HumanStatus,
+  humanReply,
+  humanStatus,
+  releaseToAgent,
+} from 'cencori/agents';
 import type {
   WebExtractResult,
   WebFetchRequest,
@@ -13,6 +24,9 @@ import type {
 
 /** DI token for the underlying Cencori SDK client (`null` when unconfigured). */
 export const CENCORI_CLIENT = Symbol('CENCORI_CLIENT');
+
+/** DI token for the API key the agents SDK (`cencori/agents`) uses. */
+export const CENCORI_API_KEY = Symbol('CENCORI_API_KEY');
 
 /** Typed result of `aiGenerateObject` (the SDK does not export this type). */
 export type GenerateObjectResponse<T> = Omit<
@@ -42,6 +56,9 @@ export type GenerateObjectResponse<T> = Omit<
 export class CencoriService {
   constructor(
     @Inject(CENCORI_CLIENT) private readonly cencori: Cencori | null,
+    @Optional()
+    @Inject(CENCORI_API_KEY)
+    private readonly apiKey: string | null = null,
   ) {}
 
   /** True when CENCORI_API_KEY is configured. */
@@ -1550,5 +1567,44 @@ export class CencoriService {
     ...args: Parameters<Cencori['ratePlans']['create']>
   ): ReturnType<Cencori['ratePlans']['create']> {
     return this.client.ratePlans.create(...args);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Agents SDK (cencori/agents): chat handler and human handoff
+  // ──────────────────────────────────────────────────────────────────────
+
+  private get agentApiKey(): string {
+    if (!this.cencori || !this.apiKey) {
+      throw new ServiceUnavailableException(
+        'Cencori is not configured: set CENCORI_API_KEY',
+      );
+    }
+    return this.apiKey;
+  }
+
+  /** `createAgentChatHandler` with our API key: a web Request in, a stream out. */
+  agentChatHandler<Ctx>(
+    agent: Agent<Ctx, unknown>,
+    options: AgentChatHandlerOptions<Ctx> = {},
+  ): (request: Request) => Promise<Response> {
+    return createAgentChatHandler(agent, {
+      ...options,
+      apiKey: this.agentApiKey,
+    });
+  }
+
+  /** A person on our team answers in a chat the agent handed over. */
+  agentHumanReply(sessionId: string, text: string): Promise<HumanMessage> {
+    return humanReply(sessionId, text, { apiKey: this.agentApiKey });
+  }
+
+  /** Hands a chat back to the agent. */
+  agentReleaseToAgent(sessionId: string): Promise<void> {
+    return releaseToAgent(sessionId, { apiKey: this.agentApiKey });
+  }
+
+  /** Who handles a chat now, and what was said while a person did. */
+  agentHumanStatus(sessionId: string, after?: string): Promise<HumanStatus> {
+    return humanStatus(sessionId, { apiKey: this.agentApiKey, after });
   }
 }

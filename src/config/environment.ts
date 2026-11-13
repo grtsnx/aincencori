@@ -183,6 +183,12 @@ const environmentSchema = z
     RECAPTCHA_SECRET_KEY: optionalString(),
     RESEND_API_KEY: optionalString(),
     CENCORI_API_KEY: optionalString(),
+    CENCORI_AGENT_ID: optionalString(),
+    AGENT_MCP_URL: z.preprocess(
+      (value) =>
+        typeof value === 'string' && value.trim() === '' ? undefined : value,
+      z.url().optional(),
+    ),
     SMTP_HOST: optionalString(),
     SMTP_PORT: z.preprocess(
       (value) =>
@@ -307,6 +313,8 @@ export interface Environment {
   RECAPTCHA_SECRET_KEY?: string;
   RESEND_API_KEY?: string;
   CENCORI_API_KEY?: string;
+  CENCORI_AGENT_ID?: string;
+  AGENT_MCP_URL?: string;
   SMTP_HOST: string;
   SMTP_PORT: number;
   SMTP_SECURE: boolean;

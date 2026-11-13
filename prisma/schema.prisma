@@ -437,6 +437,19 @@ model EmailOutbox {
   @@map("emailOutbox")
 }
 
+// One chat with an agent. The id is Cencori's session id; we keep who owns it
+// so people can only continue their own chats.
+model ChatSession {
+  id        String   @id
+  userId    String
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+  @@map("chatSession")
+}
+
 model OrganizationRole {
   id             String       @id
   organizationId String

@@ -21,6 +21,18 @@ export {
   UserListDto,
 } from './admin/admin.dto.js';
 export {
+  ChatActionDto,
+  ChatApprovalDto,
+  ChatAttachmentDto,
+  ChatHandoffDto,
+  ChatMessageDto,
+  ChatPollDto,
+  ChatReplyDto,
+  ChatRequestDto,
+  ChatSessionDto,
+  ChatStatusDto,
+} from './chat/chat.dto.js';
+export {
   SessionDto,
   SessionInfoDto,
   SessionUserDto,

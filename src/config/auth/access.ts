@@ -16,6 +16,8 @@ const platformStatements = {
   user: ['list', 'get', 'update', 'ban', 'impersonate', 'delete'],
   session: ['list', 'revoke'],
   staff: ['invite', 'list', 'update', 'remove'],
+  // Read and answer chats an agent handed to a person.
+  chat: ['read', 'reply'],
 } as const;
 
 // Everything a role (built-in or custom) can be given.
@@ -37,6 +39,7 @@ export const organizationRoles = {
     user: ['list', 'get', 'update', 'ban'],
     session: ['list', 'revoke'],
     staff: ['invite', 'list', 'update'],
+    chat: ['read', 'reply'],
   }),
   member: organizationAc.newRole({
     ...orgMemberAc.statements,
