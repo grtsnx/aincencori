@@ -61,26 +61,23 @@ export class GroupService implements OnModuleInit {
     const userId = auth.user.id;
     await this.checkBots(userId, body.botIds);
     const { botIds, ...rest } = body;
-    const group = await serializableTransaction(
-      this.prisma.db,
-      async (tx) => {
-        const count = await tx.botGroup.count({ where: { userId } });
-        if (count >= maxGroupsPerUser) {
-          throw new BadRequestException(
-            `You can have up to ${maxGroupsPerUser} groups.`,
-          );
-        }
-        return tx.botGroup.create({
-          data: {
-            id: randomUUID(),
-            userId,
-            ...rest,
-            members: { create: botIds.map((botId) => ({ botId })) },
-          },
-          include: withBots,
-        });
-      },
-    );
+    const group = await serializableTransaction(this.prisma.db, async (tx) => {
+      const count = await tx.botGroup.count({ where: { userId } });
+      if (count >= maxGroupsPerUser) {
+        throw new BadRequestException(
+          `You can have up to ${maxGroupsPerUser} groups.`,
+        );
+      }
+      return tx.botGroup.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          ...rest,
+          members: { create: botIds.map((botId) => ({ botId })) },
+        },
+        include: withBots,
+      });
+    });
     return toDto(group);
   }
 

@@ -153,6 +153,7 @@ export class BotService implements OnModuleInit {
       body.documentIds ?? [],
     );
     const bot = await serializableTransaction(this.prisma.db, async (tx) => {
+      await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`bots:${userId}`}, 0))) SELECT 1 FROM lock`;
       const count = await tx.bot.count({ where: { userId } });
       if (count >= maxBotsPerUser) {
         throw new BadRequestException(
@@ -193,6 +194,7 @@ export class BotService implements OnModuleInit {
     tx?: Prisma.TransactionClient,
   ): Promise<BotDto> {
     const create = async (database: Prisma.TransactionClient) => {
+      await database.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`bots:${userId}`}, 0))) SELECT 1 FROM lock`;
       const count = await database.bot.count({ where: { userId } });
       if (count >= maxBotsPerUser) {
         throw new BadRequestException(
@@ -489,8 +491,7 @@ export class BotService implements OnModuleInit {
     const suggestion = await this.pendingSuggestion(botId, suggestionId, auth);
     const userId = auth.user.id;
     let skillData:
-      | { name: string; description: string; instructions: string }
-      | undefined;
+      { name: string; description: string; instructions: string } | undefined;
     let cencoriSkillId: string | null = null;
     if (suggestion.kind === 'skill' && suggestion.skill) {
       const skill = suggestion.skill as {
@@ -508,7 +509,9 @@ export class BotService implements OnModuleInit {
         skill.instructions.length < 1 ||
         skill.instructions.length > 20_000
       ) {
-        throw new BadRequestException('This suggestion has invalid skill data.');
+        throw new BadRequestException(
+          'This suggestion has invalid skill data.',
+        );
       }
       skillData = {
         name: skill.name,
@@ -529,67 +532,66 @@ export class BotService implements OnModuleInit {
 
     try {
       accepted = await serializableTransaction(this.prisma.db, async (tx) => {
-          const claimed = await tx.botSuggestion.updateMany({
-            where: { id: suggestionId, botId, userId, status: 'pending' },
-            data: { status: 'applying' },
-          });
-          if (claimed.count !== 1) {
-            throw new ConflictException('This suggestion was already decided.');
-          }
+        const claimed = await tx.botSuggestion.updateMany({
+          where: { id: suggestionId, botId, userId, status: 'pending' },
+          data: { status: 'applying' },
+        });
+        if (claimed.count !== 1) {
+          throw new ConflictException('This suggestion was already decided.');
+        }
 
-          if (suggestion.kind === 'instructions' && suggestion.instructions) {
-            changedBot = await tx.bot.update({
-              where: { id: botId },
-              data: { instructions: suggestion.instructions },
-              select: {
-                id: true,
-                name: true,
-                instructions: true,
-                cencoriAgentId: true,
-              },
-            });
-          } else if (suggestion.kind === 'skill' && suggestion.skill) {
-            if (!skillData) {
-              throw new BadRequestException(
-                'This suggestion has invalid skill data.',
-              );
-            }
-            if (
-              (await tx.botSkill.count({ where: { botId } })) >= maxSkillsPerBot
-            ) {
-              throw new BadRequestException(
-                `A bot can have up to ${maxSkillsPerBot} skills.`,
-              );
-            }
-            if (
-              await tx.botSkill.findFirst({
-                where: { botId, name: skillData.name },
-              })
-            ) {
-              throw new ConflictException(
-                'This bot already has a skill with this name.',
-              );
-            }
-            await tx.botSkill.create({
-              data: {
-                id: randomUUID(),
-                botId,
-                ...skillData,
-                cencoriSkillId,
-              },
-            });
-          } else {
+        if (suggestion.kind === 'instructions' && suggestion.instructions) {
+          changedBot = await tx.bot.update({
+            where: { id: botId },
+            data: { instructions: suggestion.instructions },
+            select: {
+              id: true,
+              name: true,
+              instructions: true,
+              cencoriAgentId: true,
+            },
+          });
+        } else if (suggestion.kind === 'skill' && suggestion.skill) {
+          if (!skillData) {
             throw new BadRequestException(
-              'This suggestion has nothing to apply.',
+              'This suggestion has invalid skill data.',
             );
           }
-
-          return tx.botSuggestion.update({
-            where: { id: suggestionId },
-            data: { status: 'accepted' },
+          if (
+            (await tx.botSkill.count({ where: { botId } })) >= maxSkillsPerBot
+          ) {
+            throw new BadRequestException(
+              `A bot can have up to ${maxSkillsPerBot} skills.`,
+            );
+          }
+          if (
+            await tx.botSkill.findFirst({
+              where: { botId, name: skillData.name },
+            })
+          ) {
+            throw new ConflictException(
+              'This bot already has a skill with this name.',
+            );
+          }
+          await tx.botSkill.create({
+            data: {
+              id: randomUUID(),
+              botId,
+              ...skillData,
+              cencoriSkillId,
+            },
           });
-        },
-      );
+        } else {
+          throw new BadRequestException(
+            'This suggestion has nothing to apply.',
+          );
+        }
+
+        return tx.botSuggestion.update({
+          where: { id: suggestionId },
+          data: { status: 'accepted' },
+        });
+      });
     } catch (error) {
       if (cencoriSkillId) {
         await this.cencori

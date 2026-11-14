@@ -16,7 +16,8 @@ export async function serializableTransaction<T>(
         timeout: 30_000,
       });
     } catch (error) {
-      if (!isSerializationConflict(error) || attempt >= maxAttempts) throw error;
+      if (!isSerializationConflict(error) || attempt >= maxAttempts)
+        throw error;
     }
   }
 }

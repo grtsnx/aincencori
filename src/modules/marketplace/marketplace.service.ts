@@ -196,7 +196,13 @@ export class MarketplaceService implements OnModuleInit {
         body.authorName ?? existing?.authorName ?? defaultAuthorName;
       return tx.listing.upsert({
         where: { botId: bot.id },
-        create: { id: randomUUID(), botId: bot.id, userId, authorName, ...copy },
+        create: {
+          id: randomUUID(),
+          botId: bot.id,
+          userId,
+          authorName,
+          ...copy,
+        },
         update: { authorName, ...copy },
       });
     });
@@ -420,6 +426,7 @@ export class MarketplaceService implements OnModuleInit {
     ]);
     if (!listing || !buyer) return null;
 
+    await db.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`marketplace-buyer:${buyerId}:${listingId}`}, 0))) SELECT 1 FROM lock`;
     const monthly = listing.priceType === 'monthly';
     // The buyer's copy from an earlier hire, if they still have it.
     const earlier = await db.bot.findFirst({
@@ -436,12 +443,16 @@ export class MarketplaceService implements OnModuleInit {
     const botId =
       earlier?.id ??
       (
-        await this.bots.createCopy(buyerId, {
-          name: listing.name,
-          description: listing.description,
-          instructions: listing.instructions,
-          skills: skillsOf(listing),
-        }, tx)
+        await this.bots.createCopy(
+          buyerId,
+          {
+            name: listing.name,
+            description: listing.description,
+            instructions: listing.instructions,
+            skills: skillsOf(listing),
+          },
+          tx,
+        )
       ).id;
     await db.bot.update({
       where: { id: botId },

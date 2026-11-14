@@ -152,31 +152,34 @@ export class BillingService implements OnModuleInit {
   // A free trial of a paid plan: no card, once per account.
   async startTrial(auth: Owner, body: StartTrialDto): Promise<BillingDto> {
     const userId = auth.user.id;
-    await this.prisma.db.$transaction(async (tx) => {
-      await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`billing-trial:${userId}`}, 0))) SELECT 1 FROM lock`;
-      const row = await tx.billingPlan.findUnique({ where: { userId } });
-      if (row?.trialUsedAt) {
-        throw new ConflictException('You have already used your free trial.');
-      }
-      if (effectivePlan(row) !== 'free') {
-        throw new ConflictException('You already have a paid plan.');
-      }
-      const now = new Date();
-      const data = {
-        plan: body.plan,
-        source: 'trial',
-        status: 'trialing',
-        paidUntil: new Date(now.getTime() + trialDays * dayMs),
-        cancelAtPeriodEnd: false,
-        trialUsedAt: now,
-        monthlyLimitUsd: null,
-      };
-      await tx.billingPlan.upsert({
-        where: { userId },
-        create: { userId, ...data },
-        update: data,
-      });
-    }, { maxWait: 10_000, timeout: 30_000 });
+    await this.prisma.db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`billing-trial:${userId}`}, 0))) SELECT 1 FROM lock`;
+        const row = await tx.billingPlan.findUnique({ where: { userId } });
+        if (row?.trialUsedAt) {
+          throw new ConflictException('You have already used your free trial.');
+        }
+        if (effectivePlan(row) !== 'free') {
+          throw new ConflictException('You already have a paid plan.');
+        }
+        const now = new Date();
+        const data = {
+          plan: body.plan,
+          source: 'trial',
+          status: 'trialing',
+          paidUntil: new Date(now.getTime() + trialDays * dayMs),
+          cancelAtPeriodEnd: false,
+          trialUsedAt: now,
+          monthlyLimitUsd: null,
+        };
+        await tx.billingPlan.upsert({
+          where: { userId },
+          create: { userId, ...data },
+          update: data,
+        });
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
     await this.usage.syncPlan(userId, body.plan);
     return this.mine(auth);
   }
@@ -624,10 +627,14 @@ export class BillingService implements OnModuleInit {
     const customerId = text(
       (data.customer as Record<string, unknown> | undefined)?.customer_id,
     );
-    const userId = await this.userFor(data.metadata, {
-      subscriptionId,
-      customerId,
-    }, tx);
+    const userId = await this.userFor(
+      data.metadata,
+      {
+        subscriptionId,
+        customerId,
+      },
+      tx,
+    );
     if (!userId) return null;
     await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`billing-user:${userId}`}, 0))) SELECT 1 FROM lock`;
     const productId = text(data.product_id);
@@ -654,15 +661,19 @@ export class BillingService implements OnModuleInit {
         row.bachsSubscriptionId !== subscriptionId
       )
         return null;
-      await this.save(userId, {
-        ...fields,
-        plan: 'free',
-        source: 'free',
-        status: 'canceled',
-        paidUntil: null,
-        cancelAtPeriodEnd: false,
-        bachsSubscriptionId: null,
-      }, tx);
+      await this.save(
+        userId,
+        {
+          ...fields,
+          plan: 'free',
+          source: 'free',
+          status: 'canceled',
+          paidUntil: null,
+          cancelAtPeriodEnd: false,
+          bachsSubscriptionId: null,
+        },
+        tx,
+      );
       return { userId, plan: 'free', detail: `${plan} card plan ended` };
     }
     // A subscription belongs to one user: drop it from any other row.
@@ -670,15 +681,19 @@ export class BillingService implements OnModuleInit {
       where: { bachsSubscriptionId: subscriptionId, userId: { not: userId } },
       data: { bachsSubscriptionId: null },
     });
-    await this.save(userId, {
-      ...fields,
-      plan,
-      source: 'subscription',
-      status: status === 'past_due' ? 'past_due' : 'active',
-      paidUntil: periodEnd ? new Date(periodEnd) : null,
-      cancelAtPeriodEnd: data.cancel_at_period_end === true,
-      monthlyLimitUsd: null,
-    }, tx);
+    await this.save(
+      userId,
+      {
+        ...fields,
+        plan,
+        source: 'subscription',
+        status: status === 'past_due' ? 'past_due' : 'active',
+        paidUntil: periodEnd ? new Date(periodEnd) : null,
+        cancelAtPeriodEnd: data.cancel_at_period_end === true,
+        monthlyLimitUsd: null,
+      },
+      tx,
+    );
     return {
       userId,
       plan,
@@ -731,16 +746,20 @@ export class BillingService implements OnModuleInit {
           ? row.paidUntil.getTime()
           : now;
       const paidUntil = new Date(from + prepaidDays * dayMs);
-      await this.save(userId, {
-        ...customer,
-        plan,
-        source: 'prepaid',
-        status: 'active',
-        currency: 'NGN',
-        paidUntil,
-        cancelAtPeriodEnd: false,
-        monthlyLimitUsd: null,
-      }, tx);
+      await this.save(
+        userId,
+        {
+          ...customer,
+          plan,
+          source: 'prepaid',
+          status: 'active',
+          currency: 'NGN',
+          paidUntil,
+          cancelAtPeriodEnd: false,
+          monthlyLimitUsd: null,
+        },
+        tx,
+      );
       return {
         userId,
         plan,

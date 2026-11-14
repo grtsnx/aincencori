@@ -68,16 +68,19 @@ describe.skipIf(!process.env.DATABASE_URL)('Paid marketplace (e2e)', () => {
       .send(JSON.stringify({ id: eventId, ...event }))
       .expect(204);
   const paid = (checkoutId: string, eventId?: string) =>
-    hook({
-      type: 'checkout.completed',
-      data: {
-        checkout_id: checkoutId,
-        payment_status: 'paid',
-        amount: '15.00',
-        currency: 'USD',
-        metadata: { userId: buyerId, kind: 'hire', listingId },
+    hook(
+      {
+        type: 'checkout.completed',
+        data: {
+          checkout_id: checkoutId,
+          payment_status: 'paid',
+          amount: '15.00',
+          currency: 'USD',
+          metadata: { userId: buyerId, kind: 'hire', listingId },
+        },
       },
-    }, eventId);
+      eventId,
+    );
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -253,6 +256,14 @@ describe.skipIf(!process.env.DATABASE_URL)('Paid marketplace (e2e)', () => {
     expect(renewed.hiredUntil!.getTime() - firstUntil).toBeGreaterThan(
       29 * 86_400_000,
     );
+
+    // Two different paid checkouts for the same buyer and bot share one copy.
+    await Promise.all([paid('chk_hire_3'), paid('chk_hire_4')]);
+    const afterConcurrentRenewals = await call()
+      .get('/v1/marketplace/hires')
+      .set('Cookie', buyer)
+      .expect(200);
+    expect(afterConcurrentRenewals.body.data).toHaveLength(4);
     expect(await db().bot.count({ where: { userId: buyerId } })).toBe(1);
 
     const earnings = await call()
@@ -260,7 +271,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Paid marketplace (e2e)', () => {
       .set('Cookie', creator)
       .expect(200);
     expect(earnings.body.data.totals).toEqual([
-      { currency: 'USD', sales: 2, gross: '30.00', yours: '24.00' },
+      { currency: 'USD', sales: 4, gross: '60.00', yours: '48.00' },
     ]);
 
     // When the paid time runs out, the bot pauses.

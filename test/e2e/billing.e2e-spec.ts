@@ -158,9 +158,7 @@ describe('Billing (e2e)', () => {
       const originalFind = db().billingPlan.findUnique.bind(db().billingPlan);
       const lookup = vi
         .spyOn(db().billingPlan, 'findUnique')
-        .mockImplementation((async (args: {
-          where?: { userId?: string };
-        }) => {
+        .mockImplementation((async (args: { where?: { userId?: string } }) => {
           const found = await originalFind(args as never);
           if (checked < 2) {
             if (!found) {
@@ -294,9 +292,9 @@ describe('Billing (e2e)', () => {
         }) as never);
       await Promise.all([hook(credits), hook(credits)]);
       lookup.mockRestore();
-      expect(
-        await db().billingEvent.count({ where: { id: credits.id } }),
-      ).toBe(1);
+      expect(await db().billingEvent.count({ where: { id: credits.id } })).toBe(
+        1,
+      );
       const usage = await call()
         .get('/v1/usage')
         .set('Cookie', cookies)

@@ -136,9 +136,7 @@ describe('Plans (e2e)', () => {
       const originalCount = database.plan.count.bind(database.plan);
       const count = vi
         .spyOn(database.plan, 'count')
-        .mockImplementation((async (args: {
-          where?: { userId?: string };
-        }) => {
+        .mockImplementation((async (args: { where?: { userId?: string } }) => {
           const result = await originalCount(args as never);
           if (args?.where?.userId === user.id) {
             arrived += 1;
