@@ -73,7 +73,11 @@ export {
   IntegrationConnectDto,
   IntegrationDto,
   IntegrationToolDto,
+  InstallMcpServerDto,
   ListIntegrationsQueryDto,
+  McpCatalogPageDto,
+  McpCatalogQueryDto,
+  McpCatalogServerDto,
   UpdateIntegrationDto,
 } from './integration/integration.dto.js';
 export {

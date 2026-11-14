@@ -181,3 +181,93 @@ export class IntegrationToolDto {
   @ApiProperty({ example: 'Create an issue in a repository.' })
   description: string;
 }
+
+// One MCP server from the public MCP registry that we can connect to.
+export class McpCatalogServerDto {
+  @ApiProperty({
+    description: 'Its name in the registry',
+    example: 'ai.smithery/smithery-ai-github',
+  })
+  server: string;
+
+  @ApiProperty({ example: 'GitHub' })
+  title: string;
+
+  @ApiProperty({ example: 'Access the GitHub API: files, repos and search.' })
+  description: string;
+
+  @ApiProperty({ example: '1.0.0' })
+  version: string;
+
+  @ApiProperty({ example: 'https://server.smithery.ai/@smithery-ai/github/mcp' })
+  url: string;
+
+  @ApiProperty({ description: 'It needs an access token', example: true })
+  needsToken: boolean;
+
+  @ApiProperty({
+    description: 'What the token is, in the server’s words',
+    example: 'Bearer token for Smithery authentication',
+    nullable: true,
+  })
+  tokenHint: string | null;
+
+  @ApiProperty({ example: 'https://github.com', nullable: true })
+  website: string | null;
+}
+
+export class McpCatalogPageDto {
+  @ApiProperty({ type: [McpCatalogServerDto] })
+  servers: McpCatalogServerDto[];
+
+  @ApiProperty({
+    description: 'Pass as cursor for the next page; null at the end',
+    example: 'ai.smithery/smithery-ai-github:1.0.0',
+    nullable: true,
+  })
+  nextCursor: string | null;
+}
+
+export class McpCatalogQueryDto {
+  @ApiPropertyOptional({ description: 'Words to look for', example: 'github' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @ApiPropertyOptional({
+    description: 'From the last page',
+    example: 'ai.smithery/smithery-ai-github:1.0.0',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  cursor?: string;
+}
+
+export class InstallMcpServerDto {
+  @ApiProperty({
+    description: 'Its name in the registry (from the catalog)',
+    example: 'ai.smithery/smithery-ai-github',
+  })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(200)
+  server: string;
+
+  @ApiProperty({ description: 'Your label for it', example: 'github' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  @Matches(namePattern, { message: nameMessage })
+  name: string;
+
+  @ApiPropertyOptional({
+    description: 'Access token, when the server needs one',
+    example: 'sm_9Wd2Hs7QmVr2NcY7pKs1',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4_000)
+  token?: string;
+}
