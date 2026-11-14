@@ -641,3 +641,54 @@ describe('chat deletion', () => {
     expect(operations).toEqual(['remote-delete-job', 'local-delete']);
   });
 });
+
+describe('errors from the AI service', () => {
+  it('shows users a plain message, never the outside error', async () => {
+    const { useAlertSink } = await import('@/middleware');
+    const alerts: { title: string; detail?: string }[] = [];
+    useAlertSink((alert) => alerts.push(alert));
+    const service = new ChatService(
+      { get: () => undefined } as never,
+      {} as never,
+      {} as never,
+      {
+        db: {
+          chatSession: { upsert: vi.fn() },
+          chatMessage: { createMany: vi.fn(), findMany: vi.fn() },
+        },
+      } as never,
+      { handle: vi.fn(), add: vi.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { log: vi.fn() } as never,
+    );
+    const recorder = (
+      service as unknown as {
+        recordTurn: (
+          userId: string,
+          body: object,
+        ) => TransformStream<Uint8Array, Uint8Array>;
+      }
+    ).recordTurn('u1', { message: 'Hi' });
+    const out = new Response(
+      new Response(
+        'event: error\ndata: {"message":"Cencori API error: credit balance exhausted"}\n\n' +
+          'event: error\ndata: {"message":"That request was blocked."}\n\n',
+      ).body!.pipeThrough(recorder),
+    );
+    const text = await out.text();
+
+    expect(text).not.toContain('credit balance');
+    expect(text).toContain('Something went wrong on our side');
+    // Our own guardrail's words are kept.
+    expect(text).toContain('That request was blocked.');
+    expect(alerts).toEqual([
+      expect.objectContaining({
+        title: 'A chat answer failed',
+        detail: 'Cencori API error: credit balance exhausted',
+      }),
+    ]);
+    useAlertSink(undefined);
+  });
+});

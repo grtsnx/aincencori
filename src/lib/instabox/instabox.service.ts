@@ -84,7 +84,11 @@ export class InstaboxService {
         autoSuspendAfterSeconds: input.autoSuspendAfterSeconds,
       });
     } catch (error) {
-      if (!(error instanceof InstaboxError) || error.status !== 400)
+      // The plan has fixed sizes or idle time: use its own.
+      if (
+        !(error instanceof InstaboxError) ||
+        (error.status !== 400 && error.code !== 'spec_not_allowed')
+      )
         throw error;
       operation = await this.call<Operation>('POST', '/v1/machines', base);
     }
@@ -250,9 +254,9 @@ export class InstaboxService {
       // Our account's limits and InstaBox's own failures are for our team.
       if (
         response.status >= 500 ||
-        ['quota_exceeded', 'rate_limited', 'spec_not_allowed'].includes(code) ||
-        response.status === 401 ||
-        response.status === 403
+        ['quota_exceeded', 'rate_limited'].includes(code) ||
+        ((response.status === 401 || response.status === 403) &&
+          code !== 'spec_not_allowed')
       ) {
         reportProblem(
           'instabox',

@@ -199,6 +199,7 @@ export class BotController {
     return this.botService.dismissSuggestion(id, suggestionId, auth);
   }
 
+  @ApiTags('Skills')
   @ApiOperation({
     summary: 'List bot skills',
     description: 'Lists the step-by-step playbooks a bot can follow.',
@@ -212,6 +213,7 @@ export class BotController {
     return this.botService.skills(id, auth);
   }
 
+  @ApiTags('Skills')
   @ApiOperation({
     summary: 'Add a skill',
     description: 'Gives a bot a new playbook, after a safety scan.',
@@ -227,6 +229,7 @@ export class BotController {
     return this.botService.addSkill(id, auth, body);
   }
 
+  @ApiTags('Skills')
   @ApiOperation({
     summary: 'Preview a skill',
     description: 'Reads a SKILL.md from a link or text, safety scanned.',
@@ -242,6 +245,7 @@ export class BotController {
     return this.botService.previewSkill(id, auth, body);
   }
 
+  @ApiTags('Skills')
   @ApiOperation({
     summary: 'Install a skill',
     description: 'Adds a previewed skill to the bot.',
@@ -257,6 +261,7 @@ export class BotController {
     return this.botService.installSkill(id, auth, body);
   }
 
+  @ApiTags('Skills')
   @ApiOperation({
     summary: 'Update a skill',
     description: 'Changes a playbook and saves it as a new version.',
@@ -272,6 +277,7 @@ export class BotController {
     return this.botService.updateSkill(id, skillId, auth, body);
   }
 
+  @ApiTags('Skills')
   @ApiOperation({
     summary: 'Delete a skill',
     description: 'Removes a playbook from a bot.',

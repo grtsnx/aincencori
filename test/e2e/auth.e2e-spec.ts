@@ -156,6 +156,7 @@ describe('Better Auth (e2e)', () => {
       'Voice',
       'Routines',
       'Bots',
+      'Skills',
       'Groups',
       'Integrations',
       'Knowledge',

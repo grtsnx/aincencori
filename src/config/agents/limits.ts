@@ -13,7 +13,7 @@ export const agentModel = 'gpt-6-luna';
 export const agentThinking: 'none' | 'low' | 'medium' | 'high' = 'none';
 
 // Most steps (model calls) in one run, chat or routine.
-export const maxAgentTurns = 10;
+export const maxAgentTurns = 16;
 
 // Routines: how many each user may have, and the shortest gap between runs.
 export const maxRoutinesPerUser = 25;

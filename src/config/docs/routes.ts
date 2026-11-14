@@ -13,6 +13,7 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Voice', description: 'Speak and listen' },
   { name: 'Routines', description: 'Scheduled agent tasks' },
   { name: 'Bots', description: 'Your own AI bots' },
+  { name: 'Skills', description: 'Taught or installed playbooks' },
   { name: 'Groups', description: 'Bots working together' },
   { name: 'Integrations', description: 'Apps your bots use' },
   { name: 'Knowledge', description: 'Documents your bots search' },
@@ -23,7 +24,7 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Activity', description: 'What happened, and when' },
   { name: 'Usage', description: 'AI spend and plan' },
   { name: 'Billing', description: 'Plans, credits, payments' },
-  { name: 'MCP', description: 'For outside AI apps' },
+  { name: 'MCP', description: 'MCP servers and apps' },
   { name: 'Admin', description: 'Manage all users' },
 ];
 

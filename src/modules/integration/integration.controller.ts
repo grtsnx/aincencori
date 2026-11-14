@@ -50,6 +50,7 @@ export class IntegrationController {
     return this.integrationService.apps();
   }
 
+  @ApiTags('MCP')
   @ApiOperation({
     summary: 'Browse MCP catalog',
     description: 'MCP servers from the public registry you can add in a click.',
@@ -60,6 +61,7 @@ export class IntegrationController {
     return this.integrationService.catalog(query);
   }
 
+  @ApiTags('MCP')
   @ApiOperation({
     summary: 'Add catalog server',
     description: 'Connects an MCP server from the catalog, with your token.',

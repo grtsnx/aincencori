@@ -863,7 +863,12 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     handoffDescription: 'Questions that need the web: news, facts, pages.',
     instructions:
       'You answer questions by searching the web and reading pages. ' +
-      'Say where each fact came from. ' +
+      'Say where each fact came from, with its date when it matters. ' +
+      'Work fast: search once or twice (several searches at once if you can), ' +
+      'answer from the snippets when they are enough, and read at most 3 ' +
+      'pages. If a page cannot be read, use another result instead of ' +
+      'trying it again. For prices, weather and news, give the time of the ' +
+      'source, since it changes. ' +
       'Always finish with a short answer in words, even after showing a widget. ' +
       truthRules,
     tools: [webSearchTool, webFetchTool],

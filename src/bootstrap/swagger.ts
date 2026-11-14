@@ -52,6 +52,24 @@ function shortTitle(path: string): string {
 }
 
 // Adds Better Auth's routes to a Nest document, under authBasePath.
+// Each route in exactly one section. Nest's docs copy a route's own section
+// up to its whole controller, so routes can end up in two (or the same one
+// twice). The route's own, most specific section wins; staff routes are
+// always under Admin.
+function oneSectionEach(document: OpenAPIObject): void {
+  for (const operations of Object.values(document.paths)) {
+    for (const operation of Object.values(
+      operations as Record<string, unknown>,
+    )) {
+      const op = operation as { tags?: string[] };
+      if (!op?.tags?.length) continue;
+      op.tags = [
+        op.tags.includes('Admin') ? 'Admin' : op.tags[op.tags.length - 1],
+      ];
+    }
+  }
+}
+
 function withAuthRoutes(
   document: OpenAPIObject,
   auth: Record<string, unknown> | undefined,
@@ -408,6 +426,7 @@ export function configureSwagger(
       ),
     );
     sampleNestResponses(document);
+    oneSectionEach(document);
     // Better Auth lives under /v1/auth, so only v1 lists its routes.
     if (version === '1') withAuthRoutes(document, betterAuth.openApiDocument());
     // The MCP address has no version; it is listed with v1.
