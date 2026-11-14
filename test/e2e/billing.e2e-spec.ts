@@ -150,6 +150,27 @@ describe('Billing (e2e)', () => {
         hasPortal: false,
       });
 
+      let checked = 0;
+      let release!: () => void;
+      const bothChecked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const originalFind = db().billingPlan.findUnique.bind(db().billingPlan);
+      const lookup = vi
+        .spyOn(db().billingPlan, 'findUnique')
+        .mockImplementation((async (args: {
+          where?: { userId?: string };
+        }) => {
+          const found = await originalFind(args as never);
+          if (checked < 2) {
+            if (!found) {
+              checked += 1;
+              if (checked === 2) release();
+              await bothChecked;
+            }
+          }
+          return found as never;
+        }) as never);
       const attempts = await Promise.all([
         call()
           .post('/v1/billing/trial')
@@ -160,6 +181,7 @@ describe('Billing (e2e)', () => {
           .set('Cookie', cookies)
           .send({ plan: 'pro' }),
       ]);
+      lookup.mockRestore();
       expect(attempts.map(({ status }) => status).sort()).toEqual([200, 409]);
       const trial = attempts.find(({ status }) => status === 200)!;
       expect(trial.body.data).toMatchObject({

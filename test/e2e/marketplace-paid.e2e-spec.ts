@@ -12,9 +12,13 @@ import { PrismaService } from '@/lib/prisma/prisma.service.js';
 // A stand-in for Bachs (Connect): creators, their checks, and split checkouts.
 const state = { canBePaid: false };
 const splits: Record<string, unknown>[] = [];
+let creatorAccountCreations = 0;
 const fakeBachs = {
   isConfigured: true,
-  createCreatorAccount: () => Promise.resolve(`acct_${randomUUID()}`),
+  createCreatorAccount: () => {
+    creatorAccountCreations += 1;
+    return Promise.resolve(`acct_${randomUUID()}`);
+  },
   creatorOnboardingLink: () =>
     Promise.resolve('https://connect.bachs.io/onboarding/alnk_1'),
   creatorCanBePaid: () => Promise.resolve(state.canBePaid),
@@ -53,14 +57,17 @@ describe.skipIf(!process.env.DATABASE_URL)('Paid marketplace (e2e)', () => {
       .expect(200);
     return response.headers['set-cookie'] as unknown as string[];
   };
-  const hook = (event: Record<string, unknown>) =>
+  const hook = (
+    event: Record<string, unknown>,
+    eventId = `evt_${randomUUID()}`,
+  ) =>
     call()
       .post('/v1/billing/bachs')
       .set('content-type', 'application/json')
       .set('x-bachs-signature-v2', 'ok')
-      .send(JSON.stringify({ id: `evt_${randomUUID()}`, ...event }))
+      .send(JSON.stringify({ id: eventId, ...event }))
       .expect(204);
-  const paid = (checkoutId: string) =>
+  const paid = (checkoutId: string, eventId?: string) =>
     hook({
       type: 'checkout.completed',
       data: {
@@ -70,7 +77,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Paid marketplace (e2e)', () => {
         currency: 'USD',
         metadata: { userId: buyerId, kind: 'hire', listingId },
       },
-    });
+    }, eventId);
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -130,17 +137,25 @@ describe.skipIf(!process.env.DATABASE_URL)('Paid marketplace (e2e)', () => {
         priceUsd: 15,
       })
       .expect(400);
-    const setup = await call()
-      .post('/v1/marketplace/payouts')
-      .set('Cookie', creator)
-      .send({ country: 'ng' })
-      .expect(200);
+    const setups = await Promise.all([
+      call()
+        .post('/v1/marketplace/payouts')
+        .set('Cookie', creator)
+        .send({ country: 'ng' }),
+      call()
+        .post('/v1/marketplace/payouts')
+        .set('Cookie', creator)
+        .send({ country: 'ng' }),
+    ]);
+    expect(setups.map(({ status }) => status)).toEqual([200, 200]);
+    const setup = setups[0];
     expect(setup.body.data).toMatchObject({
       connected: true,
       payoutsActive: false,
       setupUrl: 'https://connect.bachs.io/onboarding/alnk_1',
       feePercent: 20,
     });
+    expect(creatorAccountCreations).toBe(1);
     // A paid price needs an amount.
     await call()
       .post('/v1/marketplace')
@@ -215,7 +230,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Paid marketplace (e2e)', () => {
   });
 
   it('gives the buyer the bot when Bachs confirms, a month at a time', async () => {
-    await paid('chk_hire_1');
+    await Promise.all([
+      paid('chk_hire_1', 'evt_hire_duplicate'),
+      paid('chk_hire_1', 'evt_hire_duplicate'),
+    ]);
     // Sent twice: counted once.
     await paid('chk_hire_1');
     const hires = await call()
