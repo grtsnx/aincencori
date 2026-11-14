@@ -55,7 +55,10 @@ export class PendingApprovalDto {
   @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
   id: string;
 
-  @ApiProperty({ description: 'The chat to continue', example: 'ses_123' })
+  @ApiProperty({
+    description: 'The chat to continue (app steps: the chat, or the step id)',
+    example: 'ses_123',
+  })
   chatId: string;
 
   @ApiPropertyOptional({

@@ -59,6 +59,12 @@ export function withCards(
   }));
 }
 
+// Cencori's webhooks send ids without their prefix ("ten_", "act_"), while
+// its API returns them with it. Both forms, to match either.
+function withAndWithout(prefix: string, id: string): string[] {
+  return id.startsWith(prefix) ? [id, id.slice(prefix.length)] : [id, prefix + id];
+}
+
 export interface ApprovalDecision {
   approved: boolean;
   // Remember the answer: for this chat (a week), or always.
@@ -294,49 +300,80 @@ export class ApprovalService {
       typeof rawBody === 'string'
         ? await parseWebhook(rawBody, signature, secret)
         : null;
-    if (!payload) throw new UnauthorizedException('Bad signature.');
+    if (!payload) {
+      this.logger.warn(
+        `A Cencori webhook was refused (${typeof rawBody === 'string' ? 'bad signature or too old' : 'body not read as text'}).`,
+      );
+      throw new UnauthorizedException('Bad signature.');
+    }
     if (payload.event !== 'action.required') return;
-    const data = payload.data as { action_id?: unknown; id?: unknown };
-    const actionId = [data.action_id, data.id].find(
-      (value): value is string => typeof value === 'string' && value !== '',
-    );
-    if (!actionId) return;
+    // The body is signed by Cencori, so its ids can be trusted. It names the
+    // step and the user's tenant (their space at Cencori); a chat id too,
+    // when Cencori sends one.
+    const data = payload.data as Record<string, unknown>;
+    const text = (value: unknown) =>
+      typeof value === 'string' && value !== '' ? value : undefined;
+    const actionId = text(data.action_id) ?? text(data.id);
+    const tenantId = text(data.tenant_id);
+    const sessionId = text(data.session_id);
+    if (!actionId || (!tenantId && !sessionId)) {
+      this.logger.warn(
+        `A Cencori step could not be matched (fields: ${Object.keys(data).join(', ')}).`,
+      );
+      return;
+    }
 
-    const action = (await this.cencori.sdk.actions.get(actionId)) as {
-      id: string;
-      tool: string;
-      arguments?: unknown;
-      status: string;
-      session_id?: string | null;
-    };
-    if (action.status !== 'pending' || !action.session_id) return;
-    // Only steps in our users' chats; anything else keeps Cencori's default.
-    const chat = await this.prisma.db.chatSession.findUnique({
-      where: { id: action.session_id },
-      select: { id: true, userId: true, botId: true },
-    });
-    if (!chat) return;
+    // Whose step it is: the chat it ran in, else the tenant's owner.
+    const chat = sessionId
+      ? await this.prisma.db.chatSession.findFirst({
+          where: { id: { in: withAndWithout('ses_', sessionId) } },
+          select: { id: true, userId: true, botId: true },
+        })
+      : null;
+    const userId =
+      chat?.userId ??
+      (tenantId
+        ? (
+            await this.prisma.db.agentWorkspace.findFirst({
+              where: { tenantId: { in: withAndWithout('ten_', tenantId) } },
+              select: { userId: true },
+            })
+          )?.userId
+        : undefined);
+    // Not one of our users: Cencori's own default applies.
+    if (!userId) return;
+
+    // What the step does, read from Cencori (the same values the card shows).
+    let action: { id: string; tool: string; arguments?: unknown; status: string };
+    try {
+      action = (await this.cencori.sdk.actions.get(actionId)) as typeof action;
+    } catch {
+      this.logger.warn(`Cencori step ${actionId} could not be read.`);
+      return;
+    }
+    if (action.status !== 'pending') return;
 
     const item = {
       callId: action.id,
       toolName: action.tool,
       arguments: JSON.stringify(action.arguments ?? {}),
     };
-    const rules = await this.rulesFor(chat.userId);
+    const rules = await this.rulesFor(userId);
     const { answered } = answerByRules([item], rules, {
-      botId: chat.botId,
-      chatId: chat.id,
+      botId: chat?.botId,
+      chatId: chat?.id,
     });
     const answer = answered[action.id];
     if (answer) {
       await this.decideAction(action.id, answer.approved, 'rule');
-      this.logRuleAnswers(chat.userId, [item], answered);
+      this.logRuleAnswers(userId, [item], answered);
       return;
     }
     await this.recordPending({
-      userId: chat.userId,
-      chatId: chat.id,
-      botId: chat.botId,
+      userId,
+      // Without a chat, the step's own id keeps the entry apart.
+      chatId: chat?.id ?? action.id,
+      botId: chat?.botId ?? null,
       source: 'app',
       items: [item],
       state: `action:${action.id}`,

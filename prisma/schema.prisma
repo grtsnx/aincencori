@@ -547,6 +547,8 @@ model AgentWorkspace {
   tenantId  String
   createdAt DateTime @default(now())
 
+  // Cencori's webhooks name the tenant; this finds its user.
+  @@index([tenantId])
   @@map("agentWorkspace")
 }
 
