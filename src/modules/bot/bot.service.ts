@@ -51,6 +51,7 @@ import type {
   BotSuggestion,
   Integration,
 } from '@/generated/prisma/client.js';
+import { Prisma } from '@/generated/prisma/client.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import {
@@ -62,6 +63,7 @@ import {
   skillFileUrl,
 } from '@/middleware';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { serializableTransaction } from '@/middleware';
 import { type BotRuntime, ChatService } from '../chat/chat.service.js';
 import { DocumentService } from '../document/document.service.js';
 import { IntegrationService } from '../integration/integration.service.js';
@@ -142,12 +144,6 @@ export class BotService implements OnModuleInit {
 
   async create(auth: Owner, body: CreateBotDto): Promise<BotDto> {
     const userId = auth.user.id;
-    const count = await this.prisma.db.bot.count({ where: { userId } });
-    if (count >= maxBotsPerUser) {
-      throw new BadRequestException(
-        `You can have up to ${maxBotsPerUser} bots.`,
-      );
-    }
     const integrationIds = await this.checkIntegrations(
       userId,
       body.integrationIds ?? [],
@@ -156,22 +152,30 @@ export class BotService implements OnModuleInit {
       userId,
       body.documentIds ?? [],
     );
-    const bot = await this.prisma.db.bot.create({
-      data: {
-        id: randomUUID(),
-        userId,
-        name: body.name,
-        description: body.description,
-        instructions: body.instructions,
-        enabled: body.enabled ?? true,
-        integrations: {
-          create: integrationIds.map((integrationId) => ({ integrationId })),
+    const bot = await serializableTransaction(this.prisma.db, async (tx) => {
+      const count = await tx.bot.count({ where: { userId } });
+      if (count >= maxBotsPerUser) {
+        throw new BadRequestException(
+          `You can have up to ${maxBotsPerUser} bots.`,
+        );
+      }
+      return tx.bot.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          name: body.name,
+          description: body.description,
+          instructions: body.instructions,
+          enabled: body.enabled ?? true,
+          integrations: {
+            create: integrationIds.map((integrationId) => ({ integrationId })),
+          },
+          documents: {
+            create: documentIds.map((documentId) => ({ documentId })),
+          },
         },
-        documents: {
-          create: documentIds.map((documentId) => ({ documentId })),
-        },
-      },
-      include: withIntegrations,
+        include: withIntegrations,
+      });
     });
     return toDto(bot);
   }
@@ -186,29 +190,35 @@ export class BotService implements OnModuleInit {
       instructions: string;
       skills: { name: string; description: string; instructions: string }[];
     },
+    tx?: Prisma.TransactionClient,
   ): Promise<BotDto> {
-    const count = await this.prisma.db.bot.count({ where: { userId } });
-    if (count >= maxBotsPerUser) {
-      throw new BadRequestException(
-        `You can have up to ${maxBotsPerUser} bots.`,
-      );
-    }
-    const bot = await this.prisma.db.bot.create({
-      data: {
-        id: randomUUID(),
-        userId,
-        name: copy.name,
-        description: copy.description,
-        instructions: copy.instructions,
-        skills: {
-          create: copy.skills.slice(0, maxSkillsPerBot).map((skill) => ({
-            id: randomUUID(),
-            ...skill,
-          })),
+    const create = async (database: Prisma.TransactionClient) => {
+      const count = await database.bot.count({ where: { userId } });
+      if (count >= maxBotsPerUser) {
+        throw new BadRequestException(
+          `You can have up to ${maxBotsPerUser} bots.`,
+        );
+      }
+      return database.bot.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          name: copy.name,
+          description: copy.description,
+          instructions: copy.instructions,
+          skills: {
+            create: copy.skills.slice(0, maxSkillsPerBot).map((skill) => ({
+              id: randomUUID(),
+              ...skill,
+            })),
+          },
         },
-      },
-      include: withIntegrations,
-    });
+        include: withIntegrations,
+      });
+    };
+    const bot = tx
+      ? await create(tx)
+      : await serializableTransaction(this.prisma.db, create);
     return toDto(bot);
   }
 
@@ -572,7 +582,11 @@ export class BotService implements OnModuleInit {
             data: { status: 'accepted' },
           });
         },
-        { maxWait: 10_000, timeout: 30_000 },
+        {
+          maxWait: 10_000,
+          timeout: 30_000,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
       );
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') {
@@ -669,8 +683,22 @@ export class BotService implements OnModuleInit {
       );
     }
     const cencoriSkillId = await this.scanSkill(undefined, 1, body);
-    const skill = await db.botSkill.create({
-      data: { id: randomUUID(), botId, ...body, cencoriSkillId },
+    const skill = await serializableTransaction(db, async (tx) => {
+      if (
+        (await tx.botSkill.count({ where: { botId } })) >= maxSkillsPerBot
+      ) {
+        throw new BadRequestException(
+          `A bot can have up to ${maxSkillsPerBot} skills.`,
+        );
+      }
+      if (await tx.botSkill.findFirst({ where: { botId, name: body.name } })) {
+        throw new ConflictException(
+          'This bot already has a skill with this name.',
+        );
+      }
+      return tx.botSkill.create({
+        data: { id: randomUUID(), botId, ...body, cencoriSkillId },
+      });
     });
     return toSkillDto(skill);
   }

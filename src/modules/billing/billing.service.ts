@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { IncomingHttpHeaders } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { Prisma } from '@/generated/prisma/client.js';
 import {
   type BillingCurrency,
   type BillingPlanName,
@@ -151,30 +152,31 @@ export class BillingService implements OnModuleInit {
   // A free trial of a paid plan: no card, once per account.
   async startTrial(auth: Owner, body: StartTrialDto): Promise<BillingDto> {
     const userId = auth.user.id;
-    const row = await this.prisma.db.billingPlan.findUnique({
-      where: { userId },
-    });
-    if (row?.trialUsedAt) {
-      throw new ConflictException('You have already used your free trial.');
-    }
-    if (effectivePlan(row) !== 'free') {
-      throw new ConflictException('You already have a paid plan.');
-    }
-    const now = new Date();
-    const data = {
-      plan: body.plan,
-      source: 'trial',
-      status: 'trialing',
-      paidUntil: new Date(now.getTime() + trialDays * dayMs),
-      cancelAtPeriodEnd: false,
-      trialUsedAt: now,
-      monthlyLimitUsd: null,
-    };
-    await this.prisma.db.billingPlan.upsert({
-      where: { userId },
-      create: { userId, ...data },
-      update: data,
-    });
+    await this.prisma.db.$transaction(async (tx) => {
+      await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`billing-trial:${userId}`}, 0))) SELECT 1 FROM lock`;
+      const row = await tx.billingPlan.findUnique({ where: { userId } });
+      if (row?.trialUsedAt) {
+        throw new ConflictException('You have already used your free trial.');
+      }
+      if (effectivePlan(row) !== 'free') {
+        throw new ConflictException('You already have a paid plan.');
+      }
+      const now = new Date();
+      const data = {
+        plan: body.plan,
+        source: 'trial',
+        status: 'trialing',
+        paidUntil: new Date(now.getTime() + trialDays * dayMs),
+        cancelAtPeriodEnd: false,
+        trialUsedAt: now,
+        monthlyLimitUsd: null,
+      };
+      await tx.billingPlan.upsert({
+        where: { userId },
+        create: { userId, ...data },
+        update: data,
+      });
+    }, { maxWait: 10_000, timeout: 30_000 });
     await this.usage.syncPlan(userId, body.plan);
     return this.mine(auth);
   }
@@ -548,28 +550,31 @@ export class BillingService implements OnModuleInit {
       this.logger.warn('A Bachs webhook was refused (bad signature).');
       throw new UnauthorizedException('Bad signature.');
     }
-    const seen = await this.prisma.db.billingEvent.findUnique({
-      where: { id: event.id },
-    });
-    if (seen) return;
-    const result = await this.apply(event.type, event.data);
-    // Saved after it is applied: if applying failed, Bachs sends it again.
-    await this.prisma.db.billingEvent
-      .create({
-        data: {
-          id: event.id,
-          type: event.type,
-          userId: result?.userId ?? null,
-          detail: result?.detail ?? null,
-        },
-      })
-      .catch(() => undefined);
+    const result = await this.prisma.db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`bachs-event:${event.id}`}, 0))) SELECT 1 FROM lock`;
+        if (await tx.billingEvent.findUnique({ where: { id: event.id } })) {
+          return null;
+        }
+        const applied = await this.apply(event.type, event.data, tx);
+        await tx.billingEvent.create({
+          data: {
+            id: event.id,
+            type: event.type,
+            userId: applied?.userId ?? null,
+            detail: applied?.detail ?? null,
+          },
+        });
+        return applied;
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
     if (result) {
       this.activity.log({
-        userId: result.userId,
+        userId: result.activityUserId ?? result.userId,
         actor: 'bachs',
-        action: `billing.${event.type}`,
-        target: result.plan ?? null,
+        action: result.activityAction ?? `billing.${event.type}`,
+        target: result.activityTarget ?? result.plan ?? null,
         detail: result.detail,
       });
       if (result.plan) await this.usage.syncPlan(result.userId, result.plan);
@@ -580,21 +585,29 @@ export class BillingService implements OnModuleInit {
   private async apply(
     type: string,
     data: Record<string, unknown>,
-  ): Promise<{ userId: string; plan?: string; detail: string } | null> {
+    tx: Prisma.TransactionClient,
+  ): Promise<{
+    userId: string;
+    plan?: string;
+    detail: string;
+    activityAction?: string;
+    activityUserId?: string;
+    activityTarget?: string;
+  } | null> {
     if (type.startsWith('customer.subscription.')) {
-      return this.subscriptionChanged(type, data);
+      return this.subscriptionChanged(type, data, tx);
     }
     if (type === 'checkout.completed') {
       const meta = (data.metadata ?? {}) as Record<string, unknown>;
       // A paid bot from the marketplace: the marketplace hands it over.
-      if (meta.kind === 'hire') return this.marketplace.completeHire(data);
-      return this.checkoutCompleted(data);
+      if (meta.kind === 'hire') return this.marketplace.completeHire(data, tx);
+      return this.checkoutCompleted(data, tx);
     }
     // A creator's payout setup moved on at Bachs (Connect events).
     if (type === 'account.updated' || type === 'capability.updated') {
       const accountId = data.account;
       if (typeof accountId === 'string') {
-        await this.marketplace.refreshCreator(accountId);
+        await this.marketplace.refreshCreator(accountId, tx);
       }
       return null;
     }
@@ -604,6 +617,7 @@ export class BillingService implements OnModuleInit {
   private async subscriptionChanged(
     type: string,
     data: Record<string, unknown>,
+    tx: Prisma.TransactionClient,
   ): Promise<{ userId: string; plan?: string; detail: string } | null> {
     const subscriptionId = text(data.subscription_id);
     if (!subscriptionId) return null;
@@ -613,8 +627,9 @@ export class BillingService implements OnModuleInit {
     const userId = await this.userFor(data.metadata, {
       subscriptionId,
       customerId,
-    });
+    }, tx);
     if (!userId) return null;
+    await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`billing-user:${userId}`}, 0))) SELECT 1 FROM lock`;
     const productId = text(data.product_id);
     const plan = productId ? await this.bachs.planOf(productId) : null;
     if (!plan || !paidPlanNames.includes(plan as BillingPlanName)) return null;
@@ -631,7 +646,7 @@ export class BillingService implements OnModuleInit {
     };
     if (ended) {
       // Only the subscription the user has now can end their plan.
-      const row = await this.prisma.db.billingPlan.findUnique({
+      const row = await tx.billingPlan.findUnique({
         where: { userId },
       });
       if (
@@ -647,11 +662,11 @@ export class BillingService implements OnModuleInit {
         paidUntil: null,
         cancelAtPeriodEnd: false,
         bachsSubscriptionId: null,
-      });
+      }, tx);
       return { userId, plan: 'free', detail: `${plan} card plan ended` };
     }
     // A subscription belongs to one user: drop it from any other row.
-    await this.prisma.db.billingPlan.updateMany({
+    await tx.billingPlan.updateMany({
       where: { bachsSubscriptionId: subscriptionId, userId: { not: userId } },
       data: { bachsSubscriptionId: null },
     });
@@ -663,7 +678,7 @@ export class BillingService implements OnModuleInit {
       paidUntil: periodEnd ? new Date(periodEnd) : null,
       cancelAtPeriodEnd: data.cancel_at_period_end === true,
       monthlyLimitUsd: null,
-    });
+    }, tx);
     return {
       userId,
       plan,
@@ -673,11 +688,13 @@ export class BillingService implements OnModuleInit {
 
   private async checkoutCompleted(
     data: Record<string, unknown>,
+    tx: Prisma.TransactionClient,
   ): Promise<{ userId: string; plan?: string; detail: string } | null> {
     if (data.payment_status !== 'paid') return null;
     const meta = (data.metadata ?? {}) as Record<string, unknown>;
-    const userId = await this.userFor(meta, {});
+    const userId = await this.userFor(meta, {}, tx);
     if (!userId) return null;
+    await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`billing-user:${userId}`}, 0))) SELECT 1 FROM lock`;
     const customerId = text(
       (data.customer as Record<string, unknown> | null | undefined)
         ?.customer_id ??
@@ -690,7 +707,7 @@ export class BillingService implements OnModuleInit {
       const pack = text(meta.pack) as CreditPackName | undefined;
       if (!pack || !(pack in creditPacks)) return null;
       const credit = creditPacks[pack].creditUsd;
-      await this.prisma.db.billingPlan.upsert({
+      await tx.billingPlan.upsert({
         where: { userId },
         create: { userId, creditUsd: credit, ...customer },
         update: { creditUsd: { increment: credit }, ...customer },
@@ -701,7 +718,7 @@ export class BillingService implements OnModuleInit {
     if (meta.kind === 'prepaid') {
       const plan = text(meta.plan) as BillingPlanName | undefined;
       if (!plan || !paidPlanNames.includes(plan)) return null;
-      const row = await this.prisma.db.billingPlan.findUnique({
+      const row = await tx.billingPlan.findUnique({
         where: { userId },
       });
       // Paying again before the month ends adds a month on top.
@@ -723,7 +740,7 @@ export class BillingService implements OnModuleInit {
         paidUntil,
         cancelAtPeriodEnd: false,
         monthlyLimitUsd: null,
-      });
+      }, tx);
       return {
         userId,
         plan,
@@ -731,7 +748,7 @@ export class BillingService implements OnModuleInit {
       };
     }
     // A card subscription's checkout: the subscription events set the plan.
-    if (customerId) await this.save(userId, customer);
+    if (customerId) await this.save(userId, customer, tx);
     return null;
   }
 
@@ -740,11 +757,11 @@ export class BillingService implements OnModuleInit {
   private async userFor(
     metadata: unknown,
     known: { subscriptionId?: string; customerId?: string },
+    db: Prisma.TransactionClient = this.prisma.db,
   ): Promise<string | null> {
     const fromMeta = text(
       (metadata as Record<string, unknown> | undefined)?.userId,
     );
-    const db = this.prisma.db;
     if (fromMeta) {
       const user = await db.user.findUnique({
         where: { id: fromMeta },
@@ -775,8 +792,9 @@ export class BillingService implements OnModuleInit {
   private async save(
     userId: string,
     data: Parameters<PrismaService['db']['billingPlan']['update']>[0]['data'],
+    db: Prisma.TransactionClient = this.prisma.db,
   ): Promise<void> {
-    await this.prisma.db.billingPlan.upsert({
+    await db.billingPlan.upsert({
       where: { userId },
       create: { userId, ...(data as object) },
       update: data,

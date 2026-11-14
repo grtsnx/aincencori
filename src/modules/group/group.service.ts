@@ -14,6 +14,7 @@ import type {
 } from '@/dto';
 import type { Bot, BotGroup } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { serializableTransaction } from '@/middleware';
 import { BotService } from '../bot/bot.service.js';
 import { ChatService, type GroupRuntime } from '../chat/chat.service.js';
 
@@ -58,23 +59,28 @@ export class GroupService implements OnModuleInit {
 
   async create(auth: Owner, body: CreateGroupDto): Promise<GroupDto> {
     const userId = auth.user.id;
-    const count = await this.prisma.db.botGroup.count({ where: { userId } });
-    if (count >= maxGroupsPerUser) {
-      throw new BadRequestException(
-        `You can have up to ${maxGroupsPerUser} groups.`,
-      );
-    }
     await this.checkBots(userId, body.botIds);
     const { botIds, ...rest } = body;
-    const group = await this.prisma.db.botGroup.create({
-      data: {
-        id: randomUUID(),
-        userId,
-        ...rest,
-        members: { create: botIds.map((botId) => ({ botId })) },
+    const group = await serializableTransaction(
+      this.prisma.db,
+      async (tx) => {
+        const count = await tx.botGroup.count({ where: { userId } });
+        if (count >= maxGroupsPerUser) {
+          throw new BadRequestException(
+            `You can have up to ${maxGroupsPerUser} groups.`,
+          );
+        }
+        return tx.botGroup.create({
+          data: {
+            id: randomUUID(),
+            userId,
+            ...rest,
+            members: { create: botIds.map((botId) => ({ botId })) },
+          },
+          include: withBots,
+        });
       },
-      include: withBots,
-    });
+    );
     return toDto(group);
   }
 

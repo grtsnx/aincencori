@@ -53,6 +53,7 @@ import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { assertStaff } from '@/middleware';
+import { serializableTransaction } from '@/middleware';
 import { BotService } from '../bot/bot.service.js';
 
 interface Owner {
@@ -152,24 +153,9 @@ export class MarketplaceService implements OnModuleInit {
         'Add a description to the bot first, so people know what it does.',
       );
     }
-    const existing = await db.listing.findUnique({
-      where: { botId: bot.id },
-    });
-    if (
-      !existing &&
-      (await db.listing.count({ where: { userId } })) >= maxListingsPerUser
-    ) {
-      throw new BadRequestException(
-        `You can share up to ${maxListingsPerUser} bots.`,
-      );
-    }
-    const authorName =
-      body.authorName ??
-      existing?.authorName ??
-      (await db.user.findUnique({ where: { id: userId } }))?.name ??
-      'Someone';
+    const defaultAuthorName =
+      (await db.user.findUnique({ where: { id: userId } }))?.name ?? 'Someone';
     const copy = {
-      authorName,
       name: bot.name,
       description: bot.description,
       instructions: bot.instructions,
@@ -194,10 +180,25 @@ export class MarketplaceService implements OnModuleInit {
         );
       }
     }
-    const listing = await db.listing.upsert({
-      where: { botId: bot.id },
-      create: { id: randomUUID(), botId: bot.id, userId, ...copy },
-      update: copy,
+    const listing = await serializableTransaction(db, async (tx) => {
+      const existing = await tx.listing.findUnique({
+        where: { botId: bot.id },
+      });
+      if (
+        !existing &&
+        (await tx.listing.count({ where: { userId } })) >= maxListingsPerUser
+      ) {
+        throw new BadRequestException(
+          `You can share up to ${maxListingsPerUser} bots.`,
+        );
+      }
+      const authorName =
+        body.authorName ?? existing?.authorName ?? defaultAuthorName;
+      return tx.listing.upsert({
+        where: { botId: bot.id },
+        create: { id: randomUUID(), botId: bot.id, userId, authorName, ...copy },
+        update: { authorName, ...copy },
+      });
     });
     await this.bullmq.add(
       reviewListingJob,
@@ -282,33 +283,44 @@ export class MarketplaceService implements OnModuleInit {
   ): Promise<PayoutStatusDto> {
     const userId = auth.user.id;
     const db = this.prisma.db;
-    if (!(await db.creatorAccount.findUnique({ where: { userId } }))) {
-      const accountId = await this.bachs.createCreatorAccount({
-        email: auth.user.email,
-        name: auth.user.name || auth.user.email,
-        country: body.country.toUpperCase(),
-        userId,
-      });
-      await db.creatorAccount.create({
-        data: {
-          userId,
-          bachsAccountId: accountId,
+    await db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`creator-account:${userId}`}, 0))) SELECT 1 FROM lock`;
+        const existing = await tx.creatorAccount.findUnique({
+          where: { userId },
+        });
+        if (existing) return;
+        const accountId = await this.bachs.createCreatorAccount({
+          email: auth.user.email,
+          name: auth.user.name || auth.user.email,
           country: body.country.toUpperCase(),
-        },
-      });
-    }
+          userId,
+        });
+        await tx.creatorAccount.create({
+          data: {
+            userId,
+            bachsAccountId: accountId,
+            country: body.country.toUpperCase(),
+          },
+        });
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
     return this.payoutStatus(auth);
   }
 
   // Asks Bachs whether the creator can be paid yet, and keeps the answer.
-  async refreshCreator(accountId: string): Promise<boolean> {
+  async refreshCreator(
+    accountId: string,
+    tx: Prisma.TransactionClient = this.prisma.db,
+  ): Promise<boolean> {
     const payoutsActive = await this.bachs
       .creatorCanBePaid(accountId)
       .catch((error: unknown) => {
         reportProblem('bachs', 'Checking a creator at Bachs failed', error);
         return false;
       });
-    await this.prisma.db.creatorAccount.updateMany({
+    await tx.creatorAccount.updateMany({
       where: { bachsAccountId: accountId },
       data: { payoutsActive },
     });
@@ -381,9 +393,15 @@ export class MarketplaceService implements OnModuleInit {
   // Bachs confirmed a hire was paid (from the payments webhook). Gives the
   // buyer their copy, or another month on the copy they have. Each checkout
   // counts once.
-  async completeHire(data: Record<string, unknown>): Promise<{
+  async completeHire(
+    data: Record<string, unknown>,
+    tx: Prisma.TransactionClient = this.prisma.db,
+  ): Promise<{
     userId: string;
     detail: string;
+    activityAction: string;
+    activityUserId: string;
+    activityTarget: string;
   } | null> {
     if (data.payment_status !== 'paid') return null;
     const meta = (data.metadata ?? {}) as Record<string, unknown>;
@@ -393,7 +411,8 @@ export class MarketplaceService implements OnModuleInit {
     const listingId =
       typeof meta.listingId === 'string' ? meta.listingId : null;
     if (!checkoutId || !buyerId || !listingId) return null;
-    const db = this.prisma.db;
+    const db = tx;
+    await db.$queryRaw`WITH lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(${`marketplace-checkout:${checkoutId}`}, 0))) SELECT 1 FROM lock`;
     if (await db.hire.findUnique({ where: { checkoutId } })) return null;
     const [listing, buyer] = await Promise.all([
       db.listing.findUnique({ where: { id: listingId } }),
@@ -422,7 +441,7 @@ export class MarketplaceService implements OnModuleInit {
           description: listing.description,
           instructions: listing.instructions,
           skills: skillsOf(listing),
-        })
+        }, tx)
       ).id;
     await db.bot.update({
       where: { id: botId },
@@ -456,16 +475,12 @@ export class MarketplaceService implements OnModuleInit {
         data: { hireCount: { increment: 1 } },
       });
     }
-    this.activity.log({
-      userId: listing.userId,
-      actor: 'bachs',
-      action: 'marketplace.sold',
-      target: listing.name,
-      detail: `${amount} ${currency}`,
-    });
     return {
       userId: buyerId,
       detail: `Hired ${listing.name}${paidUntil ? ` until ${paidUntil.toISOString().slice(0, 10)}` : ''}`,
+      activityAction: 'marketplace.sold',
+      activityUserId: listing.userId,
+      activityTarget: listing.name,
     };
   }
 

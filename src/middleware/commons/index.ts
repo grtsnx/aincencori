@@ -30,6 +30,10 @@ export {
   type AlertSink,
 } from './alert.js';
 export { describeCron } from './cron-text.js';
+export {
+  isSerializationConflict,
+  serializableTransaction,
+} from './serializable-transaction.js';
 export { parseSkillFile, skillFileUrl, type SkillFile } from './skill-file.js';
 export {
   formatResults,

@@ -58,3 +58,5 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /docs/*
+# Local planning notes from AI coding tools; never committed.
+docs/superpowers/

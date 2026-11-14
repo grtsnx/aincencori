@@ -10,6 +10,7 @@ import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { BillingService } from '@/modules/billing/billing.service.js';
 import { UsageService } from '@/modules/usage/usage.service.js';
+import { vi } from 'vitest';
 
 // A stand-in for Bachs: records checkouts, and treats a webhook as signed
 // when its signature header says "ok".
@@ -149,11 +150,18 @@ describe('Billing (e2e)', () => {
         hasPortal: false,
       });
 
-      const trial = await call()
-        .post('/v1/billing/trial')
-        .set('Cookie', cookies)
-        .send({ plan: 'pro' })
-        .expect(200);
+      const attempts = await Promise.all([
+        call()
+          .post('/v1/billing/trial')
+          .set('Cookie', cookies)
+          .send({ plan: 'pro' }),
+        call()
+          .post('/v1/billing/trial')
+          .set('Cookie', cookies)
+          .send({ plan: 'pro' }),
+      ]);
+      expect(attempts.map(({ status }) => status).sort()).toEqual([200, 409]);
+      const trial = attempts.find(({ status }) => status === 200)!;
       expect(trial.body.data).toMatchObject({
         plan: 'pro',
         source: 'trial',
@@ -248,9 +256,25 @@ describe('Billing (e2e)', () => {
           metadata: { userId, kind: 'credits', pack: 'small' },
         },
       };
-      await hook(credits);
-      // Sent twice by Bachs: counted once.
-      await hook(credits);
+      // Force both deliveries to pass the old check-before-insert at once.
+      let arrived = 0;
+      let release!: () => void;
+      const bothLookedUp = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const lookup = vi
+        .spyOn(db().billingEvent, 'findUnique')
+        .mockImplementation((async () => {
+          arrived += 1;
+          if (arrived === 2) release();
+          await bothLookedUp;
+          return null as never;
+        }) as never);
+      await Promise.all([hook(credits), hook(credits)]);
+      lookup.mockRestore();
+      expect(
+        await db().billingEvent.count({ where: { id: credits.id } }),
+      ).toBe(1);
       const usage = await call()
         .get('/v1/usage')
         .set('Cookie', cookies)

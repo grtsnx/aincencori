@@ -18,6 +18,7 @@ import type { Plan, PlanStep } from '@/generated/prisma/client.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { serializableTransaction } from '@/middleware';
 import { ChatService } from '../chat/chat.service.js';
 import { UsageService } from '../usage/usage.service.js';
 
@@ -90,17 +91,19 @@ export class PlanService implements OnModuleInit {
       });
       if (!bot) throw new NotFoundException('Bot not found.');
     }
-    const active = await db.plan.count({
-      where: { userId, status: { in: activeStatuses } },
-    });
-    if (active >= maxActivePlansPerUser) {
-      throw new BadRequestException(
-        `You can run up to ${maxActivePlansPerUser} plans at once. Wait for one to finish or stop one.`,
-      );
-    }
     const id = randomUUID();
-    await db.plan.create({
-      data: { id, userId, botId: body.botId, goal: body.goal },
+    await serializableTransaction(db, async (tx) => {
+      const active = await tx.plan.count({
+        where: { userId, status: { in: activeStatuses } },
+      });
+      if (active >= maxActivePlansPerUser) {
+        throw new BadRequestException(
+          `You can run up to ${maxActivePlansPerUser} plans at once. Wait for one to finish or stop one.`,
+        );
+      }
+      await tx.plan.create({
+        data: { id, userId, botId: body.botId, goal: body.goal },
+      });
     });
     await this.queue(id, () => db.plan.delete({ where: { id } }));
     return toDto(await this.own(id, userId));
@@ -122,36 +125,42 @@ export class PlanService implements OnModuleInit {
   // Carries on from the first step that is not done.
   async resume(id: string, auth: Owner): Promise<PlanDto> {
     const userId = auth.user.id;
-    const plan = await this.own(id, userId);
-    if (!['stopped', 'failed', 'needs-approval'].includes(plan.status)) {
-      throw new BadRequestException(
-        'Only a paused, stopped or failed plan can resume.',
-      );
-    }
+    await this.own(id, userId);
     const db = this.prisma.db;
-    const active = await db.plan.count({
-      where: { userId, status: { in: activeStatuses } },
-    });
-    if (active >= maxActivePlansPerUser) {
-      throw new BadRequestException(
-        `You can run up to ${maxActivePlansPerUser} plans at once. Wait for one to finish or stop one.`,
-      );
-    }
-    await db.$transaction([
-      db.planStep.updateMany({
+    const originalStatus = await serializableTransaction(db, async (tx) => {
+      const plan = await tx.plan.findFirst({
+        where: { id, userId },
+        include: withSteps,
+      });
+      if (!plan) throw new NotFoundException('Plan not found.');
+      if (!['stopped', 'failed', 'needs-approval'].includes(plan.status)) {
+        throw new BadRequestException(
+          'Only a paused, stopped or failed plan can resume.',
+        );
+      }
+      const active = await tx.plan.count({
+        where: { userId, status: { in: activeStatuses } },
+      });
+      if (active >= maxActivePlansPerUser) {
+        throw new BadRequestException(
+          `You can run up to ${maxActivePlansPerUser} plans at once. Wait for one to finish or stop one.`,
+        );
+      }
+      await tx.planStep.updateMany({
         where: { planId: id, status: { not: 'done' } },
         data: { status: 'waiting', startedAt: null, finishedAt: null },
-      }),
-      db.plan.update({
+      });
+      await tx.plan.update({
         where: { id },
         data: {
           status: plan.steps.length > 0 ? 'running' : 'planning',
           summary: null,
         },
-      }),
-    ]);
+      });
+      return plan.status;
+    });
     await this.queue(id, () =>
-      db.plan.update({ where: { id }, data: { status: plan.status } }),
+      db.plan.update({ where: { id }, data: { status: originalStatus } }),
     );
     return toDto(await this.own(id, userId));
   }

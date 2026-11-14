@@ -33,6 +33,7 @@ import { R2Service } from '@/lib/r2/r2.service.js';
 import {
   documentType,
   readDocumentText,
+  serializableTransaction,
   splitText,
   UnreadableDocumentError,
 } from '@/middleware';
@@ -100,27 +101,34 @@ export class DocumentService implements OnModuleInit {
     const userId = auth.user.id;
     const { bytes, type } = this.decode(body);
     const db = this.prisma.db;
-    if (
-      (await db.document.count({ where: { userId } })) >= maxDocumentsPerUser
-    ) {
-      throw new BadRequestException(
-        `You can keep up to ${maxDocumentsPerUser} documents.`,
-      );
-    }
     const id = randomUUID();
     const safeName = body.name.replace(/[^\w.-]+/g, '_').slice(-100);
     const key = `${userKnowledgePrefix(userId)}${id}/${safeName || 'document'}`;
     await this.r2.put(key, bytes, type);
-    const document = await db.document.create({
-      data: {
-        id,
-        userId,
-        name: body.name,
-        contentType: type,
-        size: bytes.length,
-        key,
-      },
-    });
+    let document: Document;
+    try {
+      document = await serializableTransaction(db, async (tx) => {
+        const count = await tx.document.count({ where: { userId } });
+        if (count >= maxDocumentsPerUser) {
+          throw new BadRequestException(
+            `You can keep up to ${maxDocumentsPerUser} documents.`,
+          );
+        }
+        return tx.document.create({
+          data: {
+            id,
+            userId,
+            name: body.name,
+            contentType: type,
+            size: bytes.length,
+            key,
+          },
+        });
+      });
+    } catch (error) {
+      await this.r2.remove([key]).catch(() => undefined);
+      throw error;
+    }
     try {
       await this.bullmq.add(
         indexDocumentJob,

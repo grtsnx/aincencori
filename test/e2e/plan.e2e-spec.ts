@@ -6,7 +6,9 @@ import { AppModule } from '@/app';
 import { configureApplication } from '@/bootstrap/application.js';
 import { validateEnvironment } from '@/config/index.js';
 import { EmailService } from '@/lib/email/email.service.js';
+import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { vi } from 'vitest';
 
 // Tests never call Cencori (no key), so a plan stops at once with a clear
 // reason. The step-by-step work is covered by test/unit/plan.service.spec.ts.
@@ -108,6 +110,69 @@ describe('Plans (e2e)', () => {
         .set('Cookie', cookies)
         .send({ goal: 'Plan my week.', botId: randomUUID() })
         .expect(404);
+    });
+
+    it('does not exceed the active-plan limit under concurrent starts', async () => {
+      const database = app.get(PrismaService).db;
+      const user = await database.user.findUniqueOrThrow({ where: { email } });
+      await database.plan.createMany({
+        data: [1, 2].map(() => ({
+          id: randomUUID(),
+          userId: user.id,
+          goal: 'Already running.',
+          status: 'planning',
+        })),
+      });
+
+      const bullmq = app.get(BullmqService);
+      const originalAdd = bullmq.add;
+      bullmq.add = vi.fn().mockResolvedValue(undefined) as typeof bullmq.add;
+
+      let arrived = 0;
+      let release!: () => void;
+      const bothCounted = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const originalCount = database.plan.count.bind(database.plan);
+      const count = vi
+        .spyOn(database.plan, 'count')
+        .mockImplementation((async (args: {
+          where?: { userId?: string };
+        }) => {
+          const result = await originalCount(args as never);
+          if (args?.where?.userId === user.id) {
+            arrived += 1;
+            if (arrived === 2) release();
+            await bothCounted;
+          }
+          return result;
+        }) as never);
+
+      try {
+        const responses = await Promise.all([
+          call()
+            .post('/v1/plans')
+            .set('Cookie', cookies)
+            .send({ goal: 'First concurrent plan.' }),
+          call()
+            .post('/v1/plans')
+            .set('Cookie', cookies)
+            .send({ goal: 'Second concurrent plan.' }),
+        ]);
+        count.mockRestore();
+        expect(responses.map((response) => response.status).sort()).toEqual([
+          200, 400,
+        ]);
+        expect(
+          await database.plan.count({
+            where: { userId: user.id, status: { in: ['planning', 'running'] } },
+          }),
+        ).toBe(3);
+      } finally {
+        count.mockRestore();
+        bullmq.add = originalAdd;
+        await database.plan.deleteMany({ where: { userId: user.id } });
+      }
     });
   });
 });

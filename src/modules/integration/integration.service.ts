@@ -32,7 +32,12 @@ import type { Integration } from '@/generated/prisma/client.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
-import { assertPublicUrl, safeFetch, UnsafeUrlError } from '@/middleware';
+import {
+  assertPublicUrl,
+  safeFetch,
+  serializableTransaction,
+  UnsafeUrlError,
+} from '@/middleware';
 import { ApprovalService } from '../approval/approval.service.js';
 
 interface Owner {
@@ -284,21 +289,6 @@ export class IntegrationService implements OnModuleInit, OnModuleDestroy {
   ): Promise<IntegrationDto> {
     const app = body.app ?? ownMcp.slug;
     const userId = auth.user.id;
-    const count = await this.prisma.db.integration.count({ where: { userId } });
-    if (count >= maxIntegrationsPerUser) {
-      throw new BadRequestException(
-        `You can connect up to ${maxIntegrationsPerUser} integrations.`,
-      );
-    }
-    if (
-      await this.prisma.db.integration.findFirst({
-        where: { userId, name: body.name },
-        select: { id: true },
-      })
-    ) {
-      throw nameTaken();
-    }
-
     let connectionId: string | null = null;
     if (app === ownMcp.slug) {
       if (!body.url) throw new BadRequestException('url is required.');
@@ -323,18 +313,38 @@ export class IntegrationService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      const integration = await this.prisma.db.integration.create({
-        data: {
-          id: randomUUID(),
-          userId,
-          name: body.name,
-          app,
-          url: app === ownMcp.slug ? body.url : null,
-          token: body.token ? await this.encrypt(body.token) : null,
-          connectionId,
-          enabled: body.enabled ?? true,
+      const token = body.token ? await this.encrypt(body.token) : null;
+      const integration = await serializableTransaction(
+        this.prisma.db,
+        async (tx) => {
+          const count = await tx.integration.count({ where: { userId } });
+          if (count >= maxIntegrationsPerUser) {
+            throw new BadRequestException(
+              `You can connect up to ${maxIntegrationsPerUser} integrations.`,
+            );
+          }
+          if (
+            await tx.integration.findFirst({
+              where: { userId, name: body.name },
+              select: { id: true },
+            })
+          ) {
+            throw nameTaken();
+          }
+          return tx.integration.create({
+            data: {
+              id: randomUUID(),
+              userId,
+              name: body.name,
+              app,
+              url: app === ownMcp.slug ? body.url : null,
+              token,
+              connectionId,
+              enabled: body.enabled ?? true,
+            },
+          });
         },
-      });
+      );
       return toDto(
         integration,
         new Map(connectionId ? [[connectionId, 'pending']] : []),
