@@ -1,3 +1,4 @@
+import { cencoriApprovalPolicy } from '@/config/agents/policy.js';
 import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
@@ -68,6 +69,7 @@ import { type BotRuntime, ChatService } from '../chat/chat.service.js';
 import { DocumentService } from '../document/document.service.js';
 import { IntegrationService } from '../integration/integration.service.js';
 import { ActivityService } from '../activity/activity.service.js';
+import { ApprovalService } from '../approval/approval.service.js';
 import { UsageService } from '../usage/usage.service.js';
 
 interface Owner {
@@ -106,6 +108,7 @@ export class BotService implements OnModuleInit {
     private readonly usage: UsageService,
     private readonly activity: ActivityService,
     private readonly config?: ConfigService,
+    private readonly approvals?: ApprovalService,
   ) {}
 
   onModuleInit(): void {
@@ -1081,7 +1084,19 @@ export class BotService implements OnModuleInit {
         bot.userId,
         integrations,
       );
-      const wanted = active ? [...active.connectionIds].sort().join(',') : null;
+      // The user's rules for app tools go to Cencori with the installation.
+      // Cencori cannot change them in place (its update fails), so a change
+      // of rules, like a change of apps, makes a new installation.
+      const policy = active
+        ? cencoriApprovalPolicy(
+            (await this.approvals?.rulesFor(bot.userId)) ?? [],
+            bot.id,
+          )
+        : null;
+      const wanted = active
+        ? [...active.connectionIds].sort().join(',') +
+          (policy ? `|${JSON.stringify(policy)}` : '')
+        : null;
       const upToDate =
         wanted === bot.linkedConnections &&
         (!wanted || (bot.cencoriAgentId && bot.installationId));
@@ -1115,6 +1130,7 @@ export class BotService implements OnModuleInit {
         tenant_id: active.tenantId,
         agent_id: agentId,
         connection_ids: active.connectionIds,
+        ...(policy && { approval_policy: policy }),
       })) as { id: string };
       await this.saveLink(bot.id, installation.id, wanted, agentId);
       return {

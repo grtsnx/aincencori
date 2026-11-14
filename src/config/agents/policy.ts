@@ -47,6 +47,32 @@ export function decideTool(
   return decision === 'allow' || decision === 'deny' ? decision : 'ask';
 }
 
+// The user's rules for app tools Cencori runs itself (Gmail, Slack...), as
+// Cencori's approval_policy for one bot's installation: allow is "auto",
+// ask is "required", never is "deny". A rule for this bot beats one for
+// everywhere. Rules for one chat cannot be sent (an installation is per
+// bot); they still apply through the approvals webhook. Our own tools are
+// left out: we gate those ourselves. Null when there is nothing to send.
+export function cencoriApprovalPolicy(
+  rules: ToolRuleView[],
+  botId: string,
+): { tools: Record<string, 'auto' | 'required' | 'deny'> } | null {
+  const ours = new Set<string>(riskyTools);
+  const rule = { allow: 'auto', ask: 'required', deny: 'deny' } as const;
+  const tools: Record<string, 'auto' | 'required' | 'deny'> = {};
+  const apply = (forBot: boolean) => {
+    for (const item of rules) {
+      if (item.chatId || ours.has(item.tool)) continue;
+      if (forBot ? item.botId !== botId : item.botId !== null) continue;
+      const value = rule[item.decision as keyof typeof rule];
+      if (value) tools[item.tool] = value;
+    }
+  };
+  apply(false);
+  apply(true);
+  return Object.keys(tools).length > 0 ? { tools } : null;
+}
+
 // What the AI is told when the user has turned a tool off.
 export const deniedToolMessage =
   'The user has turned this tool off in their settings. Do not try again; ' +

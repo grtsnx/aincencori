@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   answerByRules,
+  cencoriApprovalPolicy,
   decideTool,
   deniedToolMessage,
   untrusted,
@@ -262,5 +263,32 @@ describe('Cencori webhook for app steps', () => {
         }),
       },
     ]);
+  });
+});
+
+describe('rules sent to Cencori with a bot', () => {
+  it('turns app-tool rules into Cencori’s approval_policy; this bot beats everywhere', () => {
+    const rules = [
+      {
+        tool: 'gmail_send_email',
+        botId: null,
+        chatId: null,
+        decision: 'allow',
+      },
+      { tool: 'gmail_send_email', botId: 'b1', chatId: null, decision: 'deny' },
+      { tool: 'slack_post', botId: null, chatId: null, decision: 'ask' },
+      // Other bots, one chat, and our own tools are not sent.
+      { tool: 'notion_delete', botId: 'b2', chatId: null, decision: 'deny' },
+      { tool: 'github_merge', botId: null, chatId: 'c1', decision: 'allow' },
+      { tool: 'start_plan', botId: null, chatId: null, decision: 'allow' },
+    ];
+
+    expect(cencoriApprovalPolicy(rules, 'b1')).toEqual({
+      tools: { gmail_send_email: 'deny', slack_post: 'required' },
+    });
+    expect(cencoriApprovalPolicy(rules, 'b3')).toEqual({
+      tools: { gmail_send_email: 'auto', slack_post: 'required' },
+    });
+    expect(cencoriApprovalPolicy([], 'b1')).toBeNull();
   });
 });
