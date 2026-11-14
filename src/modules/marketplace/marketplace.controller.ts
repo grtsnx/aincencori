@@ -10,6 +10,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  ApiConflictResponse,
   ApiCookieAuth,
   ApiExtraModels,
   ApiForbiddenResponse,
@@ -24,11 +25,17 @@ import type { IncomingHttpHeaders } from 'node:http';
 import {
   BotDto,
   BrowseListingsQueryDto,
+  EarningsDto,
+  HireBotDto,
+  HireCheckoutDto,
+  HireDto,
   ListingDto,
   OwnListingDto,
+  PayoutStatusDto,
   PublishBotDto,
   RejectListingDto,
   ReviewListingsQueryDto,
+  StartPayoutsDto,
 } from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { CurrentSession, OptionalAuth, Public } from '@/middleware';
@@ -80,6 +87,77 @@ export class MarketplaceController {
   @Get('marketplace/mine')
   mine(@CurrentSession() auth: AuthSession): Promise<OwnListingDto[]> {
     return this.marketplaceService.mine(auth);
+  }
+
+  @ApiTags('Marketplace')
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Get my payouts',
+    description: 'Whether you can be paid for bots you sell.',
+  })
+  @ApiOkResponse({ type: PayoutStatusDto })
+  @Get('marketplace/payouts')
+  payouts(@CurrentSession() auth: AuthSession): Promise<PayoutStatusDto> {
+    return this.marketplaceService.payoutStatus(auth);
+  }
+
+  @ApiTags('Marketplace')
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Set up payouts',
+    description: 'Starts Bachs payout setup so you can sell bots.',
+  })
+  @ApiOkResponse({ type: PayoutStatusDto })
+  @Post('marketplace/payouts')
+  @HttpCode(200)
+  startPayouts(
+    @CurrentSession() auth: AuthSession,
+    @Body() body: StartPayoutsDto,
+  ): Promise<PayoutStatusDto> {
+    return this.marketplaceService.startPayouts(auth, body);
+  }
+
+  @ApiTags('Marketplace')
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Get my earnings',
+    description: 'Your bot sales and your share, by currency.',
+  })
+  @ApiOkResponse({ type: EarningsDto })
+  @Get('marketplace/earnings')
+  earnings(@CurrentSession() auth: AuthSession): Promise<EarningsDto> {
+    return this.marketplaceService.earnings(auth);
+  }
+
+  @ApiTags('Marketplace')
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'List my hires',
+    description: 'Paid bots you hired, and until when.',
+  })
+  @ApiOkResponse({ type: [HireDto] })
+  @Get('marketplace/hires')
+  hires(@CurrentSession() auth: AuthSession): Promise<HireDto[]> {
+    return this.marketplaceService.hires(auth);
+  }
+
+  @ApiTags('Marketplace')
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Hire a bot',
+    description: 'A checkout for a paid bot; you get your copy once paid.',
+  })
+  @ApiOkResponse({ type: HireCheckoutDto })
+  @ApiConflictResponse({ description: 'Not for hire yet, or already owned' })
+  @Post('marketplace/:id/hire')
+  @HttpCode(200)
+  hire(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+    @Headers() headers: IncomingHttpHeaders,
+    @Body() body: HireBotDto,
+  ): Promise<HireCheckoutDto> {
+    return this.marketplaceService.hire(id, auth, headers, body);
   }
 
   @ApiTags('Marketplace')

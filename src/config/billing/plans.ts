@@ -1,3 +1,5 @@
+import type { IncomingHttpHeaders } from 'node:http';
+
 // Plans, prices and what each may spend on AI a month (US dollars, at
 // Cencori's prices). When the allowance is used up, AI work stops until next
 // month, an upgrade, or bought credits. Staff can give one user a different
@@ -94,3 +96,29 @@ export const trialDays = 7;
 
 // How long one naira payment keeps a plan.
 export const prepaidDays = 30;
+
+// Paid bots on the marketplace: our share of each sale (the rest goes to
+// the creator through Bachs), and the price range a creator may set.
+export const marketplaceFeePercent = 20;
+export const listingPriceUsd = { min: 1, max: 1000 };
+// How long one monthly payment for a hired bot lasts.
+export const hireMonthDays = 30;
+
+// The currency to show: the one asked for, else naira for people in Nigeria
+// (from the country header our host or CDN adds), else dollars.
+export function currencyFor(
+  headers: IncomingHttpHeaders,
+  asked?: BillingCurrency,
+): BillingCurrency {
+  if (asked) return asked;
+  const country = [
+    headers['cf-ipcountry'],
+    headers['x-vercel-ip-country'],
+    headers['x-country-code'],
+  ]
+    .flat()
+    .find((value): value is string => typeof value === 'string');
+  return country && ngnCountries.includes(country.toUpperCase())
+    ? 'NGN'
+    : 'USD';
+}

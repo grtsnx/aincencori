@@ -1,5 +1,18 @@
+import { ConfigService } from '@nestjs/config';
+import {
+  currencyFor,
+  hireMonthDays,
+  marketplaceFeePercent,
+  priceIn,
+} from '@/config/billing/plans.js';
+import { BachsService } from '@/lib/bachs/bachs.service.js';
+import { reportProblem } from '@/middleware';
+import { ActivityService } from '../activity/activity.service.js';
 import {
   BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -20,10 +33,16 @@ import { maxListingsPerUser } from '@/config/agents/limits.js';
 import type {
   BotDto,
   BrowseListingsQueryDto,
+  EarningsDto,
+  HireBotDto,
+  HireCheckoutDto,
+  HireDto,
   ListingDto,
   OwnListingDto,
+  PayoutStatusDto,
   PublishBotDto,
   ReviewListingsQueryDto,
+  StartPayoutsDto,
 } from '@/dto';
 import { type Listing, Prisma } from '@/generated/prisma/client.js';
 import {
@@ -61,6 +80,9 @@ export class MarketplaceService implements OnModuleInit {
     private readonly cencori: CencoriService,
     private readonly betterAuth: BetterAuthService,
     private readonly bots: BotService,
+    private readonly bachs: BachsService,
+    private readonly config: ConfigService,
+    private readonly activity: ActivityService,
   ) {}
 
   onModuleInit(): void {
@@ -91,7 +113,7 @@ export class MarketplaceService implements OnModuleInit {
       skip: query.offset ?? 0,
       take: query.limit ?? 24,
     });
-    return listings.map(toDto);
+    return listings.map((listing) => toDto(listing));
   }
 
   // One published bot. Its author also sees it while it is reviewed.
@@ -157,9 +179,21 @@ export class MarketplaceService implements OnModuleInit {
         instructions: skill.instructions,
       })),
       category: body.category,
+      priceType: body.priceType ?? 'free',
+      priceUsd: (body.priceType ?? 'free') === 'free' ? null : body.priceUsd!,
       status: 'reviewing',
       reviewNote: null,
     };
+    // Selling needs somewhere to be paid. It can still be reviewed while
+    // Bachs checks the creator; hiring opens once payouts are on.
+    if (copy.priceType !== 'free') {
+      const creator = await db.creatorAccount.findUnique({ where: { userId } });
+      if (!creator) {
+        throw new BadRequestException(
+          'Set up payouts first (POST /v1/marketplace/payouts), so you can be paid.',
+        );
+      }
+    }
     const listing = await db.listing.upsert({
       where: { botId: bot.id },
       create: { id: randomUUID(), botId: bot.id, userId, ...copy },
@@ -191,6 +225,12 @@ export class MarketplaceService implements OnModuleInit {
     if (!listing || listing.status !== 'published') {
       throw new NotFoundException('Bot not found on the marketplace.');
     }
+    if (listing.priceType !== 'free') {
+      throw new HttpException(
+        'This bot is paid: hire it to get your copy.',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
     const bot = await this.bots.createCopy(auth.user.id, {
       name: listing.name,
       description: listing.description,
@@ -202,6 +242,311 @@ export class MarketplaceService implements OnModuleInit {
       data: { importCount: { increment: 1 } },
     });
     return bot;
+  }
+
+  // ── Paid bots ─────────────────────────────────────────────────────────
+
+  // Where the creator stands with payouts, with a fresh setup link while
+  // Bachs still needs something from them.
+  async payoutStatus(auth: Owner): Promise<PayoutStatusDto> {
+    const creator = await this.prisma.db.creatorAccount.findUnique({
+      where: { userId: auth.user.id },
+    });
+    if (!creator) {
+      return {
+        connected: false,
+        payoutsActive: false,
+        setupUrl: null,
+        feePercent: marketplaceFeePercent,
+      };
+    }
+    const payoutsActive = await this.refreshCreator(creator.bachsAccountId);
+    return {
+      connected: true,
+      payoutsActive,
+      setupUrl: payoutsActive
+        ? null
+        : await this.bachs.creatorOnboardingLink(
+            creator.bachsAccountId,
+            this.payoutUrls(),
+          ),
+      feePercent: marketplaceFeePercent,
+    };
+  }
+
+  // Starts payout setup: the creator's account at Bachs, and the page where
+  // they prove who they are and say where to be paid.
+  async startPayouts(
+    auth: Owner & { user: { email: string; name: string } },
+    body: StartPayoutsDto,
+  ): Promise<PayoutStatusDto> {
+    const userId = auth.user.id;
+    const db = this.prisma.db;
+    if (!(await db.creatorAccount.findUnique({ where: { userId } }))) {
+      const accountId = await this.bachs.createCreatorAccount({
+        email: auth.user.email,
+        name: auth.user.name || auth.user.email,
+        country: body.country.toUpperCase(),
+        userId,
+      });
+      await db.creatorAccount.create({
+        data: {
+          userId,
+          bachsAccountId: accountId,
+          country: body.country.toUpperCase(),
+        },
+      });
+    }
+    return this.payoutStatus(auth);
+  }
+
+  // Asks Bachs whether the creator can be paid yet, and keeps the answer.
+  async refreshCreator(accountId: string): Promise<boolean> {
+    const payoutsActive = await this.bachs
+      .creatorCanBePaid(accountId)
+      .catch((error: unknown) => {
+        reportProblem('bachs', 'Checking a creator at Bachs failed', error);
+        return false;
+      });
+    await this.prisma.db.creatorAccount.updateMany({
+      where: { bachsAccountId: accountId },
+      data: { payoutsActive },
+    });
+    return payoutsActive;
+  }
+
+  // Hires a paid bot: a checkout where the buyer pays us, and Bachs sends
+  // the creator their share. The bot is the buyer's once Bachs confirms.
+  async hire(
+    id: string,
+    auth: Owner & { user: { email: string; name: string } },
+    headers: IncomingHttpHeaders,
+    body: HireBotDto,
+  ): Promise<HireCheckoutDto> {
+    const db = this.prisma.db;
+    const listing = await db.listing.findUnique({ where: { id } });
+    if (!listing || listing.status !== 'published') {
+      throw new NotFoundException('Bot not found on the marketplace.');
+    }
+    if (listing.priceType === 'free' || !listing.priceUsd) {
+      throw new BadRequestException('This bot is free: copy it instead.');
+    }
+    if (listing.userId === auth.user.id) {
+      throw new BadRequestException('This is your own bot.');
+    }
+    const creator = await db.creatorAccount.findUnique({
+      where: { userId: listing.userId },
+    });
+    if (!creator?.payoutsActive) {
+      throw new ConflictException(
+        'This bot cannot be hired yet: its creator is still setting up payouts.',
+      );
+    }
+    if (listing.priceType === 'one_off') {
+      const owned = await db.hire.findFirst({
+        where: { listingId: id, buyerId: auth.user.id },
+      });
+      if (owned) throw new ConflictException('You already own this bot.');
+    }
+    const currency = currencyFor(headers, body.currency);
+    const price = priceIn(listing.priceUsd, currency);
+    const fee = Math.round(price * marketplaceFeePercent) / 100;
+    const app = this.config.getOrThrow<string>('APP_URL');
+    const checkout = await this.bachs.splitCheckout(
+      {
+        currency,
+        amount: price.toFixed(2),
+        platformFee: fee.toFixed(2),
+        destination: creator.bachsAccountId,
+        customer: {
+          email: auth.user.email,
+          name: auth.user.name || auth.user.email,
+        },
+        paymentMethods:
+          currency === 'USD' ? ['USD_CARD'] : ['NGN_CARD', 'NGN_BANK_TRANSFER'],
+        metadata: { userId: auth.user.id, kind: 'hire', listingId: id },
+        successUrl: `${app}/marketplace/${id}?hired=1`,
+        cancelUrl: `${app}/marketplace/${id}?hired=0`,
+      },
+      randomUUID(),
+    );
+    return {
+      url: checkout.url,
+      expiresAt: checkout.expiresAt,
+      price,
+      currency,
+    };
+  }
+
+  // Bachs confirmed a hire was paid (from the payments webhook). Gives the
+  // buyer their copy, or another month on the copy they have. Each checkout
+  // counts once.
+  async completeHire(data: Record<string, unknown>): Promise<{
+    userId: string;
+    detail: string;
+  } | null> {
+    if (data.payment_status !== 'paid') return null;
+    const meta = (data.metadata ?? {}) as Record<string, unknown>;
+    const checkoutId =
+      typeof data.checkout_id === 'string' ? data.checkout_id : null;
+    const buyerId = typeof meta.userId === 'string' ? meta.userId : null;
+    const listingId =
+      typeof meta.listingId === 'string' ? meta.listingId : null;
+    if (!checkoutId || !buyerId || !listingId) return null;
+    const db = this.prisma.db;
+    if (await db.hire.findUnique({ where: { checkoutId } })) return null;
+    const [listing, buyer] = await Promise.all([
+      db.listing.findUnique({ where: { id: listingId } }),
+      db.user.findUnique({ where: { id: buyerId }, select: { id: true } }),
+    ]);
+    if (!listing || !buyer) return null;
+
+    const monthly = listing.priceType === 'monthly';
+    // The buyer's copy from an earlier hire, if they still have it.
+    const earlier = await db.bot.findFirst({
+      where: { userId: buyerId, hiredListingId: listingId },
+    });
+    const now = Date.now();
+    const from =
+      monthly && earlier?.hiredUntil && earlier.hiredUntil.getTime() > now
+        ? earlier.hiredUntil.getTime()
+        : now;
+    const paidUntil = monthly
+      ? new Date(from + hireMonthDays * 24 * 60 * 60_000)
+      : null;
+    const botId =
+      earlier?.id ??
+      (
+        await this.bots.createCopy(buyerId, {
+          name: listing.name,
+          description: listing.description,
+          instructions: listing.instructions,
+          skills: skillsOf(listing),
+        })
+      ).id;
+    await db.bot.update({
+      where: { id: botId },
+      data: { hiredListingId: listingId, hiredUntil: paidUntil },
+    });
+    const amount =
+      typeof data.amount === 'string' ? data.amount : String(data.amount ?? '');
+    const currency = typeof data.currency === 'string' ? data.currency : '';
+    const platformFee = (
+      (Number(amount) * marketplaceFeePercent) /
+      100
+    ).toFixed(2);
+    await db.hire.create({
+      data: {
+        id: randomUUID(),
+        listingId,
+        buyerId,
+        creatorId: listing.userId,
+        kind: listing.priceType,
+        botId,
+        amount,
+        currency,
+        platformFee,
+        checkoutId,
+        paidUntil,
+      },
+    });
+    if (!earlier) {
+      await db.listing.update({
+        where: { id: listingId },
+        data: { hireCount: { increment: 1 } },
+      });
+    }
+    this.activity.log({
+      userId: listing.userId,
+      actor: 'bachs',
+      action: 'marketplace.sold',
+      target: listing.name,
+      detail: `${amount} ${currency}`,
+    });
+    return {
+      userId: buyerId,
+      detail: `Hired ${listing.name}${paidUntil ? ` until ${paidUntil.toISOString().slice(0, 10)}` : ''}`,
+    };
+  }
+
+  // What a creator has sold, and their share.
+  async earnings(auth: Owner): Promise<EarningsDto> {
+    const sales = await this.prisma.db.hire.findMany({
+      where: { creatorId: auth.user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    const totals = new Map<
+      string,
+      { sales: number; gross: number; fee: number }
+    >();
+    for (const sale of sales) {
+      const total = totals.get(sale.currency) ?? { sales: 0, gross: 0, fee: 0 };
+      total.sales += 1;
+      total.gross += Number(sale.amount);
+      total.fee += Number(sale.platformFee);
+      totals.set(sale.currency, total);
+    }
+    return {
+      totals: [...totals.entries()].map(([currency, total]) => ({
+        currency,
+        sales: total.sales,
+        gross: total.gross.toFixed(2),
+        yours: (total.gross - total.fee).toFixed(2),
+      })),
+      sales: await this.withNames(sales.slice(0, 50)),
+    };
+  }
+
+  // The bots the user hired, newest first.
+  async hires(auth: Owner): Promise<HireDto[]> {
+    const hires = await this.prisma.db.hire.findMany({
+      where: { buyerId: auth.user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return this.withNames(hires);
+  }
+
+  private async withNames(
+    hires: {
+      id: string;
+      listingId: string;
+      kind: string;
+      amount: string;
+      currency: string;
+      platformFee: string;
+      botId: string | null;
+      paidUntil: Date | null;
+      createdAt: Date;
+    }[],
+  ): Promise<HireDto[]> {
+    const listings = await this.prisma.db.listing.findMany({
+      where: { id: { in: [...new Set(hires.map((hire) => hire.listingId))] } },
+      select: { id: true, name: true },
+    });
+    return hires.map((hire) => ({
+      id: hire.id,
+      listingId: hire.listingId,
+      name:
+        listings.find((listing) => listing.id === hire.listingId)?.name ??
+        'Removed bot',
+      kind: hire.kind,
+      amount: hire.amount,
+      currency: hire.currency,
+      platformFee: hire.platformFee,
+      botId: hire.botId,
+      paidUntil: hire.paidUntil,
+      createdAt: hire.createdAt,
+    }));
+  }
+
+  private payoutUrls() {
+    const app = this.config.getOrThrow<string>('APP_URL');
+    return {
+      returnUrl: `${app}/marketplace/payouts?done=1`,
+      refreshUrl: `${app}/marketplace/payouts?again=1`,
+    };
   }
 
   // ── Staff ────────────────────────────────────────────────────────────
@@ -359,23 +704,32 @@ function skillsOf(listing: Listing): ListingSkill[] {
     : [];
 }
 
-function toDto(listing: Listing): ListingDto {
+// A listing as shown. A paid bot's instructions and skill steps stay hidden
+// until it is hired (its author always sees them).
+function toDto(listing: Listing, unlocked = false): ListingDto {
+  const locked = listing.priceType !== 'free' && !unlocked;
   return {
     id: listing.id,
     name: listing.name,
     description: listing.description,
     category: listing.category,
     authorName: listing.authorName,
-    instructions: listing.instructions,
-    skills: skillsOf(listing),
+    instructions: locked ? '' : listing.instructions,
+    skills: skillsOf(listing).map((skill) =>
+      locked ? { ...skill, instructions: '' } : skill,
+    ),
     importCount: listing.importCount,
+    priceType: listing.priceType,
+    priceUsd: listing.priceUsd,
+    hireCount: listing.hireCount,
+    locked,
     publishedAt: listing.publishedAt,
   };
 }
 
 function toOwnDto(listing: Listing): OwnListingDto {
   return {
-    ...toDto(listing),
+    ...toDto(listing, true),
     botId: listing.botId,
     status: listing.status,
     reviewNote: listing.reviewNote,

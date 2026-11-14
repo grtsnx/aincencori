@@ -85,12 +85,19 @@ export {
 } from './integration/integration.dto.js';
 export {
   BrowseListingsQueryDto,
+  EarningsDto,
+  EarningsTotalDto,
+  HireBotDto,
+  HireCheckoutDto,
+  HireDto,
   ListingDto,
   ListingSkillDto,
   OwnListingDto,
+  PayoutStatusDto,
   PublishBotDto,
   RejectListingDto,
   ReviewListingsQueryDto,
+  StartPayoutsDto,
 } from './marketplace/marketplace.dto.js';
 export {
   CreatePlanDto,

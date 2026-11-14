@@ -555,6 +555,10 @@ model AgentWorkspace {
 // A bot a user made: a name and instructions. Integrations are optional.
 model Bot {
   id                String           @id
+  // A paid bot hired from the marketplace: which listing, and until when
+  // (null: paid once, kept). When the time is up the bot pauses.
+  hiredListingId    String?
+  hiredUntil        DateTime?
   userId            String
   name              String
   // One line on what it is for. The default assistant reads it to decide
@@ -758,6 +762,11 @@ model Listing {
   status       String    @default("reviewing")
   reviewNote   String?
   importCount  Int       @default(0)
+  // "free", "one_off" (pay once) or "monthly" (pay each month for 30 days).
+  priceType    String    @default("free")
+  // The price in US dollars (naira buyers pay the same in naira).
+  priceUsd     Float?
+  hireCount    Int       @default(0)
   publishedAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -1097,4 +1106,43 @@ model Alert {
   @@index([title, lastAt])
   @@index([lastAt])
   @@map("alert")
+}
+
+// A creator who sells bots: their account at Bachs (Connect), where their
+// share of each sale is paid. Payouts start once Bachs has checked them.
+model CreatorAccount {
+  userId         String   @id
+  bachsAccountId String   @unique
+  country        String
+  // Bachs allows transfers and payouts to them (their checks passed).
+  payoutsActive  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("creatorAccount")
+}
+
+// One paid hire of a marketplace bot: who paid, how much, our fee, and the
+// creator's share (sent to them by Bachs).
+model Hire {
+  id          String    @id
+  listingId   String
+  buyerId     String
+  creatorId   String
+  // "one_off" or "monthly".
+  kind        String
+  // The buyer's copy of the bot.
+  botId       String?
+  amount      String
+  currency    String
+  platformFee String
+  // The Bachs checkout it was paid with (each counts once).
+  checkoutId  String    @unique
+  paidUntil   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([buyerId, createdAt])
+  @@index([creatorId, createdAt])
+  @@index([listingId])
+  @@map("hire")
 }

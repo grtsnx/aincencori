@@ -3,13 +3,18 @@ import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
+  Length,
+  Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
+import { billingCurrencies, listingPriceUsd } from '@/config/billing/plans.js';
 import { listingCategories } from '@/config/agents/limits.js';
 
 export class PublishBotDto {
@@ -34,6 +39,27 @@ export class PublishBotDto {
   @MinLength(1)
   @MaxLength(60)
   authorName?: string;
+
+  @ApiPropertyOptional({
+    enum: ['free', 'one_off', 'monthly'],
+    description: 'free; one_off: pay once; monthly: pay for each 30 days',
+    default: 'free',
+    example: 'monthly',
+  })
+  @IsOptional()
+  @IsIn(['free', 'one_off', 'monthly'])
+  priceType?: 'free' | 'one_off' | 'monthly';
+
+  @ApiPropertyOptional({
+    description: `Price in US dollars (${listingPriceUsd.min} to ${listingPriceUsd.max}); needed when paid`,
+    example: 15,
+  })
+  @ValidateIf((dto: PublishBotDto) => (dto.priceType ?? 'free') !== 'free')
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(listingPriceUsd.min)
+  @Max(listingPriceUsd.max)
+  priceUsd?: number;
 }
 
 export class BrowseListingsQueryDto {
@@ -164,6 +190,28 @@ export class ListingDto {
   importCount: number;
 
   @ApiProperty({
+    enum: ['free', 'one_off', 'monthly'],
+    example: 'monthly',
+  })
+  priceType: string;
+
+  @ApiProperty({
+    description: 'US dollars; null when free',
+    example: 15,
+    nullable: true,
+  })
+  priceUsd: number | null;
+
+  @ApiProperty({ description: 'How many people hired it', example: 12 })
+  hireCount: number;
+
+  @ApiProperty({
+    description: 'Paid: instructions and skill steps show once hired',
+    example: true,
+  })
+  locked: boolean;
+
+  @ApiProperty({
     type: Date,
     nullable: true,
     example: '2026-11-13T09:30:00.000Z',
@@ -194,4 +242,132 @@ export class OwnListingDto extends ListingDto {
 
   @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
   updatedAt: Date;
+}
+
+export class StartPayoutsDto {
+  @ApiProperty({
+    description: 'Where you live: a 2-letter country code',
+    example: 'NG',
+  })
+  @IsString()
+  @Length(2, 2)
+  @Matches(/^[A-Za-z]{2}$/)
+  country: string;
+}
+
+export class PayoutStatusDto {
+  @ApiProperty({ description: 'You started payout setup', example: true })
+  connected: boolean;
+
+  @ApiProperty({
+    description: 'Bachs checked you; your share is paid out',
+    example: false,
+  })
+  payoutsActive: boolean;
+
+  @ApiProperty({
+    description: 'Open to finish or update payout setup (about an hour)',
+    example: 'https://connect.bachs.io/onboarding/alnk_123',
+    nullable: true,
+  })
+  setupUrl: string | null;
+
+  @ApiProperty({
+    description: 'Our share of each sale, in percent',
+    example: 20,
+  })
+  feePercent: number;
+}
+
+export class HireBotDto {
+  @ApiPropertyOptional({
+    enum: billingCurrencies,
+    description: 'Leave out to pick from the country (Nigeria: NGN)',
+    example: 'USD',
+  })
+  @IsOptional()
+  @IsIn(billingCurrencies)
+  currency?: 'USD' | 'NGN';
+}
+
+export class HireCheckoutDto {
+  @ApiProperty({
+    description: 'Send the buyer here to pay',
+    example: 'https://checkout.bachs.io/c/chk_123',
+  })
+  url: string;
+
+  @ApiProperty({ example: '2026-11-14T10:00:00.000Z' })
+  expiresAt: string;
+
+  @ApiProperty({ description: 'The price, in the currency below', example: 15 })
+  price: number;
+
+  @ApiProperty({ enum: billingCurrencies, example: 'USD' })
+  currency: string;
+}
+
+export class HireDto {
+  @ApiProperty({ example: '9c1d2e3f-7aae-4ca4-86fd-933f1a45603f' })
+  id: string;
+
+  @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
+  listingId: string;
+
+  @ApiProperty({ example: 'Sales Bot' })
+  name: string;
+
+  @ApiProperty({ enum: ['one_off', 'monthly'], example: 'monthly' })
+  kind: string;
+
+  @ApiProperty({ example: '15.00' })
+  amount: string;
+
+  @ApiProperty({ example: 'USD' })
+  currency: string;
+
+  @ApiProperty({ description: 'Our share of it', example: '3.00' })
+  platformFee: string;
+
+  @ApiProperty({
+    description: 'The buyer’s copy of the bot',
+    example: '3f9aB2xY-7aae-4ca4-86fd-933f1a45603f',
+    nullable: true,
+  })
+  botId: string | null;
+
+  @ApiProperty({
+    description: 'Monthly: when this payment runs out',
+    example: '2026-12-14T09:00:00.000Z',
+    nullable: true,
+  })
+  paidUntil: Date | null;
+
+  @ApiProperty({ example: '2026-11-14T09:00:00.000Z' })
+  createdAt: Date;
+}
+
+export class EarningsTotalDto {
+  @ApiProperty({ example: 'USD' })
+  currency: string;
+
+  @ApiProperty({ example: 12 })
+  sales: number;
+
+  @ApiProperty({ description: 'What buyers paid', example: '180.00' })
+  gross: string;
+
+  @ApiProperty({
+    description: 'Your share (before Bachs payout fees)',
+    example: '144.00',
+  })
+  yours: string;
+}
+
+export class EarningsDto {
+  @ApiProperty({ type: [EarningsTotalDto], description: 'By currency' })
+  totals: EarningsTotalDto[];
+
+  @ApiProperty({ type: [HireDto], description: 'Latest sales first' })
+  sales: HireDto[];
 }

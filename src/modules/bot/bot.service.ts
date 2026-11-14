@@ -2,6 +2,8 @@ import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -911,6 +913,12 @@ export class BotService implements OnModuleInit {
   private async runtime(userId: string, botId: string): Promise<BotRuntime> {
     const bot = await this.own(botId, userId);
     if (!bot.enabled) throw new NotFoundException('Bot not found.');
+    if (bot.hiredUntil && bot.hiredUntil.getTime() < Date.now()) {
+      throw new HttpException(
+        'Your monthly hire of this bot has ended. Renew it on the marketplace to use it again.',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
     return this.toRuntime(bot, true);
   }
 
@@ -918,7 +926,13 @@ export class BotService implements OnModuleInit {
   // are on and say what they are for.
   private async forAssistant(userId: string): Promise<BotRuntime[]> {
     const bots = await this.prisma.db.bot.findMany({
-      where: { userId, enabled: true, description: { not: null } },
+      where: {
+        userId,
+        enabled: true,
+        description: { not: null },
+        // Not a hired bot whose month ran out.
+        OR: [{ hiredUntil: null }, { hiredUntil: { gt: new Date() } }],
+      },
       include: withIntegrations,
       orderBy: { updatedAt: 'desc' },
       take: maxBotsForAssistant,

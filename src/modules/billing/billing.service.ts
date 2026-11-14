@@ -15,9 +15,10 @@ import {
   type BillingPlanName,
   billingPlanNames,
   billingPlans,
+  type CreditPackName,
   creditPackNames,
   creditPacks,
-  type CreditPackName,
+  currencyFor,
   ngnCountries,
   paidPlanNames,
   prepaidDays,
@@ -47,30 +48,12 @@ import { assertStaff } from '@/middleware';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { ActivityService } from '../activity/activity.service.js';
+import { MarketplaceService } from '../marketplace/marketplace.service.js';
 import { effectivePlan, UsageService } from '../usage/usage.service.js';
 
 type Owner = { user: { id: string; email: string; name: string } };
 
 const dayMs = 24 * 60 * 60_000;
-
-// The currency to show: the one asked for, else naira for people in Nigeria
-// (from the country header our host or CDN adds), else dollars.
-export function currencyFor(
-  headers: IncomingHttpHeaders,
-  asked?: BillingCurrency,
-): BillingCurrency {
-  if (asked) return asked;
-  const country = [
-    headers['cf-ipcountry'],
-    headers['x-vercel-ip-country'],
-    headers['x-country-code'],
-  ]
-    .flat()
-    .find((value): value is string => typeof value === 'string');
-  return country && ngnCountries.includes(country.toUpperCase())
-    ? 'NGN'
-    : 'USD';
-}
 
 // Paying with Bachs: plans (three for individuals, three for businesses), a
 // free trial, extra AI credits, and Bachs's customer portal. Dollar cards
@@ -88,6 +71,7 @@ export class BillingService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly bullmq: BullmqService,
     private readonly betterAuth: BetterAuthService,
+    private readonly marketplace: MarketplaceService,
   ) {}
 
   onModuleInit(): void {
@@ -510,7 +494,20 @@ export class BillingService implements OnModuleInit {
     if (type.startsWith('customer.subscription.')) {
       return this.subscriptionChanged(type, data);
     }
-    if (type === 'checkout.completed') return this.checkoutCompleted(data);
+    if (type === 'checkout.completed') {
+      const meta = (data.metadata ?? {}) as Record<string, unknown>;
+      // A paid bot from the marketplace: the marketplace hands it over.
+      if (meta.kind === 'hire') return this.marketplace.completeHire(data);
+      return this.checkoutCompleted(data);
+    }
+    // A creator's payout setup moved on at Bachs (Connect events).
+    if (type === 'account.updated' || type === 'capability.updated') {
+      const accountId = data.account;
+      if (typeof accountId === 'string') {
+        await this.marketplace.refreshCreator(accountId);
+      }
+      return null;
+    }
     return null;
   }
 

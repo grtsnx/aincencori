@@ -51,6 +51,9 @@ function createService(
     cencori as never,
     {} as never,
     {} as never,
+    {} as never,
+    {} as never,
+    { log: vi.fn() } as never,
   );
   service.onModuleInit();
   const review = (attempt = 1) => {
