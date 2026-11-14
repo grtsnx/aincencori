@@ -62,7 +62,9 @@ export function withCards(
 // Cencori's webhooks send ids without their prefix ("ten_", "act_"), while
 // its API returns them with it. Both forms, to match either.
 function withAndWithout(prefix: string, id: string): string[] {
-  return id.startsWith(prefix) ? [id, id.slice(prefix.length)] : [id, prefix + id];
+  return id.startsWith(prefix)
+    ? [id, id.slice(prefix.length)]
+    : [id, prefix + id];
 }
 
 export interface ApprovalDecision {
@@ -344,7 +346,12 @@ export class ApprovalService {
     if (!userId) return;
 
     // What the step does, read from Cencori (the same values the card shows).
-    let action: { id: string; tool: string; arguments?: unknown; status: string };
+    let action: {
+      id: string;
+      tool: string;
+      arguments?: unknown;
+      status: string;
+    };
     try {
       action = (await this.cencori.sdk.actions.get(actionId)) as typeof action;
     } catch {

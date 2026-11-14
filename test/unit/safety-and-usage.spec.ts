@@ -147,22 +147,25 @@ describe('Cencori webhook for app steps', () => {
 
   const setup = (rules: { tool: string; decision: string }[] = []) => {
     const actions = {
+      // Cencori's API: ids with their prefix, and no tenant or chat.
       get: vi.fn().mockResolvedValue({
         id: 'act_1',
         tool: 'gmail_send_email',
         arguments: { to: 'ada@example.com' },
         status: 'pending',
-        session_id: 'ses_1',
       }),
       approve: vi.fn().mockResolvedValue({}),
       reject: vi.fn().mockResolvedValue({}),
     };
     const pending: unknown[] = [];
     const db = {
-      chatSession: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValue({ id: 'ses_1', userId: 'u1', botId: 'b1' }),
+      chatSession: { findFirst: vi.fn().mockResolvedValue(null) },
+      agentWorkspace: {
+        findFirst: vi.fn((args: { where: { tenantId: { in: string[] } } }) =>
+          Promise.resolve(
+            args.where.tenantId.in.includes('ten_9') ? { userId: 'u1' } : null,
+          ),
+        ),
       },
       toolRule: {
         findMany: vi
@@ -191,7 +194,10 @@ describe('Cencori webhook for app steps', () => {
 
   it('refuses deliveries that are not signed by Cencori', async () => {
     const { service, actions } = setup();
-    const { body } = signed('action.required', { action_id: 'act_1' });
+    const { body } = signed('action.required', {
+      action_id: '1',
+      tenant_id: '9',
+    });
 
     await expect(
       service.cencoriWebhook(body, `sha256=${'0'.repeat(64)}`),
@@ -203,15 +209,17 @@ describe('Cencori webhook for app steps', () => {
     const { service, actions, pending } = setup([
       { tool: 'gmail_send_email', decision: 'deny' },
     ]);
-    // The body names the step only; its details are read from Cencori.
+    // As Cencori sends it: ids without prefixes. The step's details are
+    // read from Cencori, not taken from the body.
     const { body, signature } = signed('action.required', {
-      action_id: 'act_1',
+      action_id: '1',
       tool: 'something_harmless',
+      tenant_id: '9',
     });
 
     await service.cencoriWebhook(body, signature);
 
-    expect(actions.get).toHaveBeenCalledWith('act_1');
+    expect(actions.get).toHaveBeenCalledWith('1');
     expect(actions.reject).toHaveBeenCalledWith(
       'act_1',
       expect.objectContaining({ rejected_by: 'rule' }),
@@ -223,17 +231,25 @@ describe('Cencori webhook for app steps', () => {
   it('puts the step in the inbox when no rule answers it', async () => {
     const { service, actions, pending } = setup();
     const { body, signature } = signed('action.required', {
-      action_id: 'act_1',
+      action_id: '1',
+      tenant_id: '9',
     });
 
     await service.cencoriWebhook(body, signature);
+    // Someone else's tenant: left alone.
+    const stranger = signed('action.required', {
+      action_id: '2',
+      tenant_id: '8',
+    });
+    await service.cencoriWebhook(stranger.body, stranger.signature);
 
     expect(actions.approve).not.toHaveBeenCalled();
+    expect(actions.get).toHaveBeenCalledTimes(1);
     expect(pending).toEqual([
       {
         data: expect.objectContaining({
           userId: 'u1',
-          chatId: 'ses_1',
+          chatId: 'act_1',
           source: 'app',
           state: 'action:act_1',
           items: [
