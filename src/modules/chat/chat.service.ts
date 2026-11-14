@@ -34,11 +34,15 @@ import {
   userFilesPrefix,
 } from '@/config/agents/jobs.js';
 import {
+  learnDelayMs,
+  learnEveryMs,
   maxAgentTurns,
   maxGroupAsks,
   maxGroupBotTurns,
-  learnDelayMs,
-  learnEveryMs,
+  paidPageReadsPerDay,
+  paidSearchesPerDay,
+  thinPageChars,
+  webPriceUsd,
 } from '@/config/agents/limits.js';
 import type {
   ChatHistoryMessageDto,
@@ -57,7 +61,9 @@ import { Prisma } from '@/generated/prisma/client.js';
 import { ActivityService } from '../activity/activity.service.js';
 import { ApprovalService, withCards } from '../approval/approval.service.js';
 import { UsageService } from '../usage/usage.service.js';
+import { ContextDevService } from '@/lib/context-dev/context-dev.service.js';
 import { ExaService } from '@/lib/exa/exa.service.js';
+import { FirecrawlService } from '@/lib/firecrawl/firecrawl.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { SearxngService } from '@/lib/searxng/searxng.service.js';
 import {
@@ -177,6 +183,9 @@ const secretSettings = [
   'INSTABOX_API_KEY',
   'BACHS_API_KEY',
   'EXA_API_KEY',
+  'FIRECRAWL_API_KEY',
+  'FIRECRAWL_API_KEY_2',
+  'CONTEXT_API_KEY',
   'BACHS_WEBHOOK_SECRET',
   'CENCORI_WEBHOOK_SECRET',
 ];
@@ -221,6 +230,8 @@ export class ChatService implements OnModuleInit {
     private readonly activity: ActivityService,
     private readonly exa?: ExaService,
     private readonly searxng?: SearxngService,
+    private readonly firecrawl?: FirecrawlService,
+    private readonly contextDev?: ContextDevService,
   ) {
     this.secrets = secretSettings
       .map((key) => this.config.get<string>(key))
@@ -923,18 +934,38 @@ export class ChatService implements OnModuleInit {
 
   // What the agent's tools can see and do, as the user. Without headers (a
   // routine, no browser) changes that need the user's session are refused.
-  // Searches the live web: Exa first when set up (search built for AI, with
-  // the passages that answer), our own SearXNG otherwise or when Exa fails. If every search fails, the AI
-  // is told plainly (so it says so instead of guessing) and our team gets
-  // the real error. Users never see an outside service's error.
-  private async searchWeb(query: string, freshness?: string): Promise<string> {
+  // Searches the live web: Exa first, then Firecrawl, then Context.dev (each
+  // when set up), and our own free SearXNG last. Paid searches count toward
+  // the user's allowance; past the day's fair use only SearXNG is asked. If
+  // every search fails, the AI is told plainly (so it says so instead of
+  // guessing) and our team gets the real errors. Users never see them.
+  private async searchWeb(
+    userId: string,
+    query: string,
+    freshness?: string,
+  ): Promise<string> {
     const range = freshnessFor(freshness);
+    const paidAllowed =
+      (await this.webCallsToday(userId, 'search')) < paidSearchesPerDay;
     const searches = [
-      { name: 'Exa', service: this.exa },
-      { name: 'SearXNG', service: this.searxng },
-    ].filter((search) => search.service?.isConfigured);
+      { name: 'Exa', service: this.exa, price: webPriceUsd.exa },
+      {
+        name: 'Firecrawl',
+        service: this.firecrawl,
+        price: webPriceUsd.firecrawl,
+      },
+      {
+        name: 'Context.dev',
+        service: this.contextDev,
+        price: webPriceUsd.context,
+      },
+      { name: 'SearXNG', service: this.searxng, price: 0 },
+    ].filter(
+      (search) =>
+        search.service?.isConfigured && (paidAllowed || search.price === 0),
+    );
     const problems: string[] = [];
-    for (const { name, service } of searches) {
+    for (const { name, service, price } of searches) {
       try {
         const results = await service!.search(query, { freshness: range });
         if (problems.length > 0) {
@@ -944,6 +975,7 @@ export class ChatService implements OnModuleInit {
             problems.join('\n'),
           );
         }
+        if (price > 0) this.chargeWeb(userId, 'search', price);
         return formatResults(results);
       } catch (error) {
         problems.push(
@@ -954,21 +986,90 @@ export class ChatService implements OnModuleInit {
     reportProblem(
       'web-search',
       searches.length === 0 ? 'Web search is not set up' : 'Web search failed',
-      problems.join('\n') || 'Set EXA_API_KEY or SEARXNG_URL.',
+      problems.join('\n') ||
+        'Set EXA_API_KEY, FIRECRAWL_API_KEY, CONTEXT_API_KEY or SEARXNG_URL.',
     );
     return 'Web search is not available right now. Tell the user you could not search the web just now; do not guess.';
   }
 
-  // Reads a web page for the AI. The page's own problems (not found, not
-  // text) are told plainly; anything else is hidden and reported.
-  private async readPage(url: string): Promise<string> {
+  // Reads a web page for the AI: our own free reader first. A page it cannot
+  // read, or gets almost no text from (it needs JavaScript), goes to
+  // Firecrawl, then Context.dev, which read it in a browser; those count
+  // toward the user's allowance, within the day's fair use. The page's own
+  // problems are told plainly; anything else is hidden and reported.
+  private async readPage(userId: string, url: string): Promise<string> {
+    let own: string | undefined;
+    let ownProblem: string | undefined;
     try {
-      return await readWebPage(url);
+      own = await readWebPage(url);
+      if (own.length >= thinPageChars) return own;
     } catch (error) {
-      if (error instanceof PageReadError) return error.message;
-      reportProblem('web-fetch', 'Reading a web page failed', error);
-      return 'The page could not be read just now.';
+      if (!(error instanceof PageReadError)) {
+        reportProblem('web-fetch', 'Reading a web page failed', error);
+      }
+      ownProblem =
+        error instanceof PageReadError
+          ? error.message
+          : 'The page could not be read just now.';
     }
+    const paidAllowed =
+      (await this.webCallsToday(userId, 'page-read')) < paidPageReadsPerDay;
+    const readers = paidAllowed
+      ? [
+          { name: 'Firecrawl', service: this.firecrawl },
+          { name: 'Context.dev', service: this.contextDev },
+        ].filter((reader) => reader.service?.isConfigured)
+      : [];
+    const problems: string[] = [];
+    for (const { name, service } of readers) {
+      try {
+        const page = await service!.read(url);
+        if (!page.text) continue;
+        this.chargeWeb(userId, 'page-read', webPriceUsd.read);
+        const text = page.title ? `# ${page.title}\n\n${page.text}` : page.text;
+        return text.length > 20_000
+          ? `${text.slice(0, 20_000)}\n\n(The page goes on; only the start was read.)`
+          : text;
+      } catch (error) {
+        problems.push(
+          `${name}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    if (problems.length > 0 && problems.length === readers.length) {
+      reportProblem(
+        'web-fetch',
+        'Paid page readers failed',
+        problems.join('\n'),
+      );
+    }
+    return own || ownProblem || 'The page could not be read just now.';
+  }
+
+  // Paid web calls (searches or page reads) the user made today.
+  private async webCallsToday(
+    userId: string,
+    kind: 'search' | 'page-read',
+  ): Promise<number> {
+    const day = new Date(new Date().toISOString().slice(0, 10));
+    const row = await this.prisma.db.usageDay
+      .findUnique({
+        where: { userId_day_kind: { userId, day, kind } },
+        select: { calls: true },
+      })
+      .catch(() => null);
+    return row?.calls ?? 0;
+  }
+
+  // A paid web call goes on the user's usage (and their allowance).
+  private chargeWeb(
+    userId: string,
+    kind: 'search' | 'page-read',
+    costUsd: number,
+  ): void {
+    void this.usage
+      .record(userId, kind, { inputTokens: 0, outputTokens: 0, costUsd })
+      .catch(() => undefined);
   }
 
   // The user's plan and this month's AI use, for the AI to read.
@@ -1048,8 +1149,9 @@ export class ChatService implements OnModuleInit {
           : Promise.resolve('Documents are not available.'),
       computer: this.computerFor?.(user.id),
       myPlan: () => this.planText(user.id),
-      webSearch: (query, freshness) => this.searchWeb(query, freshness),
-      readPage: (url) => this.readPage(url),
+      webSearch: (query, freshness) =>
+        this.searchWeb(user.id, query, freshness),
+      readPage: (url) => this.readPage(user.id, url),
       startPlan: (goal) => {
         if (!this.planStarter) throw new Error('Plans are not available.');
         return this.planStarter(user.id, goal);

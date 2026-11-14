@@ -15,7 +15,8 @@ export class UsageDayDto {
   day: string;
 
   @ApiProperty({
-    description: 'chat, routine, plan, group, voice or review',
+    description:
+      'chat, routine, plan, group, voice, computer, search, page-read, learning or review',
     example: 'chat',
   })
   kind: string;

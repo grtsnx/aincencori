@@ -13,28 +13,54 @@ const search = (answer: () => Promise<unknown[]>) => ({
   search: vi.fn(answer),
 });
 
+// The chat's web search, with stand-ins for the searches, the usage meter
+// and today's count of paid searches.
 function chatWith(
   exa?: ReturnType<typeof search>,
   searxng?: ReturnType<typeof search>,
+  more: {
+    firecrawl?: ReturnType<typeof search>;
+    context?: ReturnType<typeof search>;
+    searchesToday?: number;
+  } = {},
 ) {
+  const record = vi.fn().mockResolvedValue(undefined);
   const service = new ChatService(
     { get: () => undefined } as never,
     {} as never,
     {} as never,
-    {} as never,
+    {
+      db: {
+        usageDay: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue({ calls: more.searchesToday ?? 0 }),
+        },
+      },
+    } as never,
     { handle: vi.fn(), add: vi.fn() } as never,
     {} as never,
-    {} as never,
+    { record } as never,
     {} as never,
     { log: vi.fn() } as never,
     exa as never,
     searxng as never,
+    more.firecrawl as never,
+    more.context as never,
   );
-  return (
+  const searchWeb = (
     service as unknown as {
-      searchWeb: (query: string, freshness?: string) => Promise<string>;
+      searchWeb: (
+        userId: string,
+        query: string,
+        freshness?: string,
+      ) => Promise<string>;
     }
   ).searchWeb.bind(service);
+  return Object.assign(
+    (query: string, freshness?: string) => searchWeb('u1', query, freshness),
+    { record },
+  );
 }
 
 const result = {
@@ -156,5 +182,41 @@ describe('Exa', () => {
         date: '2026-11-14',
       },
     ]);
+  });
+});
+
+describe('web search: order, billing and fair use', () => {
+  it('tries Exa, Firecrawl, Context.dev, then SearXNG, and bills only paid ones', async () => {
+    const exa = search(() => Promise.reject(new Error('Exa answered 402')));
+    const firecrawl = search(() => Promise.reject(new Error('out of credit')));
+    const context = search(() => Promise.resolve([result]));
+    const searxng = search(() => Promise.resolve([]));
+    const searchWeb = chatWith(exa, searxng, { firecrawl, context });
+
+    const text = await searchWeb('bitcoin price');
+
+    expect(text).toContain('Bitcoin price today');
+    expect(searxng.search).not.toHaveBeenCalled();
+    // Context.dev answered: one paid search on the user's usage.
+    await vi.waitFor(() =>
+      expect(searchWeb.record).toHaveBeenCalledWith('u1', 'search', {
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0.003,
+      }),
+    );
+    expect(alerts[0].detail).toContain('Exa answered 402');
+  });
+
+  it('after the day’s fair use, asks only our free SearXNG, and bills nothing', async () => {
+    const exa = search(() => Promise.resolve([result]));
+    const searxng = search(() => Promise.resolve([result]));
+    const searchWeb = chatWith(exa, searxng, { searchesToday: 200 });
+
+    await searchWeb('bitcoin price');
+
+    expect(exa.search).not.toHaveBeenCalled();
+    expect(searxng.search).toHaveBeenCalled();
+    expect(searchWeb.record).not.toHaveBeenCalled();
   });
 });

@@ -109,7 +109,7 @@ The assistant and bots can read the user's own plan, AI use and credits (`my_pla
 
 **Web search and alerts**
 
-- Agents search the live web with our own search, not the AI provider's: Exa (a search engine built for AI, with the passages that answer) first when `EXA_API_KEY` is set, otherwise (or when Exa fails) our own SearXNG (`compose.yaml`, `SEARXNG_URL`). Pages are read by our own code from the public internet only. Pages that need JavaScript are opened in the computer's browser (below).
+- Agents search the live web with our own search, not the AI provider's, trying in order: Exa (`EXA_API_KEY`), Firecrawl (`FIRECRAWL_API_KEY`, and `FIRECRAWL_API_KEY_2` used when the first is out of credit), Context.dev (`CONTEXT_API_KEY`), then our own free SearXNG (`SEARXNG_URL`, in `compose.yaml`). Pages are read by our own free reader first; a page it cannot read or gets almost no text from (it needs JavaScript) goes to Firecrawl, then Context.dev. Paid searches and page reads count toward the user's AI allowance (prices in `webPriceUsd`, `src/config/agents/limits.ts`, our estimates) and show as `search` and `page-read` in their usage. Fair use: 200 paid searches and 300 paid page reads per user a day; after that, only SearXNG and our own reader. All users share these accounts' credit.
 - Users never see errors from services we use (AI, search, InstaBox, Bachs, Cencori). They get a plain message; the real error becomes an **alert**: kept for 90 days (`GET /v1/admin/alerts`), emailed to every admin, and posted to `ALERT_WEBHOOK_URL` when set. The same alert within 10 minutes is counted, not sent again.
 
 **The agent's computer** (InstaBox): a Linux machine per user with a terminal (`computer_run_command`), files under `/data/home` (read, list, write), and a Chromium browser: `computer_browse` opens a page and reads it after its JavaScript runs, `computer_screenshot` saves a picture of a page in the user's files.
@@ -211,7 +211,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `DATABASE_URL`                                                               | Postgres connection                                               |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`                       | Optional: live voice calls (LiveKit Cloud). Set all three or none |
-| `EXA_API_KEY`, `SEARXNG_URL`                                                 | Web search: Exa (optional), our SearXNG (local default)           |
+| `EXA_API_KEY`, `FIRECRAWL_API_KEY(_2)`, `CONTEXT_API_KEY`, `SEARXNG_URL`     | Web search and page reading, tried in this order (all optional)   |
 | `BACHS_API_KEY`, `BACHS_WEBHOOK_SECRET`                                      | Optional: payments with Bachs. Without them billing answers 503   |
 | `CENCORI_WEBHOOK_SECRET`                                                     | Optional: lets app steps (Gmail...) follow your tool rules        |
 | `STORAGE_URL`                                                                | Cloudflare R2 (or S3-compatible) for chat files. Required in prod |

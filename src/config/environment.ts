@@ -216,6 +216,9 @@ const environmentSchema = z
     INSTABOX_API_KEY: optionalString(),
     BACHS_API_KEY: optionalString(),
     EXA_API_KEY: optionalString(),
+    FIRECRAWL_API_KEY: optionalString(),
+    FIRECRAWL_API_KEY_2: optionalString(),
+    CONTEXT_API_KEY: optionalString(),
     SEARXNG_URL: optionalString(),
     BACHS_WEBHOOK_SECRET: optionalString(),
     LIVEKIT_API_SECRET: optionalString(),
@@ -371,6 +374,9 @@ export interface Environment {
   INSTABOX_API_KEY?: string;
   BACHS_API_KEY?: string;
   EXA_API_KEY?: string;
+  FIRECRAWL_API_KEY?: string;
+  FIRECRAWL_API_KEY_2?: string;
+  CONTEXT_API_KEY?: string;
   SEARXNG_URL?: string;
   BACHS_WEBHOOK_SECRET?: string;
   LIVEKIT_API_SECRET?: string;

@@ -118,3 +118,21 @@ export const computerOutputChars = 8000;
 export const computerHourUsd =
   computerSize.vcpus * 0.004 + (computerSize.memMiB / 1024) * 0.00225;
 export const computerMinBilledMs = 60_000;
+
+// Web search and page reading with paid services (Exa, Firecrawl, Context.dev)
+// count toward the user's AI allowance at these prices (US dollars, our
+// estimates from each one's price list; check them now and then). Our own
+// SearXNG and our own page reader are free.
+export const webPriceUsd = {
+  exa: 0.007,
+  firecrawl: 0.005,
+  context: 0.003,
+  read: 0.003,
+};
+// Fair use, per user and day. After this, searches use our free SearXNG and
+// pages our own free reader only, so one user cannot use up shared credit.
+export const paidSearchesPerDay = 200;
+export const paidPageReadsPerDay = 300;
+// A page our own reader gets less text than this from probably needs
+// JavaScript: a paid reader (which runs a browser) tries it.
+export const thinPageChars = 400;

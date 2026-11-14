@@ -4,7 +4,9 @@ import { CencoriModule } from './cencori/cencori.module.js';
 import { EmailModule } from './email/email.module.js';
 import { GravatarModule } from './gravatar/gravatar.module.js';
 import { BachsModule } from './bachs/bachs.module.js';
+import { ContextDevModule } from './context-dev/context-dev.module.js';
 import { ExaModule } from './exa/exa.module.js';
+import { FirecrawlModule } from './firecrawl/firecrawl.module.js';
 import { SearxngModule } from './searxng/searxng.module.js';
 import { InstaboxModule } from './instabox/instabox.module.js';
 import { LivekitModule } from './livekit/livekit.module.js';
@@ -22,6 +24,8 @@ import { BullmqModule } from './bullmq/bullmq.module.js';
     InstaboxModule,
     BachsModule,
     ExaModule,
+    FirecrawlModule,
+    ContextDevModule,
     SearxngModule,
     BullmqModule,
     EmailModule,
@@ -37,6 +41,8 @@ import { BullmqModule } from './bullmq/bullmq.module.js';
     InstaboxModule,
     BachsModule,
     ExaModule,
+    FirecrawlModule,
+    ContextDevModule,
     SearxngModule,
     BullmqModule,
     EmailModule,
