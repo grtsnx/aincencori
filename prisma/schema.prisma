@@ -1079,3 +1079,22 @@ model AgentComputer {
 
   @@map("agentComputer")
 }
+
+// Something broke that our team should know about (an outside service
+// failed, a server error, a job that gave up). The same alert within 10
+// minutes adds to its count instead of a new row. Kept 90 days.
+model Alert {
+  id      String   @id
+  // Where it came from: "web-search", "instabox", "server", "jobs"...
+  source  String
+  title   String
+  // The real error, for staff only. Never shown to users.
+  detail  String?
+  count   Int      @default(1)
+  firstAt DateTime @default(now())
+  lastAt  DateTime @default(now())
+
+  @@index([title, lastAt])
+  @@index([lastAt])
+  @@map("alert")
+}

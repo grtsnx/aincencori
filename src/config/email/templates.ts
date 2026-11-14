@@ -6,7 +6,8 @@ export type EmailTemplate =
   | 'verify-email-otp'
   | 'reset-password-otp'
   | 'two-factor'
-  | 'invitation';
+  | 'invitation'
+  | 'alert';
 
 export interface RenderedEmail {
   subject: string;
@@ -76,6 +77,19 @@ export function renderEmail(
           <p><a href="${v.inviteLink}">Accept the invite</a></p>
           <p>If you weren't expecting this, ignore this email.</p>`,
         text: `${v.inviterName} (${v.inviterEmail}) invited you to join ${v.organizationName} on ${v.appName} as ${v.role}.\n\nAccept the invite: ${v.inviteLink}\n\nIf you weren't expecting this, ignore this email.`,
+      };
+    // For admins: something broke. Users only saw a plain message.
+    case 'alert':
+      return {
+        subject: `[${v.appName}] ${v.title}`,
+        html: html`<p><strong>${v.title}</strong></p>
+          <p>Where: ${v.source}</p>
+          <pre style="white-space:pre-wrap">${v.detail}</pre>
+          <p>
+            Users were shown a plain message. More alerts like this in the next
+            10 minutes are counted, not emailed.
+          </p>`,
+        text: `${v.title}\n\nWhere: ${v.source}\n\n${v.detail}\n\nUsers were shown a plain message. More alerts like this in the next 10 minutes are counted, not emailed.`,
       };
   }
 }

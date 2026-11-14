@@ -21,6 +21,20 @@ export {
   type ModelUsage,
 } from './metered-fetch.js';
 export { readRunState, signRunState } from './run-state.js';
-export { sendAlert } from './alert.js';
+export {
+  postToWebhook,
+  reportProblem,
+  sendAlert,
+  useAlertSink,
+  type AlertSink,
+} from './alert.js';
 export { describeCron } from './cron-text.js';
 export { parseSkillFile, skillFileUrl, type SkillFile } from './skill-file.js';
+export {
+  formatResults,
+  freshnessFor,
+  PageReadError,
+  readWebPage,
+  type Freshness,
+  type WebResult,
+} from './web.js';

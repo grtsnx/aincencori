@@ -31,7 +31,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       url?: string;
     }>();
     const response = context.getResponse<unknown>();
-    const { statusCode, message, data } = describeException(exception);
+    const described = describeException(exception);
+    const { statusCode, data } = described;
+    let { message } = described;
     const adapter = this.adapterHost.httpAdapter;
     const requestPath = request.path ?? request.originalUrl ?? request.url;
     const path = requestPath?.split('?', 1)[0];
@@ -56,6 +58,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `Server error on ${request.method ?? ''} ${path ?? ''}`,
         exception instanceof Error ? exception.message : String(exception),
       );
+    }
+
+    // "Not available" errors can name an outside service or a setting.
+    // Users get a plain message; the team gets the real one.
+    if (statusCode === 503) {
+      sendAlert(
+        this.config?.get<string>('ALERT_WEBHOOK_URL'),
+        `Not available: ${request.method ?? ''} ${path ?? ''}`,
+        message,
+      );
+      message = 'This is not available right now. Please try again later.';
     }
 
     if (adapter.isHeadersSent(response)) return;

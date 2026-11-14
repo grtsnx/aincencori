@@ -173,3 +173,4 @@ export {
   StartCheckoutDto,
   StartTrialDto,
 } from './billing/billing.dto.js';
+export { AlertDto } from './alert/alert.dto.js';
