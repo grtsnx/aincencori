@@ -37,7 +37,7 @@ interface Registration {
 
 // Background jobs on BullMQ (Redis or Valkey, REDIS_URL).
 // - A module registers its jobs with handle() in onModuleInit.
-// - API servers only add jobs; worker servers (src/worker.ts) run them.
+// - API servers only add jobs; worker servers (src/workers/jobs.ts) run them.
 // - add() queues a job; schedule() runs one on a timetable (routines).
 // - Failed jobs are retried with growing waits; finished ones are cleaned up.
 // Tests run each job straight away, so they need no Redis.
@@ -148,7 +148,7 @@ export class BullmqService implements OnModuleDestroy {
     return this.testSchedules.get(`${name}:${id}`);
   }
 
-  // Starts running jobs. Only the worker process calls this (src/worker.ts):
+  // Starts running jobs. Only the worker process calls this (src/workers/jobs.ts):
   // API servers only add jobs, so busy jobs never slow down the API.
   async startWorkers(): Promise<string[]> {
     if (this.started) return [...this.handlers.keys()];

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '@/app';
@@ -315,14 +316,15 @@ describe('Chat (e2e)', () => {
       expect(r2.has(key)).toBe(false);
     });
 
-    it('shows the agent computer as not set up without an InstaBox key', async () => {
+    it('shows whether the agent computer is set up, before it is made', async () => {
       const server = app.getHttpServer();
+      const hasKey = Boolean(app.get(ConfigService).get('INSTABOX_API_KEY'));
       const status = await request(server)
         .get('/v1/computer')
         .set('Cookie', cookies)
         .expect(200);
       expect(status.body.data).toEqual({
-        available: false,
+        available: hasKey,
         created: false,
         createdAt: null,
         lastUsedAt: null,
@@ -339,12 +341,14 @@ describe('Chat (e2e)', () => {
 
     it('answers 503 for voice calls until LiveKit is set up', async () => {
       const server = app.getHttpServer();
+      // With LiveKit keys a ticket is made (signed here, no network call).
+      const ready = app.get(ConfigService).get('LIVEKIT_URL') ? 200 : 503;
       await request(server).post('/v1/voice/call').send({}).expect(401);
       await request(server)
         .post('/v1/voice/call')
         .set('Cookie', cookies)
         .send({})
-        .expect(503);
+        .expect(ready);
       await request(server)
         .post('/v1/voice/call')
         .set('Cookie', cookies)
@@ -359,7 +363,7 @@ describe('Chat (e2e)', () => {
         .post('/v1/voice/dictate')
         .set('Cookie', cookies)
         .send({})
-        .expect(503);
+        .expect(ready);
     });
 
     it("keeps other people's chats private", async () => {

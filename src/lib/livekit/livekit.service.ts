@@ -16,7 +16,7 @@ export interface CallTicket {
 
 // Live voice calls on LiveKit (LIVEKIT_URL, LIVEKIT_API_KEY,
 // LIVEKIT_API_SECRET). We only hand out call tickets here; the audio flows
-// between the app and LiveKit, and our voice worker (src/voice-worker.ts)
+// between the app and LiveKit, and our voice worker (src/workers/voice.ts)
 // joins the room to listen and speak.
 @Injectable()
 export class LivekitService {

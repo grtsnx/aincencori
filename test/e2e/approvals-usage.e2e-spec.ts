@@ -261,6 +261,59 @@ describe('Approvals, usage and activity (e2e)', () => {
         .expect(404);
     });
 
+    it('answers app steps from the inbox, and chat steps only in chat', async () => {
+      const approvals = app.get(ApprovalService);
+      await approvals.recordPending({
+        userId,
+        chatId: 'ses_app',
+        source: 'chat',
+        items: [{ callId: 'c1', toolName: 'start_plan', arguments: '{}' }],
+        state: 'chat.state',
+      });
+      // An app step in the same chat waits beside it.
+      await approvals.recordPending({
+        userId,
+        chatId: 'ses_app',
+        source: 'app',
+        items: [
+          { callId: 'act_1', toolName: 'gmail_send_email', arguments: '{}' },
+        ],
+        state: 'action:act_1',
+      });
+      const inbox = await call()
+        .get('/v1/approvals')
+        .set('Cookie', cookies)
+        .expect(200);
+      const bySource = (source: string) =>
+        inbox.body.data.find((a: { source: string }) => a.source === source);
+      expect(inbox.body.data).toHaveLength(2);
+
+      await call()
+        .post(`/v1/approvals/${bySource('chat').id}/answer`)
+        .set('Cookie', cookies)
+        .send({ approved: true })
+        .expect(400);
+      await call()
+        .post(`/v1/approvals/${randomUUID()}/answer`)
+        .set('Cookie', cookies)
+        .send({ approved: true })
+        .expect(404);
+      await call()
+        .post(`/v1/approvals/${bySource('app').id}/answer`)
+        .set('Cookie', cookies)
+        .send({ approved: 'yes' })
+        .expect(400);
+
+      // Cencori only: no secret set here, so its webhook is off.
+      await call()
+        .post('/v1/approvals/cencori')
+        .set('content-type', 'application/json')
+        .send('{"event":"action.required","data":{"action_id":"act_1"}}')
+        .expect((response) => expect([401, 503]).toContain(response.status));
+
+      await db().pendingApproval.deleteMany({ where: { userId } });
+    });
+
     it('shows sign-ins and changes in the activity log', async () => {
       await call()
         .post('/v1/bots')

@@ -1,15 +1,28 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { parseWebhook } from 'cencori';
 import { randomUUID } from 'node:crypto';
 import { approvalCard } from '@/config/agents/cards.js';
 import { pendingApprovalDays } from '@/config/agents/limits.js';
 import {
+  answerByRules,
   chatRuleDays,
   decideTool,
+  deniedToolMessage,
   riskyTools,
   type ToolDecision,
   type ToolRuleView,
 } from '@/config/agents/policy.js';
 import type {
+  AnswerApprovalDto,
   PendingApprovalDto,
   PendingApprovalItemDto,
   SetToolRuleDto,
@@ -17,6 +30,7 @@ import type {
   ToolRuleDto,
 } from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
+import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { ActivityService } from '../activity/activity.service.js';
 
@@ -61,9 +75,13 @@ export class ApprovalService {
     { at: number; rules: ToolRuleView[] }
   >();
 
+  private readonly logger = new Logger(ApprovalService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly activity: ActivityService,
+    private readonly cencori: CencoriService,
+    private readonly config: ConfigService,
   ) {}
 
   // The user's current rules (read fresh, then kept briefly in memory).
@@ -162,20 +180,28 @@ export class ApprovalService {
     await this.prisma.db.pendingApproval.delete({ where: { id } });
   }
 
-  // A run stopped at risky steps: put it in the inbox. A chat has at most
-  // one paused run, so a newer one replaces the older.
+  // A run stopped at risky steps: put it in the inbox.
   async recordPending(input: {
     userId: string;
     chatId: string;
     botId?: string | null;
-    source: 'chat' | 'routine' | 'plan';
+    source: 'chat' | 'routine' | 'plan' | 'app';
     items: Omit<PendingApprovalItemDto, 'card'>[];
     state: string;
   }): Promise<void> {
     const db = this.prisma.db;
     await db.$transaction([
+      // A chat has at most one paused run, so a newer one replaces the
+      // older. App steps wait on their own, each with its own state.
       db.pendingApproval.deleteMany({
-        where: { userId: input.userId, chatId: input.chatId },
+        where:
+          input.source === 'app'
+            ? { userId: input.userId, state: input.state }
+            : {
+                userId: input.userId,
+                chatId: input.chatId,
+                source: { not: 'app' },
+              },
       }),
       db.pendingApproval.create({
         data: {
@@ -201,12 +227,13 @@ export class ApprovalService {
   }
 
   // The user decided (in a chat, or from the inbox): log it, remember the
-  // answer when asked to, and take it out of the inbox.
+  // answer when asked to, and take it out of the inbox. Returns the steps
+  // that were waiting, or null when there is no such entry.
   async resolve(
     userId: string,
     state: string,
     decisions: Record<string, ApprovalDecision>,
-  ): Promise<boolean> {
+  ): Promise<PendingApprovalItemDto[] | null> {
     const db = this.prisma.db;
     const row = await db.pendingApproval.findFirst({
       where: {
@@ -217,11 +244,11 @@ export class ApprovalService {
         },
       },
     });
-    if (!row) return false;
+    if (!row) return null;
     const { count } = await db.pendingApproval.deleteMany({
       where: { id: row.id, userId, state },
     });
-    if (count !== 1) return false;
+    if (count !== 1) return null;
     const items = row.items as unknown as PendingApprovalItemDto[];
     for (const [callId, decision] of Object.entries(decisions)) {
       const item = items.find((candidate) => candidate.callId === callId);
@@ -247,7 +274,148 @@ export class ApprovalService {
             : null,
       });
     }
-    return true;
+    return items;
+  }
+
+  // Cencori runs connected-app tools (Gmail...) itself, and stops at risky
+  // ones (sending email, deleting, paying) until someone answers. It tells
+  // us through a signed webhook; the user's rules answer when they can,
+  // otherwise the step waits in the inbox. The step's details are read from
+  // Cencori, never taken from the webhook body.
+  async cencoriWebhook(
+    rawBody: unknown,
+    signature: string | undefined,
+  ): Promise<void> {
+    const secret = this.config.get<string>('CENCORI_WEBHOOK_SECRET');
+    if (!secret || !this.cencori.isConfigured) {
+      throw new ServiceUnavailableException('Cencori webhooks are not set up.');
+    }
+    const payload =
+      typeof rawBody === 'string'
+        ? await parseWebhook(rawBody, signature, secret)
+        : null;
+    if (!payload) throw new UnauthorizedException('Bad signature.');
+    if (payload.event !== 'action.required') return;
+    const data = payload.data as { action_id?: unknown; id?: unknown };
+    const actionId = [data.action_id, data.id].find(
+      (value): value is string => typeof value === 'string' && value !== '',
+    );
+    if (!actionId) return;
+
+    const action = (await this.cencori.sdk.actions.get(actionId)) as {
+      id: string;
+      tool: string;
+      arguments?: unknown;
+      status: string;
+      session_id?: string | null;
+    };
+    if (action.status !== 'pending' || !action.session_id) return;
+    // Only steps in our users' chats; anything else keeps Cencori's default.
+    const chat = await this.prisma.db.chatSession.findUnique({
+      where: { id: action.session_id },
+      select: { id: true, userId: true, botId: true },
+    });
+    if (!chat) return;
+
+    const item = {
+      callId: action.id,
+      toolName: action.tool,
+      arguments: JSON.stringify(action.arguments ?? {}),
+    };
+    const rules = await this.rulesFor(chat.userId);
+    const { answered } = answerByRules([item], rules, {
+      botId: chat.botId,
+      chatId: chat.id,
+    });
+    const answer = answered[action.id];
+    if (answer) {
+      await this.decideAction(action.id, answer.approved, 'rule');
+      this.logRuleAnswers(chat.userId, [item], answered);
+      return;
+    }
+    await this.recordPending({
+      userId: chat.userId,
+      chatId: chat.id,
+      botId: chat.botId,
+      source: 'app',
+      items: [item],
+      state: `action:${action.id}`,
+    });
+  }
+
+  // The user answers a waiting app step from the inbox. (Steps from chats,
+  // routines and plans are answered in their chat, which then continues.)
+  async answer(
+    auth: AuthSession,
+    id: string,
+    body: AnswerApprovalDto,
+  ): Promise<void> {
+    const userId = auth.user.id;
+    const row = await this.prisma.db.pendingApproval.findFirst({
+      where: { id, userId },
+    });
+    if (!row) throw new NotFoundException('Approval not found.');
+    if (row.source !== 'app') {
+      throw new BadRequestException(
+        'Answer this in its chat, so the chat can continue.',
+      );
+    }
+    const [item] = row.items as unknown as PendingApprovalItemDto[];
+    const resolved = await this.resolve(userId, row.state, {
+      [item.callId]: { approved: body.approved, remember: body.remember },
+    });
+    if (!resolved) throw new NotFoundException('Approval not found.');
+    await this.decideAction(item.callId, body.approved, `user:${userId}`);
+  }
+
+  // Tells Cencori the answer. It runs an approved step once.
+  private async decideAction(
+    actionId: string,
+    approved: boolean,
+    by: string,
+  ): Promise<void> {
+    try {
+      if (approved) {
+        await this.cencori.sdk.actions.approve(actionId, { approved_by: by });
+      } else {
+        await this.cencori.sdk.actions.reject(actionId, {
+          rejected_by: by,
+          reason: deniedToolMessage,
+        });
+      }
+    } catch (error) {
+      const failed = error as { status?: number; statusCode?: number };
+      const status = failed.status ?? failed.statusCode;
+      // Already answered elsewhere, or too late.
+      if (status === 409 || status === 410) {
+        throw new ConflictException(
+          'This step was already answered or has expired.',
+        );
+      }
+      this.logger.error(`Cencori did not take the answer for ${actionId}.`);
+      throw new ServiceUnavailableException(
+        'Cencori did not take the answer. Try again.',
+      );
+    }
+  }
+
+  // Steps the user's rules answered by themselves, for the activity log.
+  logRuleAnswers(
+    userId: string,
+    items: { callId: string; toolName: string }[],
+    answered: Record<string, { approved: boolean }>,
+  ): void {
+    for (const item of items) {
+      const answer = answered[item.callId];
+      if (!answer) continue;
+      this.activity.log({
+        userId,
+        actor: 'rule',
+        action: answer.approved ? 'approval.allowed' : 'approval.denied',
+        target: item.toolName,
+        detail: 'Answered by your tool rules.',
+      });
+    }
   }
 
   // One rule per tool and place: a new answer replaces the old one.

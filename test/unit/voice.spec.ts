@@ -1,4 +1,9 @@
-import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { LivekitService } from '@/lib/livekit/livekit.service.js';
 import { VoiceService } from '@/modules/voice/voice.service.js';
@@ -115,5 +120,72 @@ describe('voice calls', () => {
     expect(
       JSON.parse(claims(defaults.token).roomConfig.agents[0].metadata).language,
     ).toBe('en');
+  });
+});
+
+describe('voice minutes', () => {
+  const setup = (allowanceLeft: () => Promise<void>) => {
+    const usage = {
+      record: vi.fn().mockResolvedValue(undefined),
+      assertAllowance: vi.fn(allowanceLeft),
+    };
+    const service = new VoiceService(
+      new LivekitService(live),
+      {} as never,
+      usage as never,
+    );
+    return { service, usage };
+  };
+
+  it('counts listening and speaking toward the allowance', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, usage } = setup(() => Promise.resolve());
+      const onLimit = vi.fn();
+      const meter = service.meter('u1', onLimit);
+
+      // Two minutes heard, 1,000 characters spoken; other numbers ignored.
+      meter.add({ type: 'stt_metrics', audioDurationMs: 120_000 });
+      meter.add({ type: 'tts_metrics', charactersCount: 1000 });
+      meter.add({ type: 'vad_metrics' });
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(usage.record).toHaveBeenCalledWith('u1', 'voice', {
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: expect.closeTo(2 * 0.0075 + 1000 * 0.000015, 9),
+      });
+      expect(usage.assertAllowance).toHaveBeenCalledWith('u1');
+
+      // A quiet minute saves nothing; the end saves what is left.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(usage.record).toHaveBeenCalledTimes(1);
+      meter.add({ type: 'stt_metrics', audioDurationMs: 30_000 });
+      await meter.stop();
+      expect(usage.record).toHaveBeenCalledTimes(2);
+      expect(onLimit).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends the call once when the allowance is used, not on other errors', async () => {
+    vi.useFakeTimers();
+    try {
+      let answer: Error = new Error('database away');
+      const { service } = setup(() => Promise.reject(answer));
+      const onLimit = vi.fn();
+      const meter = service.meter('u1', onLimit);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(onLimit).not.toHaveBeenCalled();
+
+      answer = new HttpException('Used up.', HttpStatus.PAYMENT_REQUIRED);
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(onLimit).toHaveBeenCalledTimes(1);
+      await meter.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

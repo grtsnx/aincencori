@@ -53,6 +53,13 @@ export const voiceTtsModel = 'fishaudio/s2.1-pro';
 export const voiceTtsVoice = 'fa4c9eb3dccc4806b382b40d61c6b10a';
 // A call ticket works for this long; the call itself can run longer.
 export const voiceTicketSeconds = 10 * 60;
+// What LiveKit Inference charges for those speech models (estimates from
+// livekit.com/pricing/inference): hearing per minute of audio, speaking per
+// character. Check them when the models change.
+export const voiceSttMinuteUsd = 0.0075;
+export const voiceTtsCharUsd = 15 / 1_000_000;
+// How often a live call's speech is counted and the allowance checked.
+export const voiceMeterEveryMs = 60_000;
 
 // Knowledge: documents each user may keep, the biggest file, how much text
 // one document may hold, and how much each search returns.

@@ -203,6 +203,7 @@ const environmentSchema = z
     RECAPTCHA_SECRET_KEY: optionalString(),
     SENDBYTE_API_KEY: optionalString(),
     CENCORI_API_KEY: optionalString(),
+    CENCORI_WEBHOOK_SECRET: optionalString(),
     LIVEKIT_URL: optionalString().pipe(
       z
         .string()
@@ -360,6 +361,7 @@ export interface Environment {
   RECAPTCHA_SECRET_KEY?: string;
   SENDBYTE_API_KEY?: string;
   CENCORI_API_KEY?: string;
+  CENCORI_WEBHOOK_SECRET?: string;
   LIVEKIT_URL?: string;
   LIVEKIT_API_KEY?: string;
   INSTABOX_API_KEY?: string;

@@ -64,8 +64,8 @@ Then open the API docs:
 - Routines: the agent runs a prompt on a schedule ("every morning at 8, summarize the news") in the user's time zone. Each run is saved as a chat. Users can pause, edit, run now, and see past runs.
 - Limits (in `src/config/agents/limits.ts`): 25 routines per user, at most one run every 15 minutes.
 - Background jobs use BullMQ on Redis or Valkey (`REDIS_URL`; locally the Valkey container). Failed jobs retry with growing waits. Tests run jobs straight away and need no Redis.
-- Jobs run on **worker** servers (`src/worker.ts`), never on the API servers, so busy routines don't slow the app. API servers only add jobs. Run as many workers as you need; they share Postgres and Redis.
-- Production: one small image (`docker build --target api .`) runs both. API: the default command. Worker: `node --enable-source-maps dist/worker.js` (it has no web port, so turn off the HTTP health check for it).
+- Jobs run on **worker** servers (`src/workers/jobs.ts`), never on the API servers, so busy routines don't slow the app. API servers only add jobs. Run as many workers as you need; they share Postgres and Redis.
+- Production: one small image (`docker build --target api .`) runs both. API: the default command. Worker: `node --enable-source-maps dist/workers/jobs.js` (it has no web port, so turn off the HTTP health check for it).
 - Emails are sent by the worker too: right away, plus a 5-second sweep for retries.
 
 **MCP server (for outside AI apps)**
@@ -78,7 +78,7 @@ Then open the API docs:
   - **Routines**: jobs that run on their own (`/v1/routines` with `botId`).
   - **Integrations**: apps it can use.
 - Voice typing (LiveKit): `POST /v1/voice/dictate` gives the app a ticket to speak instead of typing. The words appear live in the message box as the user talks, then go to the chat as a normal message. No bot answers on its own.
-- Voice calls (LiveKit): `POST /v1/voice/call` gives the app a ticket to talk live with the default assistant, a bot or a group. The bot starts speaking while it is still writing its answer (first words in about 1.5 seconds in our tests), and the user can talk over it. Our voice worker (`src/voice-worker.ts`, run with `bun run start:voice`) joins the call, turns speech into text, asks the bot through the normal chat, and speaks the answer. A call uses the bot's memories, skills and integrations and is saved as a chat. Needs `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from a LiveKit Cloud project; without them the route answers 503.
+- Voice calls (LiveKit): `POST /v1/voice/call` gives the app a ticket to talk live with the default assistant, a bot or a group. The bot starts speaking while it is still writing its answer (first words in about 1.5 seconds in our tests), and the user can talk over it. Our voice worker (`src/workers/voice.ts`, run with `bun run start:voice`) joins the call, turns speech into text, asks the bot through the normal chat, and speaks the answer. A call uses the bot's memories, skills and integrations and is saved as a chat. Needs `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from a LiveKit Cloud project; without them the route answers 503.
 - Deploying the voice worker: LiveKit Cloud runs it for us (about $0.01 per call minute, nothing when idle). It builds the `Dockerfile`'s last stage on its own machines, so your Mac never builds it. Install the `lk` CLI and sign in (`lk cloud auth`), then:
   - First time: `lk agent create --region us-east --secrets-file .env.production`. This saves the agent's id in `livekit.toml`; commit that file.
   - Each update: `lk agent deploy`.
@@ -101,8 +101,9 @@ Then open the API docs:
 - Approval cards are written by our server, never by the AI: each waiting step has a `card` with a title, one plain sentence and the exact values ("When: Every day at 08:00"), the same in the chat stream and the inbox (`src/config/agents/cards.ts`). Apps show that fixed card with Approve and Decline.
 - Risky tools ask first by default. The user can set a standing rule per tool: allow, ask or never (`/v1/approvals/rules`), everywhere or for one bot. On an approval card they can also tick "for this chat" (a week) or "always" (`remember` in the decision). Reading tools never ask, so people don't tire of approving.
 - Approvals inbox (`/v1/approvals`): steps the AI stopped at, from chats, routines and plans. Each has a signed state; sending it to `POST /v1/chat` with the decisions carries the run on in its chat. Unanswered ones go after 14 days.
+- Connected-app steps (Gmail, Slack...): Cencori runs these tools itself and stops at risky ones (sending email, deleting, paying). It tells us through a signed webhook (`POST /v1/approvals/cencori`). The user's rules answer it when they can; otherwise it waits in the inbox with `source: "app"` and the user answers it there (`POST /v1/approvals/:id/answer`). To turn it on, add a webhook in Cencori for `action.*` events pointing at `<BETTER_AUTH_URL>/v1/approvals/cencori`, and put its signing secret in `CENCORI_WEBHOOK_SECRET`.
 - Outside text (document search results, answers from users' own MCP servers) is marked as untrusted, so the AI treats it as data and not orders. Tools the user turned off are hidden from the AI.
-- Usage (`/v1/usage`): every AI call's tokens and cost are counted per user and day (Cencori reports them; our meter reads them as they stream past). Plans in `src/config/billing/plans.ts` set a monthly allowance (free $2, pro $20, business $100). When it is used, new chats, routines, plans and voice calls answer 402 until next month. Staff see everyone's spend (`/v1/admin/usage`) and set plans (`PUT /v1/admin/users/:id/plan`).
+- Usage (`/v1/usage`): every AI call's tokens and cost are counted per user and day (Cencori reports them; our meter reads them as they stream past). Plans in `src/config/billing/plans.ts` set a monthly allowance (free $2, pro $20, business $100). When it is used, new chats, routines, plans and voice calls answer 402 until next month. Voice calls also count their speech (listening per minute, speaking per character, at LiveKit's prices in `src/config/agents/limits.ts`); a call that runs out of allowance says so and hangs up. Staff see everyone's spend (`/v1/admin/usage`) and set plans (`PUT /v1/admin/users/:id/plan`).
 - Billing with Cencori: when staff set a plan, the user is sent to Cencori as an "end user" with the rate plan of the same slug (create `free`, `pro`, `business` in Cencori's Revenue settings, with your markup). Cencori can then make invoices and charge through Stripe Connect. We keep our own counts too, because Cencori's API can't read one user's usage.
 - Activity log (`/v1/activity`; staff: `/v1/admin/activity`): sign-ins, every change made through the API, each tool the AI ran, approvals asked and answered, and Agent Auth events. Kept a year.
 - Alerts: set `ALERT_WEBHOOK_URL` (Slack or Discord) to get a message when the server errors or a background job fails for good. The same alert is sent at most once every 10 minutes per server.
@@ -166,6 +167,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `DATABASE_URL`                                                               | Postgres connection                                               |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`                       | Optional: live voice calls (LiveKit Cloud). Set all three or none |
+| `CENCORI_WEBHOOK_SECRET`                                                     | Optional: lets app steps (Gmail...) follow your tool rules        |
 | `STORAGE_URL`                                                                | Cloudflare R2 (or S3-compatible) for chat files. Required in prod |
 | `REDIS_URL`                                                                  | Redis or Valkey: sessions, rate limits, jobs. Required in prod    |
 | `BETTER_AUTH_SECRET`                                                         | Signs sessions (32+ characters). Required in production           |
@@ -213,8 +215,8 @@ CI runs all of these on every push, then builds and scans the Docker image. Tagg
 - **The agent computer is untested with a real InstaBox account.** It is tested against a stand-in of InstaBox's API; add `INSTABOX_API_KEY` to try it. Its live screen view needs a personal InstaBox key, so it is left out for now.
 - **Computer cost is an estimate.** We count each command's run time (at least a minute); InstaBox also bills the idle minutes before the machine pauses.
 - **Payments are not wired yet.** Plans are set by staff. Cencori can invoice through Stripe Connect once it is set up in their dashboard; a checkout page is still needed.
-- **Voice minutes (LiveKit) are not counted in usage.** The AI answers in a call are; the speech part is billed by LiveKit.
-- **Approval rules don't apply to app tools run by Cencori (Gmail, Slack...).** Those still ask every time; Cencori decides.
+- **Voice speech prices are estimates.** They are LiveKit's list prices for our two speech models; check them in `limits.ts` when the models change.
+- **App-step approvals are untested with a real Cencori webhook.** Cencori's docs don't list what an `action.required` webhook carries, so we read only the step's id from it (`action_id` or `id`) and fetch the rest from Cencori. Whether the chat waits for the answer, or carries on and the step runs later, is up to Cencori.
 - **Document search matches words, not meaning.** "money back" won't find "refund" unless the words overlap. The bots usually search with good key words, so it works well in practice; search by meaning (embeddings) can be added later.
 - **Scanned PDFs (pictures of text) can't be read.** They are kept and marked failed with the reason.
 

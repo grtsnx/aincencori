@@ -126,6 +126,7 @@ export {
   ListActivityQueryDto,
 } from './activity/activity.dto.js';
 export {
+  AnswerApprovalDto,
   ApprovalCardDto,
   ApprovalFieldDto,
   PendingApprovalDto,

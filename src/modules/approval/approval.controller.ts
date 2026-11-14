@@ -3,12 +3,19 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Param,
+  Post,
   Put,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import {
+  ApiBadRequestResponse,
+  ApiConflictResponse,
   ApiCookieAuth,
+  ApiExcludeEndpoint,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -16,13 +23,14 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import {
+  AnswerApprovalDto,
   PendingApprovalDto,
   SetToolRuleDto,
   ToolInfoDto,
   ToolRuleDto,
 } from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
-import { CurrentSession } from '@/middleware';
+import { CurrentSession, Public } from '@/middleware';
 import { ApprovalService } from './approval.service.js';
 
 @Controller({ path: 'approvals', version: '1' })
@@ -104,5 +112,36 @@ export class ApprovalController {
     @CurrentSession() auth: AuthSession,
   ): Promise<void> {
     return this.approvalService.dismiss(auth, id);
+  }
+
+  @ApiOperation({
+    summary: 'Answer an app step',
+    description: 'Yes or no to a waiting step in a connected app.',
+  })
+  @ApiNoContentResponse({ description: 'Answered' })
+  @ApiBadRequestResponse({ description: 'Answer it in its chat' })
+  @ApiNotFoundResponse({ description: 'Approval not found' })
+  @ApiConflictResponse({ description: 'Already answered or expired' })
+  @Post(':id/answer')
+  @HttpCode(204)
+  answer(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+    @Body() body: AnswerApprovalDto,
+  ): Promise<void> {
+    return this.approvalService.answer(auth, id, body);
+  }
+
+  // Cencori calls this when a connected-app step waits for approval. Not
+  // for apps, so it is left out of the docs.
+  @ApiExcludeEndpoint()
+  @Public()
+  @Post('cencori')
+  @HttpCode(204)
+  cencoriWebhook(
+    @Req() request: Request,
+    @Headers('x-webhook-signature') signature?: string,
+  ): Promise<void> {
+    return this.approvalService.cencoriWebhook(request.body, signature);
   }
 }

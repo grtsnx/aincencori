@@ -21,6 +21,7 @@ import {
   voiceTtsVoice,
 } from '@/config/agents/limits.js';
 import { ChatService } from '@/modules/chat/chat.service.js';
+import { VoiceService } from '@/modules/voice/voice.service.js';
 
 // The voice worker. It joins each voice room (LiveKit) in one of two modes:
 // - call: turns what the user says into text, asks our bot through the
@@ -63,6 +64,24 @@ export default defineAgent({
       return;
     }
     const userId: string = details.userId;
+    const voiceService = app.get(VoiceService, { strict: false });
+
+    // Counts the speech (listening and speaking) toward the user's monthly
+    // allowance, and ends the call once it is used up.
+    const meterSession = (
+      session: voice.AgentSession,
+      onLimit: () => Promise<void>,
+    ) => {
+      const meter = voiceService.meter(userId, () => {
+        void onLimit()
+          .catch(() => undefined)
+          .finally(() => ctx.shutdown('allowance used'));
+      });
+      session.on(voice.AgentSessionEventTypes.MetricsCollected, (event) =>
+        meter.add(event.metrics),
+      );
+      ctx.addShutdownCallback(() => meter.stop());
+    };
 
     // Voice typing: only turn speech into text. LiveKit sends the words to
     // the app as they are heard (first guesses, then the final text), where
@@ -86,6 +105,7 @@ export default defineAgent({
           preemptiveGeneration: { enabled: false },
         },
       });
+      meterSession(typing, () => Promise.resolve());
       await typing.start({
         agent: new Typist({ instructions: '' }),
         room: ctx.room,
@@ -180,6 +200,13 @@ export default defineAgent({
         preemptiveGeneration: { enabled: false },
       },
     });
+    meterSession(session, () =>
+      session
+        .say(
+          "You have used this month's AI allowance, so I have to end the call now. Bye!",
+        )
+        .waitForPlayout(),
+    );
     await session.start({
       agent: new Caller({ instructions: '' }),
       room: ctx.room,

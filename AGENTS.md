@@ -8,6 +8,7 @@ Follow these rules exactly. If a change doesn't fit them, ask before breaking on
 - `src/lib/<name>/`: one outside tool or service we wrap, named after it (Better Auth, Prisma, email, Cencori, BullMQ, Redis, R2, LiveKit). **Exactly 2 files**: `<name>.module.ts`, `<name>.service.ts`. Nothing else in the folder. Helpers, tokens, types or extra services do not go here.
 - `src/dto/<feature>/*.dto.ts`: request and response shapes, grouped by feature. **One** `src/dto/index.ts` at the root exports them all (imported as `@/dto`). No index files inside feature folders.
 - `src/config/`: settings, grouped by topic in folders (`config/auth/`, `config/docs/`, `config/email/`). `environment.ts` and `index.ts` stay at the root.
+- `src/workers/`: processes that run beside the API: `jobs.ts` (background jobs) and `voice.ts` (live voice calls). One file each.
 - `src/middleware/`: guards, decorators, filters, interceptors, and shared helpers in `middleware/commons/` (for example hashing and token encryption).
 - Import shared helpers through `@/middleware` (or a relative path), never `@/middleware/commons/...`: the build cannot rewrite those deep paths and the app crashes on start. `bun run build` checks for it.
 - Anything else goes in `config/` or `middleware/`. Do not create new top-level folders in `src/` without asking.

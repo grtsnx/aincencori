@@ -110,6 +110,11 @@ export function configureApplication(
     express.json({ limit: 25 * 1_048_576 }),
     authBodyLimitError,
   );
+  // Cencori's webhook is checked against its exact bytes, so keep them.
+  server.post(
+    '/v1/approvals/cencori',
+    express.text({ type: '*/*', limit: 1_048_576 }),
+  );
   server.all('/.well-known/{*any}', handler);
 
   app.useGlobalPipes(

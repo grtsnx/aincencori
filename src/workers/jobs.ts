@@ -6,7 +6,7 @@ import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 
 // Starts a worker: it runs background jobs (routines, emails, cleanups) and
 // serves no API routes. Run as many as you need beside the API servers; they
-// share the same Postgres and Redis. Production: `node dist/worker.js`.
+// share the same Postgres and Redis. Production: `node dist/workers/jobs.js`.
 const app = await NestFactory.createApplicationContext(AppModule, {
   logger: new ConsoleLogger({
     json: true,

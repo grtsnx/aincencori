@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsIn,
   IsOptional,
   IsString,
@@ -63,7 +64,12 @@ export class PendingApprovalDto {
   })
   botId: string | null;
 
-  @ApiProperty({ enum: ['chat', 'routine', 'plan'], example: 'routine' })
+  @ApiProperty({
+    enum: ['chat', 'routine', 'plan', 'app'],
+    example: 'routine',
+    description:
+      'app: a step in a connected app (Gmail...); answer it here, not in a chat',
+  })
   source: string;
 
   @ApiProperty({ type: [PendingApprovalItemDto] })
@@ -141,4 +147,20 @@ export class ToolInfoDto {
 
   @ApiProperty({ example: 'Create a scheduled task.' })
   description: string;
+}
+
+// The user's answer to a waiting app step (source "app").
+export class AnswerApprovalDto {
+  @ApiProperty({ example: true, description: 'true runs the step' })
+  @IsBoolean()
+  approved: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['chat', 'always'],
+    example: 'chat',
+    description: 'Remember the answer: for this chat (a week), or always',
+  })
+  @IsOptional()
+  @IsIn(['chat', 'always'])
+  remember?: 'chat' | 'always';
 }

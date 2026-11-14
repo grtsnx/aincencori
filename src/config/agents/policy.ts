@@ -51,6 +51,29 @@ export const deniedToolMessage =
   'The user has turned this tool off in their settings. Do not try again; ' +
   'say what you would have done so they can do it themselves.';
 
+// Steps a run stopped at, split by the user's rules: the ones a rule already
+// answers (allow or deny), and the ones the user must still be asked about.
+// Used for app tools Cencori runs itself (Gmail...), which pause on their own.
+export function answerByRules<T extends { callId: string; toolName: string }>(
+  items: T[],
+  rules: ToolRuleView[],
+  where: { botId?: string | null; chatId?: string | null },
+): {
+  answered: Record<string, { approved: boolean; message?: string }>;
+  ask: T[];
+} {
+  const answered: Record<string, { approved: boolean; message?: string }> = {};
+  const ask: T[] = [];
+  for (const item of items) {
+    const decision = decideTool(rules, item.toolName, where);
+    if (decision === 'allow') answered[item.callId] = { approved: true };
+    else if (decision === 'deny') {
+      answered[item.callId] = { approved: false, message: deniedToolMessage };
+    } else ask.push(item);
+  }
+  return { answered, ask };
+}
+
 // Wraps text from outside (documents, web pages, app results) so the AI
 // treats it as information, never as orders.
 export function untrusted(source: string, text: string): string {
