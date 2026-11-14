@@ -25,6 +25,10 @@ import {
   trialDays,
 } from '@/config/billing/plans.js';
 import type {
+  BillingOverviewDto,
+  GiveCreditsDto,
+  StaffCancelDto,
+  UserBillingDto,
   BillingDto,
   BuyCreditsDto,
   CheckoutDto,
@@ -35,6 +39,11 @@ import type {
 } from '@/dto';
 import { cancelSubscriptionJob } from '@/config/agents/jobs.js';
 import { BachsService } from '@/lib/bachs/bachs.service.js';
+import {
+  type AuthSession,
+  BetterAuthService,
+} from '@/lib/better-auth/better-auth.service.js';
+import { assertStaff } from '@/middleware';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { ActivityService } from '../activity/activity.service.js';
@@ -78,6 +87,7 @@ export class BillingService implements OnModuleInit {
     private readonly activity: ActivityService,
     private readonly config: ConfigService,
     private readonly bullmq: BullmqService,
+    private readonly betterAuth: BetterAuthService,
   ) {}
 
   onModuleInit(): void {
@@ -280,6 +290,178 @@ export class BillingService implements OnModuleInit {
       data: { cancelAtPeriodEnd: true },
     });
     return this.mine(auth);
+  }
+
+  // ── For staff ──────────────────────────────────────────────────────────
+
+  // Plans now, how they are paid, what they bring in a month, and the
+  // latest payments.
+  async overview(
+    auth: AuthSession,
+    headers: IncomingHttpHeaders,
+  ): Promise<BillingOverviewDto> {
+    await this.staff(auth, headers, 'read');
+    const db = this.prisma.db;
+    const [rows, credits, recentEvents] = await Promise.all([
+      db.billingPlan.findMany({
+        where: { plan: { not: 'free' } },
+        select: {
+          plan: true,
+          source: true,
+          status: true,
+          paidUntil: true,
+        },
+      }),
+      db.billingPlan.aggregate({ _sum: { creditUsd: true } }),
+      db.billingEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 50 }),
+    ]);
+    const live = rows.filter((row) => effectivePlan(row) === row.plan);
+    const count = (test: (row: (typeof live)[number]) => boolean) =>
+      live.filter(test).length;
+    const paying = live.filter(
+      (row) => row.source === 'subscription' || row.source === 'prepaid',
+    );
+    return {
+      plans: billingPlanNames
+        .filter((plan) => plan !== 'free')
+        .map((plan) => ({ plan, users: count((row) => row.plan === plan) })),
+      trials: count((row) => row.source === 'trial'),
+      cardPlans: count((row) => row.source === 'subscription'),
+      prepaidPlans: count((row) => row.source === 'prepaid'),
+      pastDue: count((row) => row.status === 'past_due'),
+      monthlyRevenueUsd: paying.reduce(
+        (sum, row) =>
+          sum + (billingPlans[row.plan as BillingPlanName]?.priceUsd ?? 0),
+        0,
+      ),
+      creditsLeftUsd: Math.round((credits._sum.creditUsd ?? 0) * 100) / 100,
+      recentEvents,
+    };
+  }
+
+  // One user's plan, credits and payments.
+  async forUser(
+    auth: AuthSession,
+    headers: IncomingHttpHeaders,
+    userId: string,
+  ): Promise<UserBillingDto> {
+    await this.staff(auth, headers, 'read');
+    await this.userExists(userId);
+    const [billing, events] = await Promise.all([
+      this.mine({ user: { id: userId } }),
+      this.prisma.db.billingEvent.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+    ]);
+    return { ...billing, events };
+  }
+
+  // Gives AI credits (a refund, a thank-you), or takes them back.
+  async giveCredits(
+    auth: AuthSession,
+    headers: IncomingHttpHeaders,
+    userId: string,
+    body: GiveCreditsDto,
+  ): Promise<UserBillingDto> {
+    await this.staff(auth, headers, 'update');
+    await this.userExists(userId);
+    await this.prisma.db.billingPlan.upsert({
+      where: { userId },
+      create: { userId, creditUsd: Math.max(0, body.amountUsd) },
+      update: { creditUsd: { increment: body.amountUsd } },
+    });
+    // Never below nothing.
+    await this.prisma.db.billingPlan.updateMany({
+      where: { userId, creditUsd: { lt: 0 } },
+      data: { creditUsd: 0 },
+    });
+    this.activity.log({
+      userId,
+      actor: `staff:${auth.user.id}`,
+      action: 'billing.credits.given',
+      target: `$${body.amountUsd}`,
+      detail: body.reason,
+    });
+    return this.forUser(auth, headers, userId);
+  }
+
+  // Lets a user have the free trial again.
+  async resetTrial(
+    auth: AuthSession,
+    headers: IncomingHttpHeaders,
+    userId: string,
+  ): Promise<UserBillingDto> {
+    await this.staff(auth, headers, 'update');
+    await this.userExists(userId);
+    await this.prisma.db.billingPlan.updateMany({
+      where: { userId },
+      data: { trialUsedAt: null },
+    });
+    return this.forUser(auth, headers, userId);
+  }
+
+  // Stops a user's card plan: at the end of the paid month, or now.
+  async staffCancel(
+    auth: AuthSession,
+    headers: IncomingHttpHeaders,
+    userId: string,
+    body: StaffCancelDto,
+  ): Promise<UserBillingDto> {
+    await this.staff(auth, headers, 'update');
+    await this.userExists(userId);
+    const row = await this.prisma.db.billingPlan.findUnique({
+      where: { userId },
+    });
+    if (!row?.bachsSubscriptionId || row.source !== 'subscription') {
+      throw new BadRequestException('This user has no card plan.');
+    }
+    if (body.now) {
+      await this.bachs.sdk.subscriptions.cancel(row.bachsSubscriptionId, {
+        cancel_at_period_end: false,
+      });
+      await this.prisma.db.billingPlan.update({
+        where: { userId },
+        data: {
+          plan: 'free',
+          source: 'free',
+          status: 'canceled',
+          paidUntil: null,
+          cancelAtPeriodEnd: false,
+          bachsSubscriptionId: null,
+        },
+      });
+      await this.usage.syncPlan(userId, 'free');
+    } else {
+      await this.bachs.cancelAtPeriodEnd(row.bachsSubscriptionId);
+      await this.prisma.db.billingPlan.update({
+        where: { userId },
+        data: { cancelAtPeriodEnd: true },
+      });
+    }
+    return this.forUser(auth, headers, userId);
+  }
+
+  private staff(
+    auth: AuthSession,
+    headers: IncomingHttpHeaders,
+    permission: 'read' | 'update',
+  ): Promise<void> {
+    return assertStaff(
+      { betterAuth: this.betterAuth, prisma: this.prisma },
+      auth,
+      headers,
+      { billing: [permission] },
+    );
+  }
+
+  private async userExists(userId: string): Promise<void> {
+    const user = await this.prisma.db.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('User not found.');
   }
 
   // What Bachs tells us about payments. Each event is used once.

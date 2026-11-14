@@ -24,6 +24,8 @@ const platformStatements = {
   usage: ['read', 'update'],
   // Read the activity log of every account.
   activity: ['read'],
+  // See payments and plans; give credits or trials, cancel card plans.
+  billing: ['read', 'update'],
 } as const;
 
 // Everything a role (built-in or custom) can be given.
@@ -49,6 +51,7 @@ export const organizationRoles = {
     marketplace: ['review'],
     usage: ['read', 'update'],
     activity: ['read'],
+    billing: ['read', 'update'],
   }),
   member: organizationAc.newRole({
     ...orgMemberAc.statements,

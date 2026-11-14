@@ -150,7 +150,13 @@ export {
 } from './computer/computer.dto.js';
 export {
   BillingDto,
+  BillingEventDto,
+  BillingOverviewDto,
   BuyCreditsDto,
+  GiveCreditsDto,
+  PlanCountDto,
+  StaffCancelDto,
+  UserBillingDto,
   CheckoutDto,
   CreditPackDto,
   PlanPriceDto,

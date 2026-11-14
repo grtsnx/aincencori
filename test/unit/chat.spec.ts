@@ -41,6 +41,7 @@ describe('chat agents', () => {
       'Routines',
     ]);
     expect(agent.tools.map((t) => t.name)).toEqual([
+      'my_plan_and_usage',
       'search_my_documents',
       'start_plan',
       'reply_to_message',
@@ -152,7 +153,9 @@ describe('bot agents', () => {
       'save_memory',
       'reply_to_message',
       'suggest_follow_ups',
+      'my_plan_and_usage',
       'update_my_instructions',
+      'save_skill',
     ]);
     const text = await agent.resolveInstructions(runContext);
     expect(text).toContain('Answer sales emails.');
@@ -265,6 +268,9 @@ describe('bot agents', () => {
     expect(
       (call(agent, 'update_my_instructions') as { needsApproval?: unknown })
         .needsApproval,
+    ).toBeTruthy();
+    expect(
+      (call(agent, 'save_skill') as { needsApproval?: unknown }).needsApproval,
     ).toBeTruthy();
     expect(
       (call(agent, 'save_memory') as { needsApproval?: unknown }).needsApproval,

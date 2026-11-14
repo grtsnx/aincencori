@@ -361,5 +361,83 @@ describe('Billing (e2e)', () => {
         .expect(200);
       expect(ended.body.data).toMatchObject({ plan: 'free', creditUsd: 8 });
     });
+
+    it('lets staff see and manage billing, and no one else', async () => {
+      await call().get('/v1/admin/billing').set('Cookie', cookies).expect(403);
+      await call()
+        .post(`/v1/admin/users/${userId}/credits`)
+        .set('Cookie', cookies)
+        .send({ amountUsd: 100, reason: 'Free money please' })
+        .expect(403);
+
+      await db().user.update({
+        where: { id: userId },
+        data: { role: 'admin' },
+      });
+      // Roles are read at sign-in.
+      await call()
+        .post('/v1/auth/email-otp/send-verification-otp')
+        .send({ email, type: 'sign-in' })
+        .expect(200);
+      const otp = app.get(EmailService).lastTestEmail(email)?.otpCode;
+      const signedIn = await call()
+        .post('/v1/auth/sign-in/email-otp')
+        .send({ email, otp })
+        .expect(200);
+      const admin = signedIn.headers['set-cookie'] as unknown as string[];
+
+      const given = await call()
+        .post(`/v1/admin/users/${userId}/credits`)
+        .set('Cookie', admin)
+        .send({ amountUsd: 5, reason: 'Sorry for the outage' })
+        .expect(200);
+      expect(given.body.data.creditUsd).toBe(13);
+      // Taking back more than they have leaves nothing, not less.
+      const taken = await call()
+        .post(`/v1/admin/users/${userId}/credits`)
+        .set('Cookie', admin)
+        .send({ amountUsd: -100, reason: 'Bought by mistake' })
+        .expect(200);
+      expect(taken.body.data.creditUsd).toBe(0);
+      await call()
+        .post(`/v1/admin/users/${userId}/credits`)
+        .set('Cookie', admin)
+        .send({ amountUsd: 5 })
+        .expect(400);
+
+      const reset = await call()
+        .post(`/v1/admin/users/${userId}/trial/reset`)
+        .set('Cookie', admin)
+        .expect(200);
+      expect(reset.body.data.trialAvailable).toBe(true);
+      // The user's payment history is there.
+      expect(reset.body.data.events.length).toBeGreaterThan(0);
+
+      await call()
+        .post(`/v1/admin/users/${userId}/billing/cancel`)
+        .set('Cookie', admin)
+        .send({})
+        .expect(400);
+      await call()
+        .get('/v1/admin/users/no-such-user/billing')
+        .set('Cookie', admin)
+        .expect(404);
+
+      const overview = await call()
+        .get('/v1/admin/billing')
+        .set('Cookie', admin)
+        .expect(200);
+      expect(
+        overview.body.data.plans.map((p: { plan: string }) => p.plan),
+      ).toEqual(['plus', 'pro', 'team', 'business', 'scale']);
+      expect(overview.body.data).toEqual(
+        expect.objectContaining({
+          trials: expect.any(Number),
+          monthlyRevenueUsd: expect.any(Number),
+          recentEvents: expect.any(Array),
+        }),
+      );
+      await db().user.update({ where: { id: userId }, data: { role: 'user' } });
+    });
   });
 });

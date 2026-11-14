@@ -96,6 +96,10 @@ Then open the API docs:
 - The `/mcp` address is listed in the docs under "MCP".
 - Our own chat agent can manage routines too ("remind me every morning at 8"). Creating, pausing or deleting one asks the user to approve first.
 
+**Teaching a bot a task** (like Grok): walk a bot through a task once in a chat and say "remember how to do this". It calls `save_skill` with general, numbered steps; the user sees the exact steps on an approval card first. A skill with the same name is replaced (a new version), and the usual limits and Cencori safety scan apply. The bot then follows the steps whenever the task comes up, and a routine can run it on a schedule. The learner may also suggest skills after chats.
+
+The assistant and bots can read the user's own plan, AI use and credits (`my_plan_and_usage`), so answers about limits are facts.
+
 **Guardrails** (in `src/config/agents/agents.ts`; every agent, bot and group runs them)
 
 - Secrets in: a message that looks like a key or password (`sk-...`, private keys, AWS keys, `password: ...`) is stopped before the AI reads it.
@@ -122,6 +126,7 @@ Then open the API docs:
   - The customer portal (`POST /v1/billing/portal`) is Bachs's own page for the card, invoices and plan changes. `POST /v1/billing/cancel` stops a card plan at the end of the paid month. Deleting an account cancels its card plan at once.
   - Only Bachs's signed webhooks (`POST /v1/billing/bachs`) change what someone has paid for, never the return from checkout; each event is used once. To turn it on: set `BACHS_API_KEY` (an `sk_sandbox_` key for tests), add a webhook in Bachs pointing at `<BETTER_AUTH_URL>/v1/billing/bachs` for `checkout.completed` and `customer.subscription.*`, and put its secret in `BACHS_WEBHOOK_SECRET`. Plan products are made at Bachs by themselves the first time someone pays.
   - Plans are also sent to Cencori: the user becomes a Cencori "end user" with the rate plan of the same slug, if you made one in Cencori's Revenue settings.
+  - Staff (permission `billing`): an overview of plans, trials, card and naira payers, monthly revenue at list price and the latest payments (`GET /v1/admin/billing`); one user's billing and payments; give or take back AI credits with a reason; reset a user's free trial; cancel a user's card plan now or at month end.
 - Activity log (`/v1/activity`; staff: `/v1/admin/activity`): sign-ins, every change made through the API, each tool the AI ran, approvals asked and answered, and Agent Auth events. Kept a year.
 - Alerts: set `ALERT_WEBHOOK_URL` (Slack or Discord) to get a message when the server errors or a background job fails for good. The same alert is sent at most once every 10 minutes per server.
 
