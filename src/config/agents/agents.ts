@@ -595,9 +595,12 @@ export function createBotAgent(
         name: 'use_skill',
         description: 'Read the steps of one of your skills, then follow them.',
         parameters: z.object({ name: z.string() }),
-        execute: ({ name }) =>
-          bot.skills.find((skill) => skill.name === name)?.instructions ??
-          `No skill named "${name}".`,
+        execute: ({ name }) => {
+          const skill = bot.skills.find((skill) => skill.name === name);
+          return skill
+            ? untrusted('bot skill', skill.instructions)
+            : `No skill named "${name}".`;
+        },
       }) as FunctionTool<ChatContext>,
     );
   }
@@ -618,7 +621,7 @@ export function createBotAgent(
           'fact about themselves or their work, you must call save_memory ' +
           'before you reply. Saying you will remember is not enough.',
         bot.memories.length > 0 &&
-          `What you already know:\n${bot.memories.map((fact) => `- ${fact}`).join('\n')}`,
+          `What you already know:\n${bot.memories.map((fact) => untrusted('bot memory', fact)).join('\n')}`,
         team &&
           'You are answering as part of a team of bots. Answer the question ' +
             'you were asked, fully and briefly; your answer goes back to the ' +
@@ -631,7 +634,10 @@ export function createBotAgent(
         bot.skills.length > 0 &&
           'Your skills (call use_skill with the name to read the steps):\n' +
             bot.skills
-              .map((skill) => `- ${skill.name}: ${skill.description}`)
+              .map(
+                (skill) =>
+                  `- ${untrusted('bot skill description', `${skill.name}: ${skill.description}`)}`,
+              )
               .join('\n'),
         !team && followUpRule,
         truthRules,

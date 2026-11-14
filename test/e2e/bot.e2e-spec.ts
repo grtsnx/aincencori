@@ -137,6 +137,48 @@ describe('Bots (e2e)', () => {
       expect(skills.body.data).toEqual([]);
     });
 
+    it('accepts a bot suggestion only once when requests race', async () => {
+      const db = app.get(PrismaService).db;
+      const bot = await call()
+        .post('/v1/bots')
+        .set('Cookie', cookies)
+        .send({ name: 'Concurrent Bot', instructions: 'Be helpful.' })
+        .expect(200);
+      const botId = bot.body.data.id as string;
+      const userId = (await db.user.findUniqueOrThrow({ where: { email } })).id;
+      const suggestionId = `${botId}-race`;
+      await db.botSuggestion.create({
+        data: {
+          id: suggestionId,
+          botId,
+          userId,
+          kind: 'instructions',
+          title: 'Be precise',
+          reason: 'The user corrected an answer.',
+          instructions: 'Be precise and concise.',
+        },
+      });
+
+      const results = await Promise.all(
+        Array.from({ length: 2 }, () =>
+          call()
+            .post(`/v1/bots/${botId}/suggestions/${suggestionId}/accept`)
+            .set('Cookie', cookies),
+        ),
+      );
+
+      expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
+      const saved = await db.botSuggestion.findUniqueOrThrow({
+        where: { id: suggestionId },
+      });
+      expect(saved.status).toBe('accepted');
+      const updated = await call()
+        .get(`/v1/bots/${botId}`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(updated.body.data.instructions).toBe('Be precise and concise.');
+    });
+
     it('creates a bot with no integrations at all', async () => {
       const created = await call()
         .post('/v1/bots')

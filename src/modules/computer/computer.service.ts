@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
   type OnModuleInit,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { posix } from 'node:path';
 import type { ComputerActions } from '@/config/agents/agents.js';
 import { deleteComputerJob } from '@/config/agents/jobs.js';
 import {
@@ -66,41 +68,45 @@ export class ComputerService implements OnModuleInit {
   // What the agents can do on this user's computer.
   actionsFor(userId: string): ComputerActions {
     return {
-      run: async (command, cwd, timeoutSeconds) => {
-        await this.usage.assertAllowance(userId);
-        const started = Date.now();
-        const result = await this.withMachine(userId, (machineId) =>
-          this.instabox.run(machineId, command, { cwd, timeoutSeconds }),
-        );
-        this.count(userId, Date.now() - started);
-        return [
-          `Exit code: ${result.exitCode}${result.timedOut ? ' (stopped: it ran too long)' : ''}`,
-          result.stdout && `Output:\n${cut(result.stdout)}`,
-          result.stderr && `Errors:\n${cut(result.stderr, 3000)}`,
-          result.truncated && 'Some output was cut by the computer.',
-        ]
-          .filter(Boolean)
-          .join('\n\n');
-      },
-      read: async (path) => {
-        const file = await this.withMachine(userId, (machineId) =>
-          this.instabox.read(machineId, path),
-        );
-        if (file.type === 'dir') {
-          const lines = (file.entries ?? []).map(
-            (entry) =>
-              `${entry.type === 'dir' ? '[folder] ' : ''}${entry.name}${entry.type === 'dir' ? '' : ` (${entry.size} bytes)`}`,
+      run: (command, cwd, timeoutSeconds) =>
+        this.withAllowance(userId, async () => {
+          const result = await this.withMachine(userId, (machineId) =>
+            this.instabox.run(machineId, command, { cwd, timeoutSeconds }),
           );
-          return `Folder ${file.path}:\n${lines.join('\n') || '(empty)'}`;
-        }
-        if (file.binary) return `${file.path} is not a text file.`;
-        return cut(file.content ?? '');
+          return [
+            `Exit code: ${result.exitCode}${result.timedOut ? ' (stopped: it ran too long)' : ''}`,
+            result.stdout && `Output:\n${cut(result.stdout)}`,
+            result.stderr && `Errors:\n${cut(result.stderr, 3000)}`,
+            result.truncated && 'Some output was cut by the computer.',
+          ]
+            .filter(Boolean)
+            .join('\n\n');
+        }),
+      read: async (path) => {
+        const safePath = homePath(path);
+        return this.withAllowance(userId, async () => {
+          const file = await this.withMachine(userId, (machineId) =>
+            this.instabox.read(machineId, safePath),
+          );
+          if (file.type === 'dir') {
+            const lines = (file.entries ?? []).map(
+              (entry) =>
+                `${entry.type === 'dir' ? '[folder] ' : ''}${entry.name}${entry.type === 'dir' ? '' : ` (${entry.size} bytes)`}`,
+            );
+            return `Folder ${file.path}:\n${lines.join('\n') || '(empty)'}`;
+          }
+          if (file.binary) return `${file.path} is not a text file.`;
+          return cut(file.content ?? '');
+        });
       },
       write: async (path, content) => {
-        const size = await this.withMachine(userId, (machineId) =>
-          this.instabox.write(machineId, path, content),
-        );
-        return `Saved ${path} (${size} bytes).`;
+        const safePath = homePath(path);
+        return this.withAllowance(userId, async () => {
+          const size = await this.withMachine(userId, (machineId) =>
+            this.instabox.write(machineId, safePath, content),
+          );
+          return `Saved ${safePath} (${size} bytes).`;
+        });
       },
     };
   }
@@ -123,14 +129,14 @@ export class ComputerService implements OnModuleInit {
       where: { userId: auth.user.id },
     });
     if (!row) throw new NotFoundException('Your agents have no computer yet.');
-    const file = await this.instabox
-      .read(row.machineId, path)
-      .catch((error) => {
+    const file = await this.withAllowance(auth.user.id, () =>
+      this.instabox.read(row.machineId, path).catch((error) => {
         if (error instanceof InstaboxError && error.status === 404) {
           throw new NotFoundException('No such file or folder.');
         }
         throw error;
-      });
+      }),
+    );
     return {
       path: file.path,
       type: file.type,
@@ -173,6 +179,19 @@ export class ComputerService implements OnModuleInit {
       if (error.code !== 'not_found') throw error;
       await this.prisma.db.agentComputer.deleteMany({ where: { userId } });
       return work(await this.machineFor(userId));
+    }
+  }
+
+  private async withAllowance<T>(
+    userId: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    await this.usage.assertAllowance(userId);
+    const started = Date.now();
+    try {
+      return await work();
+    } finally {
+      this.count(userId, Date.now() - started);
     }
   }
 
@@ -225,4 +244,13 @@ export class ComputerService implements OnModuleInit {
       })
       .catch(() => this.logger.error('Computer time was not counted.'));
   }
+}
+
+function homePath(path: string): string {
+  const root = '/data/home';
+  const resolved = posix.resolve(root, path);
+  if (resolved !== root && !resolved.startsWith(`${root}/`)) {
+    throw new BadRequestException(`Computer files are limited to ${root}.`);
+  }
+  return resolved;
 }

@@ -12,6 +12,7 @@ import {
   type Learned,
   secretLike,
 } from '@/config/agents/agents.js';
+import { untrusted } from '@/config/agents/policy.js';
 import {
   deleteBotAgentJob,
   deleteCencoriSessionJob,
@@ -378,11 +379,11 @@ export class BotService implements OnModuleInit {
     const result = await this.cencori.agentRun(
       createLearnerAgent(),
       [
-        `Bot: ${bot.name}`,
-        `Instructions:\n${bot.instructions}`,
-        `Memories:\n${memories.map((m) => `- ${m.text}`).join('\n') || '(none)'}`,
-        `Skills:\n${skills.map((k) => `- ${k.name}: ${k.description}`).join('\n') || '(none)'}`,
-        `Chat:\n${transcript}`,
+        `Bot: ${untrusted('bot name', bot.name)}`,
+        `Instructions:\n${untrusted('bot instructions', bot.instructions)}`,
+        `Memories:\n${memories.map((m) => untrusted('bot memory', m.text)).join('\n') || '(none)'}`,
+        `Skills:\n${skills.map((k) => untrusted('bot skill', `${k.name}: ${k.description}`)).join('\n') || '(none)'}`,
+        `Chat:\n${untrusted('chat transcript', transcript)}`,
       ].join('\n\n'),
       {
         user: chat.userId,
@@ -460,26 +461,123 @@ export class BotService implements OnModuleInit {
     auth: Owner,
   ): Promise<BotSuggestionDto> {
     const suggestion = await this.pendingSuggestion(botId, suggestionId, auth);
-    if (suggestion.kind === 'instructions' && suggestion.instructions) {
-      await this.update(botId, auth, {
-        instructions: suggestion.instructions,
-      });
-    } else if (suggestion.kind === 'skill' && suggestion.skill) {
-      const skill = suggestion.skill as {
-        name: string;
-        description: string;
-        instructions: string;
-      };
-      await this.addSkill(botId, auth, skill);
-    } else {
-      throw new BadRequestException('This suggestion has nothing to apply.');
+    const userId = auth.user.id;
+    let changedBot:
+      | {
+          id: string;
+          name: string;
+          instructions: string;
+          cencoriAgentId: string | null;
+        }
+      | undefined;
+    let accepted: BotSuggestion;
+
+    try {
+      accepted = await this.prisma.db.$transaction(
+        async (tx) => {
+          const claimed = await tx.botSuggestion.updateMany({
+            where: { id: suggestionId, botId, userId, status: 'pending' },
+            data: { status: 'applying' },
+          });
+          if (claimed.count !== 1) {
+            throw new ConflictException('This suggestion was already decided.');
+          }
+
+          if (suggestion.kind === 'instructions' && suggestion.instructions) {
+            changedBot = await tx.bot.update({
+              where: { id: botId },
+              data: { instructions: suggestion.instructions },
+              select: {
+                id: true,
+                name: true,
+                instructions: true,
+                cencoriAgentId: true,
+              },
+            });
+          } else if (suggestion.kind === 'skill' && suggestion.skill) {
+            const skill = suggestion.skill as {
+              name?: unknown;
+              description?: unknown;
+              instructions?: unknown;
+            };
+            if (
+              typeof skill.name !== 'string' ||
+              !/^[a-z0-9-]{1,60}$/.test(skill.name) ||
+              typeof skill.description !== 'string' ||
+              skill.description.length < 1 ||
+              skill.description.length > 300 ||
+              typeof skill.instructions !== 'string' ||
+              skill.instructions.length < 1 ||
+              skill.instructions.length > 20_000
+            ) {
+              throw new BadRequestException(
+                'This suggestion has invalid skill data.',
+              );
+            }
+            if (
+              (await tx.botSkill.count({ where: { botId } })) >= maxSkillsPerBot
+            ) {
+              throw new BadRequestException(
+                `A bot can have up to ${maxSkillsPerBot} skills.`,
+              );
+            }
+            if (
+              await tx.botSkill.findFirst({
+                where: { botId, name: skill.name },
+              })
+            ) {
+              throw new ConflictException(
+                'This bot already has a skill with this name.',
+              );
+            }
+            const cencoriSkillId = await this.scanSkill(undefined, 1, {
+              name: skill.name,
+              description: skill.description,
+              instructions: skill.instructions,
+            });
+            await tx.botSkill.create({
+              data: {
+                id: randomUUID(),
+                botId,
+                name: skill.name,
+                description: skill.description,
+                instructions: skill.instructions,
+                cencoriSkillId,
+              },
+            });
+          } else {
+            throw new BadRequestException(
+              'This suggestion has nothing to apply.',
+            );
+          }
+
+          return tx.botSuggestion.update({
+            where: { id: suggestionId },
+            data: { status: 'accepted' },
+          });
+        },
+        { maxWait: 10_000, timeout: 30_000 },
+      );
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') {
+        throw new ConflictException(
+          'This bot already has a skill with this name.',
+        );
+      }
+      throw error;
     }
-    return toSuggestionDto(
-      await this.prisma.db.botSuggestion.update({
-        where: { id: suggestionId },
-        data: { status: 'accepted' },
-      }),
-    );
+
+    if (changedBot?.cencoriAgentId) {
+      await this.cencori
+        .agentsUpdateConfig(changedBot.cencoriAgentId, {
+          name: changedBot.name,
+          config: { system_prompt: changedBot.instructions },
+        })
+        .catch(() =>
+          this.logger.warn(`Bot ${botId} was not updated at Cencori.`),
+        );
+    }
+    return toSuggestionDto(accepted);
   }
 
   async dismissSuggestion(
@@ -488,10 +586,22 @@ export class BotService implements OnModuleInit {
     auth: Owner,
   ): Promise<BotSuggestionDto> {
     await this.pendingSuggestion(botId, suggestionId, auth);
+    const where = {
+      id: suggestionId,
+      botId,
+      userId: auth.user.id,
+      status: 'pending',
+    };
+    const decided = await this.prisma.db.botSuggestion.updateMany({
+      where,
+      data: { status: 'dismissed' },
+    });
+    if (decided.count !== 1) {
+      throw new ConflictException('This suggestion was already decided.');
+    }
     return toSuggestionDto(
-      await this.prisma.db.botSuggestion.update({
+      await this.prisma.db.botSuggestion.findUniqueOrThrow({
         where: { id: suggestionId },
-        data: { status: 'dismissed' },
       }),
     );
   }

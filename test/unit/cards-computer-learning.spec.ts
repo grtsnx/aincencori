@@ -60,6 +60,14 @@ function fakeInstabox() {
         timedOut: false,
       });
     }
+    if (url.pathname.endsWith('/files') && method === 'GET') {
+      return json(200, {
+        path: '/data/home/a.txt',
+        type: 'file',
+        content: 'hello',
+        truncated: false,
+      });
+    }
     if (method === 'PUT') return json(201, { size: 5, created: true });
     return json(404, { error: { code: 'not_found', message: 'No.' } });
   };
@@ -131,6 +139,32 @@ describe('agent computer', () => {
       '/v1/machines/m_9/files?path=%2Fdata%2Fhome%2Fa.txt&parents=true',
     );
     expect(put?.body).toBe('hello');
+  });
+
+  it('checks and records allowance for every action that wakes the computer', async () => {
+    const { computer, usage } = setup({ machineId: 'm_9' });
+    const actions = computer.actionsFor('user-1');
+
+    await actions.read('/data/home/a.txt');
+    await actions.write('/data/home/a.txt', 'hello');
+    await computer.files({ user: { id: 'user-1' } });
+
+    expect(usage.assertAllowance).toHaveBeenCalledTimes(3);
+    await vi.waitFor(() => expect(usage.record).toHaveBeenCalledTimes(3));
+  });
+
+  it('limits agent file reads and writes to the persistent home folder', async () => {
+    const { computer, calls, usage } = setup({ machineId: 'm_9' });
+    const actions = computer.actionsFor('user-1');
+
+    await expect(actions.read('/etc/passwd')).rejects.toThrow(
+      'Computer files are limited to /data/home.',
+    );
+    await expect(actions.write('../../etc/hosts', 'x')).rejects.toThrow(
+      'Computer files are limited to /data/home.',
+    );
+    expect(calls.some((call) => call.path.includes('/files?'))).toBe(false);
+    expect(usage.assertAllowance).not.toHaveBeenCalled();
   });
 });
 
@@ -247,6 +281,7 @@ describe('bots learning from their chats', () => {
 
     // The chat (with the 👎) went to the learner.
     const input = String(cencori.agentRun.mock.calls[0][1]);
+    expect(input).toContain('<untrusted source="chat transcript">');
     expect(input).toContain('Tola approves every discount above 10%.');
     expect(input).toContain('[the user reacted 👎]');
     // Only the new, safe fact is kept.
