@@ -1,6 +1,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import { reportProblem } from '@/middleware';
 
 // InstaBox's API. Fixed, so not a setting.
 const apiUrl = 'https://api.instabox.sh';
@@ -246,6 +247,19 @@ export class InstaboxService {
       const error = (data as { error?: { code?: string; message?: string } })
         ?.error;
       const code = error?.code ?? 'error';
+      // Our account's limits and InstaBox's own failures are for our team.
+      if (
+        response.status >= 500 ||
+        ['quota_exceeded', 'rate_limited', 'spec_not_allowed'].includes(code) ||
+        response.status === 401 ||
+        response.status === 403
+      ) {
+        reportProblem(
+          'instabox',
+          `InstaBox said no: ${code}`,
+          `${method} ${path} answered ${response.status}: ${error?.message ?? ''}`,
+        );
+      }
       throw new InstaboxError(response.status, code, plainError(code, path));
     }
     return data as T;

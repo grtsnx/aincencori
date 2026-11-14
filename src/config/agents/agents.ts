@@ -10,8 +10,6 @@ import {
   MCPServerStreamableHttp,
   type OutputGuardrail,
   tool,
-  webFetch,
-  webSearch,
 } from 'cencori/agents';
 import { z } from 'zod';
 import {
@@ -47,6 +45,10 @@ export interface ChatContext {
   computer?: ComputerActions;
   // The user's plan, this month's AI use and credits, in plain words.
   myPlan?: () => Promise<string>;
+  // Searches the live web (ours: Brave, else our SearXNG). Plain text.
+  webSearch?: (query: string, freshness?: string) => Promise<string>;
+  // Reads one web page as plain text.
+  readPage?: (url: string) => Promise<string>;
 }
 
 // What agents can do on the user's computer. Each returns plain text.
@@ -376,6 +378,45 @@ export const platformGuide =
   'sessions, organizations and teams. Outside AI apps can connect through ' +
   'MCP or Agent Auth. ';
 
+// The live web, through our own search (not the AI provider's), so it
+// keeps working whatever the provider does. What comes back is outside text.
+const webSearchTool = tool({
+  name: 'web_search',
+  description:
+    'Search the live web. Use it for anything current, specific or not in ' +
+    'your training data (news, prices, weather, people, companies). Returns ' +
+    'titles, links and snippets; read a page with web_fetch for detail.',
+  parameters: z.object({
+    query: z.string().min(1).max(400),
+    freshness: z
+      .string()
+      .max(10)
+      .nullish()
+      .describe('Only recent results: 24h, 7d, 1m or 1y'),
+  }),
+  execute: async ({ query, freshness }, runContext) => {
+    const context = runContext?.context as ChatContext | undefined;
+    if (!context?.webSearch) return 'Web search is not available here.';
+    return untrusted(
+      'web search results',
+      await context.webSearch(query, freshness ?? undefined),
+    );
+  },
+}) as FunctionTool<ChatContext>;
+
+const webFetchTool = tool({
+  name: 'web_fetch',
+  description:
+    'Read a web page as plain text: a link from web_search, or one the ' +
+    'user gave. Use it when the snippet is not enough.',
+  parameters: z.object({ url: z.string().url().max(2000) }),
+  execute: async ({ url }, runContext) => {
+    const context = runContext?.context as ChatContext | undefined;
+    if (!context?.readPage) return 'Reading pages is not available here.';
+    return untrusted(`web page ${url}`, await context.readPage(url));
+  },
+}) as FunctionTool<ChatContext>;
+
 // Reads the user's own plan and AI use, so answers about limits are facts.
 const myPlanAndUsage = tool({
   name: 'my_plan_and_usage',
@@ -632,8 +673,8 @@ export function createBotAgent(
   },
 ): Agent<ChatContext> {
   const tools: FunctionTool<ChatContext>[] = [
-    webSearch(),
-    webFetch(),
+    webSearchTool,
+    webFetchTool,
     tool({
       name: 'save_memory',
       description:
@@ -825,7 +866,7 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'Say where each fact came from. ' +
       'Always finish with a short answer in words, even after showing a widget. ' +
       truthRules,
-    tools: [webSearch(), webFetch()],
+    tools: [webSearchTool, webFetchTool],
     widgets: true,
   });
 

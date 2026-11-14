@@ -88,6 +88,16 @@ services:
       - '127.0.0.1:8025:8025'
     restart: unless-stopped
 
+  # Free web search for our agents: http://localhost:8888 (SEARXNG_URL).
+  searxng:
+    image: searxng/searxng:2026.11.9-57ff753ad
+    container_name: aincencori-searxng
+    ports:
+      - '127.0.0.1:8888:8080'
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   valkey-data:

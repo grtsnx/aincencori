@@ -57,8 +57,19 @@ import { Prisma } from '@/generated/prisma/client.js';
 import { ActivityService } from '../activity/activity.service.js';
 import { ApprovalService, withCards } from '../approval/approval.service.js';
 import { UsageService } from '../usage/usage.service.js';
+import { BraveService } from '@/lib/brave/brave.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
-import { assertStaff, readableImage, signRunState } from '@/middleware';
+import { SearxngService } from '@/lib/searxng/searxng.service.js';
+import {
+  assertStaff,
+  formatResults,
+  freshnessFor,
+  PageReadError,
+  readableImage,
+  readWebPage,
+  reportProblem,
+  signRunState,
+} from '@/middleware';
 import { decideTool, type ToolRuleView } from '@/config/agents/policy.js';
 import { R2Service } from '@/lib/r2/r2.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
@@ -165,6 +176,7 @@ const secretSettings = [
   'LIVEKIT_API_SECRET',
   'INSTABOX_API_KEY',
   'BACHS_API_KEY',
+  'BRAVE_SEARCH_API_KEY',
   'BACHS_WEBHOOK_SECRET',
   'CENCORI_WEBHOOK_SECRET',
 ];
@@ -207,6 +219,8 @@ export class ChatService implements OnModuleInit {
     private readonly usage: UsageService,
     private readonly approvals: ApprovalService,
     private readonly activity: ActivityService,
+    private readonly brave?: BraveService,
+    private readonly searxng?: SearxngService,
   ) {
     this.secrets = secretSettings
       .map((key) => this.config.get<string>(key))
@@ -909,6 +923,54 @@ export class ChatService implements OnModuleInit {
 
   // What the agent's tools can see and do, as the user. Without headers (a
   // routine, no browser) changes that need the user's session are refused.
+  // Searches the live web: Brave first when set up (better results), our
+  // own SearXNG otherwise or when Brave fails. If every search fails, the AI
+  // is told plainly (so it says so instead of guessing) and our team gets
+  // the real error. Users never see an outside service's error.
+  private async searchWeb(query: string, freshness?: string): Promise<string> {
+    const range = freshnessFor(freshness);
+    const searches = [
+      { name: 'Brave', service: this.brave },
+      { name: 'SearXNG', service: this.searxng },
+    ].filter((search) => search.service?.isConfigured);
+    const problems: string[] = [];
+    for (const { name, service } of searches) {
+      try {
+        const results = await service!.search(query, { freshness: range });
+        if (problems.length > 0) {
+          reportProblem(
+            'web-search',
+            `${problems[0].split(':')[0]} search failed; another search answered`,
+            problems.join('\n'),
+          );
+        }
+        return formatResults(results);
+      } catch (error) {
+        problems.push(
+          `${name}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    reportProblem(
+      'web-search',
+      searches.length === 0 ? 'Web search is not set up' : 'Web search failed',
+      problems.join('\n') || 'Set BRAVE_SEARCH_API_KEY or SEARXNG_URL.',
+    );
+    return 'Web search is not available right now. Tell the user you could not search the web just now; do not guess.';
+  }
+
+  // Reads a web page for the AI. The page's own problems (not found, not
+  // text) are told plainly; anything else is hidden and reported.
+  private async readPage(url: string): Promise<string> {
+    try {
+      return await readWebPage(url);
+    } catch (error) {
+      if (error instanceof PageReadError) return error.message;
+      reportProblem('web-fetch', 'Reading a web page failed', error);
+      return 'The page could not be read just now.';
+    }
+  }
+
   // The user's plan and this month's AI use, for the AI to read.
   private async planText(userId: string): Promise<string> {
     const [usage, row] = await Promise.all([
@@ -986,6 +1048,8 @@ export class ChatService implements OnModuleInit {
           : Promise.resolve('Documents are not available.'),
       computer: this.computerFor?.(user.id),
       myPlan: () => this.planText(user.id),
+      webSearch: (query, freshness) => this.searchWeb(query, freshness),
+      readPage: (url) => this.readPage(url),
       startPlan: (goal) => {
         if (!this.planStarter) throw new Error('Plans are not available.');
         return this.planStarter(user.id, goal);
@@ -1258,7 +1322,13 @@ export class ChatService implements OnModuleInit {
           }
           controller.enqueue(
             encoder.encode(
-              `${name === 'approval' ? withApprovalCards(event) : event}\n\n`,
+              `${
+                name === 'approval'
+                  ? withApprovalCards(event)
+                  : name === 'error'
+                    ? plainError(event)
+                    : event
+              }\n\n`,
             ),
           );
         }
@@ -1411,6 +1481,24 @@ export function agentToolArgs(
 
 // What Cencori's chat stream says when a guardrail stops a message.
 const blockedMessage = 'That request was blocked.';
+
+// What users see when the AI service fails. The real error (which can name
+// an outside service, a key or a limit) goes to our team instead.
+const failedMessage =
+  'Something went wrong on our side and we have been told. Please try again in a moment.';
+
+// An error event as users may see it: our guardrail's own words, or a plain
+// message (the real error is reported to the team).
+function plainError(event: string): string {
+  const { data } = parseEvent(event);
+  if (data.message === blockedMessage) return event;
+  reportProblem(
+    'ai',
+    'A chat answer failed',
+    typeof data.message === 'string' ? data.message : JSON.stringify(data),
+  );
+  return `event: error\ndata: ${JSON.stringify({ message: failedMessage })}`;
+}
 
 // An approval event with our fixed card added to each waiting step, so
 // every app shows the same card (see config/agents/cards.ts).

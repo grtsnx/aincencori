@@ -1,0 +1,13 @@
+# Our own SearXNG: the free web search our agents use (see compose.yaml).
+# Only our API calls it, so the public-instance limiter is off. The secret
+# comes from SEARXNG_SECRET in production.
+use_default_settings: true
+server:
+  secret_key: 'local-dev-only-change-me'
+  limiter: false
+  image_proxy: false
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json
