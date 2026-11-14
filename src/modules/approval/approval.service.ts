@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { approvalCard } from '@/config/agents/cards.js';
 import { pendingApprovalDays } from '@/config/agents/limits.js';
 import {
   chatRuleDays,
@@ -30,7 +31,19 @@ const toolDescriptions: Record<(typeof riskyTools)[number], string> = {
   delete_routine: 'Delete a scheduled task.',
   start_plan: 'Start a plan that runs in the background.',
   update_my_instructions: 'Let a bot rewrite its own instructions.',
+  computer_run_command: 'Run a command on your cloud computer.',
+  computer_write_file: 'Write a file on your cloud computer.',
 };
+
+// Each waiting step with the card our code writes for it (see cards.ts).
+export function withCards(
+  items: Omit<PendingApprovalItemDto, 'card'>[],
+): PendingApprovalItemDto[] {
+  return items.map((item) => ({
+    ...item,
+    card: approvalCard(item.toolName, item.arguments),
+  }));
+}
 
 export interface ApprovalDecision {
   approved: boolean;
@@ -136,7 +149,7 @@ export class ApprovalService {
     });
     return rows.map((row) => ({
       ...row,
-      items: row.items as unknown as PendingApprovalItemDto[],
+      items: withCards(row.items as unknown as PendingApprovalItemDto[]),
     }));
   }
 
@@ -156,7 +169,7 @@ export class ApprovalService {
     chatId: string;
     botId?: string | null;
     source: 'chat' | 'routine' | 'plan';
-    items: PendingApprovalItemDto[];
+    items: Omit<PendingApprovalItemDto, 'card'>[];
     state: string;
   }): Promise<void> {
     const db = this.prisma.db;
@@ -171,7 +184,7 @@ export class ApprovalService {
           chatId: input.chatId,
           botId: input.botId ?? null,
           source: input.source,
-          items: input.items as never,
+          items: withCards(input.items) as never,
           state: input.state,
         },
       }),

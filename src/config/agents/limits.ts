@@ -89,3 +89,23 @@ export const activityRetentionDays = 365;
 
 // How long a step waits in the approvals inbox before it is dropped, in days.
 export const pendingApprovalDays = 14;
+
+// A bot learns from a chat once it has been quiet this long, at most once
+// per learnEveryMs per chat.
+export const learnDelayMs = 10 * 60_000;
+export const learnEveryMs = 15 * 60_000;
+// Most memories one learning run adds, and most suggestions waiting per bot.
+export const maxLearnedMemories = 5;
+export const maxPendingSuggestions = 5;
+
+// The user's cloud computer (InstaBox): its size, how long it waits idle
+// before pausing, and how much of a command's output the AI sees.
+export const computerSize = { vcpus: 2, memMiB: 4096 };
+export const computerIdleSeconds = 300;
+export const computerOutputChars = 8000;
+// What the computer costs us an hour at that size (InstaBox: $0.004 per vCPU
+// and $0.00225 per GiB of memory an hour). Each command is counted for its
+// run time, at least a minute, since the machine stays up a little after.
+export const computerHourUsd =
+  computerSize.vcpus * 0.004 + (computerSize.memMiB / 1024) * 0.00225;
+export const computerMinBilledMs = 60_000;

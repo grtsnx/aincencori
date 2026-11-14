@@ -212,6 +212,7 @@ const environmentSchema = z
         .optional(),
     ),
     LIVEKIT_API_KEY: optionalString(),
+    INSTABOX_API_KEY: optionalString(),
     LIVEKIT_API_SECRET: optionalString(),
     SMTP_HOST: optionalString(),
     SMTP_PORT: z.preprocess(
@@ -361,6 +362,7 @@ export interface Environment {
   CENCORI_API_KEY?: string;
   LIVEKIT_URL?: string;
   LIVEKIT_API_KEY?: string;
+  INSTABOX_API_KEY?: string;
   LIVEKIT_API_SECRET?: string;
   SMTP_HOST: string;
   SMTP_PORT: number;

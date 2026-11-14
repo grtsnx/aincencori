@@ -7,11 +7,21 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { deleteBotAgentJob } from '@/config/agents/jobs.js';
+import {
+  createLearnerAgent,
+  type Learned,
+  secretLike,
+} from '@/config/agents/agents.js';
+import {
+  deleteBotAgentJob,
+  deleteCencoriSessionJob,
+  learnFromChatJob,
+} from '@/config/agents/jobs.js';
 import {
   maxBotsForAssistant,
   maxBotsPerUser,
   maxMemoriesPerBot,
+  maxPendingSuggestions,
   maxSkillsPerBot,
   memoriesInPrompt,
 } from '@/config/agents/limits.js';
@@ -19,6 +29,7 @@ import type {
   BotDto,
   BotMemoryDto,
   BotSkillDto,
+  BotSuggestionDto,
   CreateBotDto,
   CreateBotMemoryDto,
   CreateBotSkillDto,
@@ -26,13 +37,20 @@ import type {
   UpdateBotDto,
   UpdateBotSkillDto,
 } from '@/dto';
-import type { Bot, BotSkill, Integration } from '@/generated/prisma/client.js';
+import type {
+  Bot,
+  BotSkill,
+  BotSuggestion,
+  Integration,
+} from '@/generated/prisma/client.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { type BotRuntime, ChatService } from '../chat/chat.service.js';
 import { DocumentService } from '../document/document.service.js';
 import { IntegrationService } from '../integration/integration.service.js';
+import { ActivityService } from '../activity/activity.service.js';
+import { UsageService } from '../usage/usage.service.js';
 
 interface Owner {
   user: { id: string };
@@ -67,6 +85,8 @@ export class BotService implements OnModuleInit {
     private readonly integrations: IntegrationService,
     private readonly chat: ChatService,
     private readonly documents: DocumentService,
+    private readonly usage: UsageService,
+    private readonly activity: ActivityService,
   ) {}
 
   onModuleInit(): void {
@@ -75,6 +95,10 @@ export class BotService implements OnModuleInit {
       one: (userId, botId) => this.runtime(userId, botId),
       forAssistant: (userId) => this.forAssistant(userId),
     });
+    this.bullmq.handle<{ sessionId: string }>(
+      learnFromChatJob,
+      ({ sessionId }) => this.learn(sessionId),
+    );
     this.bullmq.handle<{ agentId: string }>(
       deleteBotAgentJob,
       async ({ agentId }) => {
@@ -267,9 +291,15 @@ export class BotService implements OnModuleInit {
     if (count === 0) throw new NotFoundException('Memory not found.');
   }
 
-  // Saves a fact. When the bot is full, the oldest fact makes room.
+  // Saves a fact. When the bot is full, the oldest fact makes room. A fact
+  // it already has is not saved twice.
   private async remember(botId: string, text: string): Promise<BotMemoryDto> {
     const db = this.prisma.db;
+    const same = await db.botMemory.findFirst({
+      where: { botId, text: { equals: text.trim(), mode: 'insensitive' } },
+      select: { id: true, text: true, createdAt: true },
+    });
+    if (same) return same;
     const memory = await db.botMemory.create({
       data: { id: randomUUID(), botId, text },
       select: { id: true, text: true, createdAt: true },
@@ -286,6 +316,202 @@ export class BotService implements OnModuleInit {
       });
     }
     return memory;
+  }
+
+  // ── Learning: the bot keeps what it learns and suggests changes ─────
+
+  // Reads a bot chat's new messages after it goes quiet. Lasting facts (who
+  // the team is, how it works) become memories at once; changes to the bot
+  // itself wait as suggestions until the user accepts them.
+  private async learn(sessionId: string): Promise<void> {
+    if (!this.cencori.isConfigured) return;
+    const db = this.prisma.db;
+    const chat = await db.chatSession.findUnique({ where: { id: sessionId } });
+    if (!chat?.botId || chat.groupId) return;
+    const bot = await db.bot.findFirst({
+      where: { id: chat.botId, userId: chat.userId },
+    });
+    if (!bot) return;
+    const messages = await db.chatMessage.findMany({
+      where: {
+        sessionId,
+        ...(chat.learnedAt && { createdAt: { gt: chat.learnedAt } }),
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 60,
+      include: { reactions: { select: { emoji: true } } },
+    });
+    if (!messages.some((message) => message.role === 'user')) return;
+    // Out of allowance: it learns later, once there is some again.
+    try {
+      await this.usage.assertAllowance(chat.userId);
+    } catch {
+      return;
+    }
+    const [memories, skills, pending] = await Promise.all([
+      db.botMemory.findMany({
+        where: { botId: bot.id },
+        orderBy: { createdAt: 'desc' },
+        take: memoriesInPrompt,
+        select: { text: true },
+      }),
+      db.botSkill.findMany({
+        where: { botId: bot.id },
+        select: { name: true, description: true },
+      }),
+      db.botSuggestion.count({ where: { botId: bot.id, status: 'pending' } }),
+    ]);
+    const transcript = messages
+      .map((message) => {
+        const who =
+          message.role === 'user'
+            ? 'User'
+            : message.role === 'human'
+              ? 'Our team'
+              : 'Bot';
+        const reacted = message.reactions.length
+          ? ` [the user reacted ${message.reactions.map((r) => r.emoji).join(' ')}]`
+          : '';
+        return `${who}: ${message.text.slice(0, 2000)}${reacted}`;
+      })
+      .join('\n');
+    const result = await this.cencori.agentRun(
+      createLearnerAgent(),
+      [
+        `Bot: ${bot.name}`,
+        `Instructions:\n${bot.instructions}`,
+        `Memories:\n${memories.map((m) => `- ${m.text}`).join('\n') || '(none)'}`,
+        `Skills:\n${skills.map((k) => `- ${k.name}: ${k.description}`).join('\n') || '(none)'}`,
+        `Chat:\n${transcript}`,
+      ].join('\n\n'),
+      {
+        user: chat.userId,
+        metadata: { userId: chat.userId, botId: bot.id, kind: 'learning' },
+        maxTurns: 2,
+      },
+    );
+    // The learner's own little chat is not kept.
+    await this.bullmq
+      .add(deleteCencoriSessionJob, { sessionId: result.sessionId })
+      .catch(() => undefined);
+    const output = result.finalOutput as Learned | undefined;
+    const known = new Set(memories.map((m) => m.text.trim().toLowerCase()));
+    let kept = 0;
+    for (const fact of output?.memories ?? []) {
+      const text = fact.trim();
+      if (!text || secretLike.test(text) || known.has(text.toLowerCase())) {
+        continue;
+      }
+      known.add(text.toLowerCase());
+      await this.remember(bot.id, text);
+      kept++;
+    }
+    let suggested = 0;
+    for (const idea of output?.suggestions ?? []) {
+      if (pending + suggested >= maxPendingSuggestions) break;
+      const body =
+        idea.kind === 'instructions' ? idea.instructions : idea.skill;
+      if (!body || secretLike.test(JSON.stringify(idea))) continue;
+      await db.botSuggestion.create({
+        data: {
+          id: randomUUID(),
+          botId: bot.id,
+          userId: chat.userId,
+          kind: idea.kind,
+          title: idea.title,
+          reason: idea.reason,
+          instructions:
+            idea.kind === 'instructions' ? (idea.instructions ?? null) : null,
+          skill: idea.kind === 'skill' ? (idea.skill as never) : undefined,
+        },
+      });
+      suggested++;
+    }
+    await db.chatSession.update({
+      where: { id: sessionId },
+      data: { learnedAt: messages[messages.length - 1].createdAt },
+    });
+    if (kept + suggested > 0) {
+      this.activity.log({
+        userId: chat.userId,
+        actor: `agent:${bot.name}`,
+        action: 'bot.learned',
+        target: bot.id,
+        detail: `${kept} new facts, ${suggested} suggestions.`,
+      });
+    }
+  }
+
+  async suggestions(botId: string, auth: Owner): Promise<BotSuggestionDto[]> {
+    await this.own(botId, auth.user.id);
+    const rows = await this.prisma.db.botSuggestion.findMany({
+      where: { botId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 50,
+    });
+    return rows.map(toSuggestionDto);
+  }
+
+  // The user accepts: the change is made exactly as suggested (the skill
+  // gets the usual safety scan).
+  async acceptSuggestion(
+    botId: string,
+    suggestionId: string,
+    auth: Owner,
+  ): Promise<BotSuggestionDto> {
+    const suggestion = await this.pendingSuggestion(botId, suggestionId, auth);
+    if (suggestion.kind === 'instructions' && suggestion.instructions) {
+      await this.update(botId, auth, {
+        instructions: suggestion.instructions,
+      });
+    } else if (suggestion.kind === 'skill' && suggestion.skill) {
+      const skill = suggestion.skill as {
+        name: string;
+        description: string;
+        instructions: string;
+      };
+      await this.addSkill(botId, auth, skill);
+    } else {
+      throw new BadRequestException('This suggestion has nothing to apply.');
+    }
+    return toSuggestionDto(
+      await this.prisma.db.botSuggestion.update({
+        where: { id: suggestionId },
+        data: { status: 'accepted' },
+      }),
+    );
+  }
+
+  async dismissSuggestion(
+    botId: string,
+    suggestionId: string,
+    auth: Owner,
+  ): Promise<BotSuggestionDto> {
+    await this.pendingSuggestion(botId, suggestionId, auth);
+    return toSuggestionDto(
+      await this.prisma.db.botSuggestion.update({
+        where: { id: suggestionId },
+        data: { status: 'dismissed' },
+      }),
+    );
+  }
+
+  private async pendingSuggestion(
+    botId: string,
+    suggestionId: string,
+    auth: Owner,
+  ): Promise<BotSuggestion> {
+    await this.own(botId, auth.user.id);
+    const suggestion = await this.prisma.db.botSuggestion.findFirst({
+      where: { id: suggestionId, botId },
+    });
+    if (!suggestion) throw new NotFoundException('Suggestion not found.');
+    if (suggestion.status !== 'pending') {
+      throw new ConflictException(
+        `This suggestion was already ${suggestion.status}.`,
+      );
+    }
+    return suggestion;
   }
 
   // ── Skills: playbooks the bot can run ────────────────────────────────
@@ -640,5 +866,18 @@ function toSkillDto(skill: BotSkill): BotSkillDto {
     version: skill.version,
     createdAt: skill.createdAt,
     updatedAt: skill.updatedAt,
+  };
+}
+
+function toSuggestionDto(row: BotSuggestion): BotSuggestionDto {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    reason: row.reason,
+    instructions: row.instructions,
+    skill: (row.skill as BotSuggestionDto['skill']) ?? null,
+    status: row.status,
+    createdAt: row.createdAt,
   };
 }

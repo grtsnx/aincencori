@@ -20,6 +20,8 @@ const actionWords = new Set([
   'release',
   'reply',
   'run',
+  'accept',
+  'dismiss',
 ]);
 
 const verbs: Record<string, string> = {

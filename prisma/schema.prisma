@@ -450,6 +450,8 @@ model ChatSession {
   botId     String?
   // The group of bots this chat is with, if any.
   groupId   String?
+  // When its bot last learned from it (see BotSuggestion).
+  learnedAt DateTime?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   messages  ChatMessage[]
@@ -462,9 +464,9 @@ model ChatSession {
 // Every message of a chat, kept by us. Cencori only answers; the history is
 // ours, so we can switch AI providers without losing it.
 model ChatMessage {
-  id          String        @id
+  id          String            @id
   sessionId   String
-  session     ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session     ChatSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   // "user", "agent" or "human" (a person on our team).
   role        String
   // Which agent answered, for example "Agentic".
@@ -474,11 +476,14 @@ model ChatMessage {
   widgets     Json?
   // Names of attached files. The files themselves are not kept.
   attachments Json?
+  // Next steps the agent offered, shown as buttons: ["Draft the email"].
+  followUps   Json?
   // The earlier message this one replies to (quoted, like in WhatsApp).
   replyToId   String?
-  replyTo     ChatMessage?  @relation("Reply", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies     ChatMessage[] @relation("Reply")
-  createdAt   DateTime      @default(now())
+  replyTo     ChatMessage?      @relation("Reply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     ChatMessage[]     @relation("Reply")
+  reactions   MessageReaction[]
+  createdAt   DateTime          @default(now())
 
   @@index([sessionId, createdAt])
   @@index([replyToId])
@@ -570,6 +575,7 @@ model Bot {
   documents         BotDocument[]
   plans             Plan[]
   listing           Listing?
+  suggestions       BotSuggestion[]
 
   @@index([userId, createdAt])
   @@map("bot")
@@ -989,4 +995,52 @@ model ActivityLog {
   @@index([action, createdAt])
   @@index([createdAt])
   @@map("activityLog")
+}
+
+// An emoji reaction to a message, like in WhatsApp. One per person per
+// message; a new one replaces the old.
+model MessageReaction {
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  emoji     String
+  createdAt DateTime    @default(now())
+
+  @@id([messageId, userId])
+  @@map("messageReaction")
+}
+
+// A change a bot suggests to itself after learning from its chats. Nothing
+// changes until the user accepts it.
+model BotSuggestion {
+  id           String   @id
+  botId        String
+  bot          Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  userId       String
+  // "instructions" (new instructions) or "skill" (a new skill).
+  kind         String
+  title        String
+  // Why, from what happened in the chats.
+  reason       String
+  // For "instructions": the full new instructions.
+  instructions String?
+  // For "skill": { name, description, instructions }.
+  skill        Json?
+  // "pending", "accepted" or "dismissed".
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+
+  @@index([botId, status, createdAt])
+  @@map("botSuggestion")
+}
+
+// A user's own computer in the cloud (an InstaBox machine), where their
+// agents run commands and keep files. Made the first time an agent needs it.
+model AgentComputer {
+  userId     String   @id
+  machineId  String   @unique
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@map("agentComputer")
 }

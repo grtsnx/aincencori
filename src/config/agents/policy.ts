@@ -19,6 +19,8 @@ export const riskyTools = [
   'delete_routine',
   'start_plan',
   'update_my_instructions',
+  'computer_run_command',
+  'computer_write_file',
 ] as const;
 
 // How long "allow for this chat" lasts.

@@ -22,3 +22,4 @@ export {
 } from './metered-fetch.js';
 export { readRunState, signRunState } from './run-state.js';
 export { sendAlert } from './alert.js';
+export { describeCron } from './cron-text.js';

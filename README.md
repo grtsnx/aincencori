@@ -49,6 +49,9 @@ Then open the API docs:
 - `POST /v1/chat` streams the answer as events: text, widgets (cards, lists, charts), tool calls, approvals and handoffs. The frontend can use Cencori's `<AgentChat>`.
 - The main agent "Agentic" hands account questions to "Account" and web questions to "Research", asks "Writer" for drafts, and can hand the chat to a person on our team.
 - Tools that change data (like changing your name) wait for the user to approve them in the chat.
+- Truthful by rule: every agent is told to answer only from the user's messages, its tools and well-established facts, to say when it doesn't know, and never to invent names, numbers, links or results (`truthRules` in `src/config/agents/agents.ts`). `bun run eval` checks this on the real model.
+- Follow-ups: after a draft, a list, research or a plan, the agent may offer 1 to 3 next steps ("Make it shorter") with its `suggest_follow_ups` tool; never after small talk or simple facts. They come in the stream's `saved` event and on each message in the history (`followUps`), for the app to show as buttons. Tapping one sends it as a normal message.
+- Reactions: `PUT /v1/chat/:id/messages/:messageId/reaction` with `{ "emoji": "👍" }` (or `null` to remove). One per message, shown in the history (`reaction`). Bots learn from them.
 - Replies, like WhatsApp: send `replyTo` (a message id) with a message, and the AI is shown the quoted text. Agents can quote too, with their `reply_to_message` tool. The history gives each message's `replyTo` (a short preview). After each turn the stream sends a `saved` event with the new messages' ids, so the app can quote them straight away.
 - Images and files (PDF, text, CSV...) can be attached, up to 5 per message, for the default assistant and every bot. The files are kept in Cloudflare R2 (`STORAGE_URL`; locally MinIO), private, and opened from the chat history through links that last 15 minutes. Deleting a chat or a user deletes their files. Small pictures are enlarged before the model sees them, because models misread tiny images; the stored file stays the original.
 - Guardrails block pasted keys and passwords, and any answer that contains one of our secrets.
@@ -95,6 +98,7 @@ Then open the API docs:
 
 **Approvals, usage and activity** (ideas from Meta's Muse: the AI proposes, rules decide)
 
+- Approval cards are written by our server, never by the AI: each waiting step has a `card` with a title, one plain sentence and the exact values ("When: Every day at 08:00"), the same in the chat stream and the inbox (`src/config/agents/cards.ts`). Apps show that fixed card with Approve and Decline.
 - Risky tools ask first by default. The user can set a standing rule per tool: allow, ask or never (`/v1/approvals/rules`), everywhere or for one bot. On an approval card they can also tick "for this chat" (a week) or "always" (`remember` in the decision). Reading tools never ask, so people don't tire of approving.
 - Approvals inbox (`/v1/approvals`): steps the AI stopped at, from chats, routines and plans. Each has a signed state; sending it to `POST /v1/chat` with the decisions carries the run on in its chat. Unanswered ones go after 14 days.
 - Outside text (document search results, answers from users' own MCP servers) is marked as untrusted, so the AI treats it as data and not orders. Tools the user turned off are hidden from the AI.
@@ -102,6 +106,19 @@ Then open the API docs:
 - Billing with Cencori: when staff set a plan, the user is sent to Cencori as an "end user" with the rate plan of the same slug (create `free`, `pro`, `business` in Cencori's Revenue settings, with your markup). Cencori can then make invoices and charge through Stripe Connect. We keep our own counts too, because Cencori's API can't read one user's usage.
 - Activity log (`/v1/activity`; staff: `/v1/admin/activity`): sign-ins, every change made through the API, each tool the AI ran, approvals asked and answered, and Agent Auth events. Kept a year.
 - Alerts: set `ALERT_WEBHOOK_URL` (Slack or Discord) to get a message when the server errors or a background job fails for good. The same alert is sent at most once every 10 minutes per server.
+
+**Bots that learn**
+
+- After a bot chat goes quiet (10 minutes), a worker job reads its new messages with a Learner agent. Lasting facts the user or their team said (who does what, tools, how they like work done, who approves what) become the bot's memories at once. Repeats are skipped, and so is anything that looks like a secret.
+- When the chat shows a clear need (the user corrected the bot, reacted 👎, or asked for the same kind of task again), the bot suggests a change to itself: new instructions or a new skill. Nothing changes until the user accepts it (`/v1/bots/:id/suggestions`, then `accept` or `dismiss`). At most 5 wait per bot.
+- Learning counts toward the user's allowance (kind `learning`) and is skipped when it is used up.
+
+**Agent computer (InstaBox)**
+
+- With `INSTABOX_API_KEY` set, each user gets their own cloud computer (a small Linux VM on InstaBox, 2 CPUs and 4 GB) the first time an agent needs it. Agents run commands, read and write files there; files in `/data/home` stay between chats. It pauses itself after 5 idle minutes.
+- Running a command or writing a file asks the user first, like any risky tool (they can allow it always). Reading a file doesn't. Output is marked as outside text, and no keys or passwords are ever put on the computer.
+- Users see it at `/v1/computer`, browse its files (`/v1/computer/files`) and can wipe it (`DELETE /v1/computer`). Deleting the account deletes the computer.
+- Its run time counts toward the user's allowance: each command for its run time, at least a minute, at InstaBox's price for that size.
 
 **Built for heavy traffic**
 
@@ -193,6 +210,8 @@ CI runs all of these on every push, then builds and scans the Docker image. Tagg
 
 ## Known issues
 
+- **The agent computer is untested with a real InstaBox account.** It is tested against a stand-in of InstaBox's API; add `INSTABOX_API_KEY` to try it. Its live screen view needs a personal InstaBox key, so it is left out for now.
+- **Computer cost is an estimate.** We count each command's run time (at least a minute); InstaBox also bills the idle minutes before the machine pauses.
 - **Payments are not wired yet.** Plans are set by staff. Cencori can invoice through Stripe Connect once it is set up in their dashboard; a checkout page is still needed.
 - **Voice minutes (LiveKit) are not counted in usage.** The AI answers in a call are; the speech part is billed by LiveKit.
 - **Approval rules don't apply to app tools run by Cencori (Gmail, Slack...).** Those still ask every time; Cencori decides.

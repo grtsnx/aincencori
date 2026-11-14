@@ -32,3 +32,10 @@ export const reviewListingJob = 'listing-review';
 
 // Removes activity log entries older than activityRetentionDays, daily.
 export const purgeActivityJob = 'activity-purge';
+
+// A bot learns from one of its chats: lasting facts, how the team works,
+// and changes it could make to itself (see modules/bot).
+export const learnFromChatJob = 'bot-learn';
+
+// Removes a deleted user's cloud computer at InstaBox.
+export const deleteComputerJob = 'computer-delete';

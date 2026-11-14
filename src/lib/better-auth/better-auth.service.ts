@@ -19,6 +19,7 @@ import {
 } from '@/lib/gravatar/gravatar.service.js';
 import {
   deleteBotAgentJob,
+  deleteComputerJob,
   deleteFilesJob,
   deleteWorkspaceJob,
   userFilesPrefix,
@@ -136,6 +137,16 @@ export class BetterAuthService implements OnModuleInit {
         await db.document.deleteMany({ where: { userId } });
         await db.plan.deleteMany({ where: { userId } });
         await db.toolRule.deleteMany({ where: { userId } });
+        // Their cloud computer goes too (at InstaBox, in the background).
+        const computer = await db.agentComputer.findUnique({
+          where: { userId },
+        });
+        if (computer) {
+          await bullmq.add(deleteComputerJob, {
+            machineId: computer.machineId,
+          });
+          await db.agentComputer.delete({ where: { userId } });
+        }
         await db.pendingApproval.deleteMany({ where: { userId } });
         await db.usageDay.deleteMany({ where: { userId } });
         await db.billingPlan.deleteMany({ where: { userId } });

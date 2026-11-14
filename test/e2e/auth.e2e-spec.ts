@@ -161,6 +161,7 @@ describe('Better Auth (e2e)', () => {
       'Knowledge',
       'Plans',
       'Marketplace',
+      'Computer',
       'Approvals',
       'Activity',
       'Usage',

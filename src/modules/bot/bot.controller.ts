@@ -21,6 +21,7 @@ import {
   BotDto,
   BotMemoryDto,
   BotSkillDto,
+  BotSuggestionDto,
   CreateBotDto,
   CreateBotMemoryDto,
   CreateBotSkillDto,
@@ -149,6 +150,50 @@ export class BotController {
     @CurrentSession() auth: AuthSession,
   ): Promise<void> {
     return this.botService.removeMemory(id, memoryId, auth);
+  }
+
+  @ApiOperation({
+    summary: 'List bot suggestions',
+    description:
+      'Changes the bot suggests to itself after learning from chats.',
+  })
+  @ApiOkResponse({ type: [BotSuggestionDto] })
+  @Get(':id/suggestions')
+  suggestions(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+  ): Promise<BotSuggestionDto[]> {
+    return this.botService.suggestions(id, auth);
+  }
+
+  @ApiOperation({
+    summary: 'Accept a suggestion',
+    description: 'Makes the suggested change to the bot, exactly as shown.',
+  })
+  @ApiOkResponse({ type: BotSuggestionDto })
+  @Post(':id/suggestions/:suggestionId/accept')
+  @HttpCode(200)
+  acceptSuggestion(
+    @Param('id') id: string,
+    @Param('suggestionId') suggestionId: string,
+    @CurrentSession() auth: AuthSession,
+  ): Promise<BotSuggestionDto> {
+    return this.botService.acceptSuggestion(id, suggestionId, auth);
+  }
+
+  @ApiOperation({
+    summary: 'Dismiss a suggestion',
+    description: 'Leaves the bot as it is.',
+  })
+  @ApiOkResponse({ type: BotSuggestionDto })
+  @Post(':id/suggestions/:suggestionId/dismiss')
+  @HttpCode(200)
+  dismissSuggestion(
+    @Param('id') id: string,
+    @Param('suggestionId') suggestionId: string,
+    @CurrentSession() auth: AuthSession,
+  ): Promise<BotSuggestionDto> {
+    return this.botService.dismissSuggestion(id, suggestionId, auth);
   }
 
   @ApiOperation({

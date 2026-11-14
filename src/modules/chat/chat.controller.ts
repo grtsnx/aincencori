@@ -7,6 +7,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -31,6 +32,7 @@ import {
   ChatRequestDto,
   ChatSessionDto,
   ChatStatusDto,
+  ReactDto,
 } from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { CurrentSession } from '@/middleware';
@@ -113,6 +115,22 @@ export class ChatController {
     @Headers() headers: IncomingHttpHeaders,
   ): Promise<ChatHistoryMessageDto[]> {
     return this.chatService.messages(sessionId, auth, headers, query);
+  }
+
+  @ApiOperation({
+    summary: 'React to a message',
+    description: 'Adds, changes or removes your emoji on a message.',
+  })
+  @ApiNoContentResponse({ description: 'Saved' })
+  @Put(':sessionId/messages/:messageId/reaction')
+  @HttpCode(204)
+  react(
+    @Param('sessionId') sessionId: string,
+    @Param('messageId') messageId: string,
+    @Body() body: ReactDto,
+    @CurrentSession() auth: AuthSession,
+  ): Promise<void> {
+    return this.chatService.react(sessionId, messageId, auth, body.emoji);
   }
 
   @ApiOperation({

@@ -14,7 +14,12 @@ import {
   webSearch,
 } from 'cencori/agents';
 import { z } from 'zod';
-import { agentModel, agentThinking, maxPlanSteps } from './limits.js';
+import {
+  agentModel,
+  agentThinking,
+  maxLearnedMemories,
+  maxPlanSteps,
+} from './limits.js';
 import { deniedToolMessage, type ToolDecision, untrusted } from './policy.js';
 
 // What every tool gets for the signed-in user. ChatService fills it in.
@@ -37,6 +42,19 @@ export interface ChatContext {
   startPlan: (goal: string) => Promise<{ id: string }>;
   // The user's standing answer for a risky tool here (see policy.ts).
   toolDecision: (tool: string) => ToolDecision;
+  // The user's own cloud computer (InstaBox). Missing when not set up.
+  computer?: ComputerActions;
+}
+
+// What agents can do on the user's computer. Each returns plain text.
+export interface ComputerActions {
+  run: (
+    command: string,
+    cwd?: string,
+    timeoutSeconds?: number,
+  ) => Promise<string>;
+  read: (path: string) => Promise<string>;
+  write: (path: string, content: string) => Promise<string>;
 }
 
 export interface RoutineSummary {
@@ -68,6 +86,8 @@ export interface RoutineActions {
 }
 
 export interface AgentSettings {
+  // True when agents have their own computer (INSTABOX_API_KEY is set).
+  computer?: boolean;
   // Never shown to anyone: the answer guardrail blocks replies that contain them.
   secrets: string[];
   // Tells our team when an agent hands a chat to a person.
@@ -310,6 +330,86 @@ const replyToMessage = tool({
     'Linked. Now write your full answer to the user; it shows under the quote.',
 }) as FunctionTool<ChatContext>;
 
+// Every agent follows these. Answers come from facts, never from guesses.
+export const truthRules =
+  'Always tell the truth. Only state what you know from the user’s ' +
+  'messages, your tools (searches, documents, files, app data) or ' +
+  'well-established facts. When you are not sure, say so plainly, check ' +
+  'with a tool, or ask. Never guess or invent names, numbers, dates, links, ' +
+  'quotes or results, and never say you did something you did not do. If ' +
+  'a tool fails or finds nothing, say that. Say where a fact came from ' +
+  'when it is not obvious.';
+
+// When follow-ups are worth offering.
+const followUpRule =
+  'After you give a draft, a list, research or a plan, call ' +
+  'suggest_follow_ups with the 1 to 3 most likely next steps. Skip it for ' +
+  'small talk, simple facts, and when you asked the user a question. ';
+
+// Next steps the user can tap, offered only when one clearly helps.
+export const followUpsTool = 'suggest_follow_ups';
+const suggestFollowUps = tool({
+  name: followUpsTool,
+  description:
+    'Offer 1 to 3 next steps the user can tap, ONLY when there is a clear, ' +
+    'useful next step they are likely to want (after a draft: "Make it ' +
+    'shorter"; after research: "Compare their prices"). Most answers need ' +
+    'none: never for small talk, simple facts, or when you asked the user ' +
+    'a question. Write each as the user would say it to you, short.',
+  parameters: z.object({
+    suggestions: z.array(z.string().min(2).max(80)).min(1).max(3),
+  }),
+  execute: () => 'Shown to the user as buttons. Now finish your answer.',
+}) as FunctionTool<ChatContext>;
+
+// The user's own cloud computer. Running a command or writing a file asks
+// first (the user can allow it always); reading a file does not.
+const noComputer = 'There is no computer set up for this user.';
+const computerTools: FunctionTool<ChatContext>[] = [
+  guarded({
+    name: 'computer_run_command',
+    description:
+      'Run a shell command on the user’s own cloud computer (Debian Linux ' +
+      'with Python, Node, Git and Docker). Files under /data/home stay ' +
+      'between chats. Use it to run code, process files or use command-line ' +
+      'tools. It can reach the internet.',
+    parameters: z.object({
+      command: z.string().min(1).max(4000),
+      cwd: z.string().max(500).optional(),
+      timeoutSeconds: z.number().int().min(1).max(600).optional(),
+    }),
+    execute: async ({ command, cwd, timeoutSeconds }, { context }) =>
+      context.computer
+        ? untrusted(
+            'the computer',
+            await context.computer.run(command, cwd, timeoutSeconds),
+          )
+        : noComputer,
+  }),
+  tool({
+    name: 'computer_read_file',
+    description:
+      'Read a text file, or list a folder, on the user’s own cloud computer.',
+    parameters: z.object({ path: z.string().min(1).max(4000) }),
+    execute: async ({ path }, { context }: { context: ChatContext }) =>
+      context.computer
+        ? untrusted('the computer', await context.computer.read(path))
+        : noComputer,
+  }) as FunctionTool<ChatContext>,
+  guarded({
+    name: 'computer_write_file',
+    description:
+      'Create or replace a text file on the user’s own cloud computer. ' +
+      'Missing folders are made.',
+    parameters: z.object({
+      path: z.string().min(1).max(4000),
+      content: z.string().max(200_000),
+    }),
+    execute: async ({ path, content }, { context }) =>
+      context.computer ? context.computer.write(path, content) : noComputer,
+  }),
+];
+
 // ── Guardrails ───────────────────────────────────────────────────────────
 
 // Stops messages that look like they carry a secret key or password.
@@ -358,6 +458,8 @@ export interface BotParts {
   searchDocuments: (query: string) => Promise<string>;
   // The bot keeps a new fact.
   saveMemory: (text: string) => Promise<void>;
+  // True when it may use the user's cloud computer.
+  computer?: boolean;
   // The bot rewrites its own instructions (the user approves first).
   updateInstructions: (instructions: string) => Promise<void>;
 }
@@ -418,10 +520,11 @@ export function createGroupAgent(
           'one clear answer, saying which bot did what. For small talk, just ' +
           'answer.',
         group.instructions && `How this team works:\n${group.instructions}`,
+        truthRules,
       ]
         .filter(Boolean)
         .join('\n\n'),
-    tools: [askBotTool(group.members, ask), replyToMessage],
+    tools: [askBotTool(group.members, ask), replyToMessage, suggestFollowUps],
     inputGuardrails: [noSecretsIn],
     outputGuardrails: [noSecretsOut(settings.secrets)],
     widgets: true,
@@ -457,7 +560,8 @@ export function createBotAgent(
   if (team) {
     if (team.others.length > 0) tools.push(askBotTool(team.others, team.ask));
   } else {
-    tools.push(replyToMessage);
+    tools.push(replyToMessage, suggestFollowUps);
+    if (bot.computer) tools.push(...computerTools);
     tools.push(
       guarded({
         name: 'update_my_instructions',
@@ -529,6 +633,8 @@ export function createBotAgent(
             bot.skills
               .map((skill) => `- ${skill.name}: ${skill.description}`)
               .join('\n'),
+        !team && followUpRule,
+        truthRules,
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -554,7 +660,8 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     instructions:
       'You help with the user’s own account: profile, name and organizations. ' +
       'Use your tools and show results as widgets. ' +
-      'Always finish with a short answer in words, even after showing a widget.',
+      'Always finish with a short answer in words, even after showing a widget. ' +
+      truthRules,
     tools: [myProfile, myOrganizations, renameMe as FunctionTool<ChatContext>],
     widgets: true,
   });
@@ -568,7 +675,8 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'You manage the user’s routines: prompts the agent runs on a schedule. ' +
       'Turn what the user says ("every weekday at 8") into a cron pattern. ' +
       'List routines first when you need an id. ' +
-      'Always finish with a short answer in words, even after showing a widget.',
+      'Always finish with a short answer in words, even after showing a widget. ' +
+      truthRules,
     tools: [
       listRoutines,
       createRoutine,
@@ -586,7 +694,8 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     instructions:
       'You answer questions by searching the web and reading pages. ' +
       'Say where each fact came from. ' +
-      'Always finish with a short answer in words, even after showing a widget.',
+      'Always finish with a short answer in words, even after showing a widget. ' +
+      truthRules,
     tools: [webSearch(), webFetch()],
     widgets: true,
   });
@@ -597,7 +706,9 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
     modelSettings: { reasoningEffort: agentThinking },
     name: 'Writer',
     instructions:
-      'You write clear, short text: emails, posts, summaries. Plain English.',
+      'You write clear, short text: emails, posts, summaries. Plain English. ' +
+      'Use only the facts you were given; leave a clear [gap] for anything ' +
+      'missing instead of making it up.',
   });
 
   const options = {
@@ -616,11 +727,19 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'For a big goal with several steps (research, compare, then write), ' +
       'offer to start a plan with start_plan. ' +
       'If the user asks for a person, or you cannot help, hand the chat to a human. ' +
-      'A message starting with [Replying to ...] answers the quoted message.',
+      'A message starting with [Replying to ...] answers the quoted message. ' +
+      followUpRule +
+      (settings.computer
+        ? 'The user has their own cloud computer: use the computer_ tools to ' +
+          'run code, work with files or use command-line tools. '
+        : '') +
+      truthRules,
     tools: [
       searchMyDocuments as FunctionTool<ChatContext>,
       startPlan as FunctionTool<ChatContext>,
       replyToMessage,
+      suggestFollowUps,
+      ...(settings.computer ? computerTools : []),
       writer.asTool({
         toolName: 'write_text',
         toolDescription: 'Draft an email, post or summary.',
@@ -672,7 +791,8 @@ export function createPlannerAgent(): Agent<unknown, PlanSteps> {
       "user's tools can finish in a few minutes. Each step builds on the " +
       'ones before; the last step gives the user the finished result. ' +
       'Titles are short (a few words). Instructions say exactly what to do ' +
-      'and what to hand on. A small goal gets few steps. Do not do the work.',
+      'and what to hand on. A small goal gets few steps. Do not do the work. ' +
+      'Each step must find or check facts, never assume them.',
     outputType: planSteps,
   });
 }
@@ -701,5 +821,63 @@ export function createReviewAgent(): Agent<unknown, ListingReview> {
       'bots are safe. reason: one short sentence the author can act on ' +
       '(empty when safe).',
     outputType: review,
+  });
+}
+
+// ── Learner ──────────────────────────────────────────────────────────────
+
+const learned = z.object({
+  memories: z.array(z.string().min(3).max(300)).max(maxLearnedMemories),
+  suggestions: z
+    .array(
+      z.object({
+        kind: z.enum(['instructions', 'skill']),
+        title: z.string().min(3).max(100),
+        reason: z.string().min(3).max(500),
+        // kind "instructions": the full new instructions.
+        instructions: z.string().max(8000).nullish(),
+        // kind "skill": the new skill.
+        skill: z
+          .object({
+            name: z.string().regex(/^[a-z0-9-]{1,60}$/),
+            description: z.string().min(1).max(300),
+            instructions: z.string().min(1).max(20_000),
+          })
+          .nullish(),
+      }),
+    )
+    .max(2),
+});
+
+export type Learned = z.infer<typeof learned>;
+
+// Reads one of a bot's chats after it goes quiet, and says what the bot
+// should keep (lasting facts, how the user's team works) and how it could
+// improve itself. It changes nothing: memories are saved by our code, and
+// suggestions wait for the user to accept them.
+export function createLearnerAgent(): Agent<unknown, Learned> {
+  return new Agent({
+    model: agentModel,
+    modelSettings: { reasoningEffort: agentThinking },
+    name: 'Learner',
+    instructions:
+      'You read a chat between a user and their bot, with the bot’s current ' +
+      'instructions, memories and skills. ' +
+      'memories: up to 5 new lasting facts worth keeping for later chats, ' +
+      'one short sentence each: who the user and their team are, their ' +
+      'roles, tools, customers, how they like work done, and how their team ' +
+      'works (who approves what, steps they follow, deadlines). Only facts ' +
+      'the user or their team clearly said or showed; never guesses, never ' +
+      'what the bot said on its own, never secrets, and nothing already in ' +
+      'the memories. Empty when there is nothing new. ' +
+      'suggestions: at most 2 changes the bot could make to itself, ONLY ' +
+      'when the chat shows a clear need: the user corrected the bot, ' +
+      'reacted 👎, repeated the same instruction, or asked for the same ' +
+      'kind of task again (then a skill with its steps). "instructions" ' +
+      'gives the full new instructions (the old ones with the change); ' +
+      '"skill" gives a new skill. reason: what in the chat shows the need, ' +
+      'in one sentence. Empty when the bot did fine. ' +
+      truthRules,
+    outputType: learned,
   });
 }

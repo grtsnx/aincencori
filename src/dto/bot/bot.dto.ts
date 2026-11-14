@@ -307,3 +307,54 @@ export class BotSkillDto {
   @ApiProperty({ example: '2026-11-13T09:30:00.000Z' })
   updatedAt: Date;
 }
+
+export class SuggestedSkillDto {
+  @ApiProperty({ example: 'weekly-report' })
+  name: string;
+
+  @ApiProperty({ example: 'Write the Friday sales report.' })
+  description: string;
+
+  @ApiProperty({
+    example: '1. Pull this week’s deals.\n2. Group them by owner.',
+  })
+  instructions: string;
+}
+
+// A change a bot suggests to itself after learning from its chats.
+export class BotSuggestionDto {
+  @ApiProperty({ example: '7d0ad96f-7aae-4ca4-86fd-933f1a45603f' })
+  id: string;
+
+  @ApiProperty({ enum: ['instructions', 'skill'], example: 'skill' })
+  kind: string;
+
+  @ApiProperty({ example: 'Add a weekly report skill' })
+  title: string;
+
+  @ApiProperty({
+    description: 'What in the chats shows the need',
+    example: 'You asked for the Friday report three times this month.',
+  })
+  reason: string;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'For instructions: the full new instructions',
+    example: null,
+  })
+  instructions: string | null;
+
+  @ApiProperty({ type: SuggestedSkillDto, nullable: true })
+  skill: SuggestedSkillDto | null;
+
+  @ApiProperty({
+    enum: ['pending', 'accepted', 'dismissed'],
+    example: 'pending',
+  })
+  status: string;
+
+  @ApiProperty({ example: '2026-11-14T09:30:00.000Z' })
+  createdAt: Date;
+}

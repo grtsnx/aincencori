@@ -7,6 +7,29 @@ import {
   MaxLength,
 } from 'class-validator';
 
+export class ApprovalFieldDto {
+  @ApiProperty({ example: 'When' })
+  label: string;
+
+  @ApiProperty({ example: 'Every day at 08:00' })
+  value: string;
+}
+
+// The fixed card every app shows for a waiting step. Written by our server
+// from the step's real values, never by the AI.
+export class ApprovalCardDto {
+  @ApiProperty({ example: 'Create a routine' })
+  title: string;
+
+  @ApiProperty({
+    example: '"Water" runs every day at 08:00 (Africa/Lagos).',
+  })
+  summary: string;
+
+  @ApiProperty({ type: [ApprovalFieldDto] })
+  fields: ApprovalFieldDto[];
+}
+
 export class PendingApprovalItemDto {
   @ApiProperty({ example: 'call_1' })
   callId: string;
@@ -22,6 +45,9 @@ export class PendingApprovalItemDto {
 
   @ApiPropertyOptional({ example: 'Agentic' })
   agentName?: string;
+
+  @ApiProperty({ type: ApprovalCardDto })
+  card: ApprovalCardDto;
 }
 
 export class PendingApprovalDto {

@@ -65,6 +65,78 @@ describe('Bots (e2e)', () => {
       await db.user.deleteMany({ where: { email } });
     });
 
+    it('applies a change the bot suggested only when the user accepts it', async () => {
+      const db = app.get(PrismaService).db;
+      const bot = await call()
+        .post('/v1/bots')
+        .set('Cookie', cookies)
+        .send({ name: 'Learning Bot', instructions: 'Write sales emails.' })
+        .expect(200);
+      const botId = bot.body.data.id as string;
+      const userId = (await db.user.findUniqueOrThrow({ where: { email } })).id;
+      // As the learner would leave them after reading a chat.
+      await db.botSuggestion.createMany({
+        data: [
+          {
+            id: `${botId}-s1`,
+            botId,
+            userId,
+            kind: 'instructions',
+            title: 'Ask Tola about big discounts',
+            reason: 'You said Tola approves discounts above 10%.',
+            instructions: 'Write sales emails. Discounts above 10% need Tola.',
+          },
+          {
+            id: `${botId}-s2`,
+            botId,
+            userId,
+            kind: 'skill',
+            title: 'Weekly report',
+            reason: 'You asked for it three times.',
+            skill: {
+              name: 'weekly-report',
+              description: 'The Friday report.',
+              instructions: '1. Pull this week’s deals.',
+            },
+          },
+        ],
+      });
+
+      const listed = await call()
+        .get(`/v1/bots/${botId}/suggestions`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(listed.body.data).toHaveLength(2);
+
+      await call()
+        .post(`/v1/bots/${botId}/suggestions/${botId}-s1/accept`)
+        .set('Cookie', cookies)
+        .expect(200);
+      const after = await call()
+        .get(`/v1/bots/${botId}`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(after.body.data.instructions).toBe(
+        'Write sales emails. Discounts above 10% need Tola.',
+      );
+      // Once decided, it can't be applied again.
+      await call()
+        .post(`/v1/bots/${botId}/suggestions/${botId}-s1/accept`)
+        .set('Cookie', cookies)
+        .expect(409);
+
+      const dismissed = await call()
+        .post(`/v1/bots/${botId}/suggestions/${botId}-s2/dismiss`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(dismissed.body.data.status).toBe('dismissed');
+      const skills = await call()
+        .get(`/v1/bots/${botId}/skills`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(skills.body.data).toEqual([]);
+    });
+
     it('creates a bot with no integrations at all', async () => {
       const created = await call()
         .post('/v1/bots')

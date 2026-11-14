@@ -26,10 +26,12 @@ export {
   BotIntegrationDto,
   BotMemoryDto,
   BotSkillDto,
+  BotSuggestionDto,
   CreateBotDto,
   CreateBotMemoryDto,
   CreateBotSkillDto,
   ListBotsQueryDto,
+  SuggestedSkillDto,
   UpdateBotDto,
   UpdateBotSkillDto,
 } from './bot/bot.dto.js';
@@ -48,6 +50,7 @@ export {
   ChatRequestDto,
   ChatSessionDto,
   ChatStatusDto,
+  ReactDto,
 } from './chat/chat.dto.js';
 export {
   CreateDocumentDto,
@@ -123,6 +126,8 @@ export {
   ListActivityQueryDto,
 } from './activity/activity.dto.js';
 export {
+  ApprovalCardDto,
+  ApprovalFieldDto,
   PendingApprovalDto,
   PendingApprovalItemDto,
   SetToolRuleDto,
@@ -136,3 +141,9 @@ export {
   UsageOverviewDto,
   UsageUserDto,
 } from './usage/usage.dto.js';
+export {
+  ComputerDto,
+  ComputerFileEntryDto,
+  ComputerFilesDto,
+  ComputerFilesQueryDto,
+} from './computer/computer.dto.js';

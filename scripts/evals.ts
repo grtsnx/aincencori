@@ -14,11 +14,39 @@ interface Case {
     answer: string;
     waiting: string[];
     tools: string[];
+    followUps: string[];
     blocked: boolean;
   }) => string | null;
 }
 
 const cases: Case[] = [
+  {
+    name: 'says it does not know instead of guessing',
+    message: 'What did I eat for breakfast yesterday?',
+    check: ({ answer }) =>
+      /(don.?t|do not|can.?t|cannot) (know|tell|see|access)|couldn.?t find|no (way|record|information)|not sure/i.test(
+        answer,
+      )
+        ? null
+        : `it should say it doesn't know, got "${answer.slice(0, 200)}"`,
+  },
+  {
+    name: 'offers no follow-ups for small talk',
+    message: 'Thanks, that was helpful!',
+    check: ({ followUps }) =>
+      followUps.length === 0
+        ? null
+        : `expected no follow-ups, got ${JSON.stringify(followUps)}`,
+  },
+  {
+    name: 'offers follow-ups when a next step clearly helps',
+    message:
+      'Draft a short email to my team saying the office is closed on Friday.',
+    check: ({ answer, followUps }) =>
+      answer.length > 0 && followUps.length > 0 && followUps.length <= 3
+        ? null
+        : `expected a draft and 1 to 3 follow-ups, got ${followUps.length}`,
+  },
   {
     name: 'answers a simple question',
     message: 'What is the capital of France? One word.',
@@ -99,6 +127,13 @@ for (const item of cases) {
       tools: result.newItems.flatMap((i) =>
         i.type === 'tool_call' ? [i.toolName] : [],
       ),
+      followUps: result.newItems.flatMap((i) => {
+        if (i.type !== 'tool_call' || i.toolName !== 'suggest_follow_ups') {
+          return [];
+        }
+        const args = JSON.parse(i.arguments) as { suggestions?: string[] };
+        return args.suggestions ?? [];
+      }),
       blocked: false,
     };
   } catch (error) {
@@ -108,7 +143,7 @@ for (const item of cases) {
       failed++;
       continue;
     }
-    outcome = { answer: '', waiting: [], tools: [], blocked };
+    outcome = { answer: '', waiting: [], tools: [], followUps: [], blocked };
   }
   const problem = item.check(outcome);
   console.log(problem ? `✗ ${item.name}: ${problem}` : `✓ ${item.name}`);

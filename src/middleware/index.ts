@@ -2,6 +2,7 @@ export {
   RequestIdMiddleware,
   assertPublicUrl,
   assertStaff,
+  describeCron,
   describeException,
   documentType,
   encryptOAuthToken,

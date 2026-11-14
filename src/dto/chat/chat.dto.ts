@@ -8,9 +8,11 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -338,6 +340,40 @@ export class ChatHistoryMessageDto {
   })
   replyTo: ChatQuoteDto | null;
 
+  @ApiProperty({
+    type: [String],
+    description: 'Next steps the agent offered, shown as buttons',
+    example: ['Make it shorter'],
+  })
+  followUps: string[];
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Your emoji reaction',
+    example: '👍',
+  })
+  reaction: string | null;
+
   @ApiProperty({ example: '2026-11-13T09:31:00.000Z' })
   createdAt: Date;
+}
+
+export class ReactDto {
+  @ApiProperty({
+    description: 'One emoji. Null removes your reaction',
+    example: '👍',
+    nullable: true,
+    type: String,
+  })
+  @ValidateIf((_object, value) => value !== null)
+  @IsString()
+  @MaxLength(32)
+  @Matches(
+    /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|\u200d|\ufe0f)+$/u,
+    {
+      message: 'emoji must be one emoji',
+    },
+  )
+  emoji: string | null;
 }

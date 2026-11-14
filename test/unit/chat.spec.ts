@@ -44,6 +44,7 @@ describe('chat agents', () => {
       'search_my_documents',
       'start_plan',
       'reply_to_message',
+      'suggest_follow_ups',
       'write_text',
       'handoff_to_human',
     ]);
@@ -149,6 +150,7 @@ describe('bot agents', () => {
       'web_fetch',
       'save_memory',
       'reply_to_message',
+      'suggest_follow_ups',
       'update_my_instructions',
     ]);
     const text = await agent.resolveInstructions(runContext);
@@ -178,6 +180,29 @@ describe('bot agents', () => {
     // The steps are read only when the skill is used.
     expect(text).not.toContain('1. Thank them.');
     expect(agent.tools.map((t) => t.name)).toContain('use_skill');
+  });
+
+  it('tells every agent to stick to facts, and adds computer tools only when there is one', async () => {
+    const plain = createBotAgent(settings, parts());
+    const withComputer = createBotAgent(settings, parts({ computer: true }));
+    await expect(plain.resolveInstructions(runContext)).resolves.toContain(
+      'Never guess',
+    );
+    expect(plain.tools.map((t) => t.name)).not.toContain(
+      'computer_run_command',
+    );
+    expect(withComputer.tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining([
+        'computer_run_command',
+        'computer_read_file',
+        'computer_write_file',
+      ]),
+    );
+    const main = createChatAgent({ ...settings, computer: true });
+    await expect(main.resolveInstructions(runContext)).resolves.toContain(
+      'Never guess',
+    );
+    expect(main.tools.map((t) => t.name)).toContain('computer_run_command');
   });
 
   it('follows the user’s rules: ask, run without asking, or refuse', async () => {
@@ -243,6 +268,7 @@ describe('groups of bots', () => {
     expect(lead.tools.map((t) => t.name)).toEqual([
       'ask_bot',
       'reply_to_message',
+      'suggest_follow_ups',
     ]);
     const text = await lead.resolveInstructions(runContext);
     expect(text).toContain('You lead "Sales team"');
@@ -414,6 +440,60 @@ describe('saving a chat turn', () => {
     const rows = createMany.mock.calls[0][0].data;
     expect(rows[0]).toMatchObject({ role: 'user', replyToId: 'm2' });
     expect(rows[1]).toMatchObject({ role: 'agent', replyToId: 'm1' });
+  });
+
+  it('keeps the next steps the agent offered, and sends them with the saved ids', async () => {
+    const { service, createMany } = build();
+    const stream =
+      'event: tool_call\ndata: {"callId":"c1","name":"suggest_follow_ups",' +
+      '"arguments":"{\\"suggestions\\":[\\"Make it shorter\\",\\" \\"]}"}\n\n' +
+      'event: text\ndata: {"delta":"Here is the draft.","agent":"Agentic"}\n\n' +
+      'event: done\ndata: {"sessionId":"ses_1"}\n\n';
+
+    const out = await pass(service, { message: 'Draft it' }, stream);
+
+    const rows = createMany.mock.calls[0][0].data;
+    expect(rows[1]).toMatchObject({ followUps: ['Make it shorter'] });
+    expect(out).toContain('"followUps":["Make it shorter"]');
+  });
+
+  it('puts our own card on each step waiting for approval', async () => {
+    const { service } = build();
+    const stream =
+      'event: approval\ndata: ' +
+      JSON.stringify({
+        sessionId: 'ses_1',
+        state: 'signed',
+        items: [
+          {
+            callId: 'c1',
+            toolName: 'create_routine',
+            arguments: JSON.stringify({
+              name: 'Water',
+              cron: '0 8 * * *',
+              timezone: 'Africa/Lagos',
+              prompt: 'Remind me to drink water.',
+            }),
+          },
+        ],
+      }) +
+      '\n\n';
+
+    const out = await pass(service, { message: 'Remind me' }, stream);
+
+    const event = parseEvent(
+      out.split('\n\n').find((e) => e.startsWith('event: approval')) ?? '',
+    );
+    expect((event.data.items as { card: unknown }[])[0].card).toEqual({
+      title: 'Create a routine',
+      summary: '"Water" runs every day at 08:00 (Africa/Lagos).',
+      fields: [
+        { label: 'Name', value: 'Water' },
+        { label: 'When', value: 'Every day at 08:00' },
+        { label: 'Time zone', value: 'Africa/Lagos' },
+        { label: 'What it does', value: 'Remind me to drink water.' },
+      ],
+    });
   });
 
   it('stores attached files and keeps where they are on the message', async () => {

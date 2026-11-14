@@ -201,6 +201,46 @@ describe('Chat (e2e)', () => {
         text: 'Your Acme invoice is due on Friday.',
       });
 
+      // Emoji reactions, one per message, shown in the history.
+      await request(server)
+        .put(`/v1/chat/${id}/messages/${id}-q/reaction`)
+        .set('Cookie', cookies)
+        .send({ emoji: '👍' })
+        .expect(204);
+      await request(server)
+        .put(`/v1/chat/${id}/messages/${id}-q/reaction`)
+        .set('Cookie', cookies)
+        .send({ emoji: '❤️' })
+        .expect(204);
+      await request(server)
+        .put(`/v1/chat/${id}/messages/${id}-q/reaction`)
+        .set('Cookie', cookies)
+        .send({ emoji: 'great' })
+        .expect(400);
+      await request(server)
+        .put(`/v1/chat/${id}/messages/not-here/reaction`)
+        .set('Cookie', cookies)
+        .send({ emoji: '👍' })
+        .expect(404);
+      const reacted = await request(server)
+        .get(`/v1/chat/${id}/messages`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(reacted.body.data[0]).toMatchObject({
+        reaction: '❤️',
+        followUps: [],
+      });
+      await request(server)
+        .put(`/v1/chat/${id}/messages/${id}-q/reaction`)
+        .set('Cookie', cookies)
+        .send({ emoji: null })
+        .expect(204);
+      const cleared = await request(server)
+        .get(`/v1/chat/${id}/messages`)
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(cleared.body.data[0].reaction).toBeNull();
+
       // Deleting the quoted message keeps the reply, without the quote.
       await db.chatMessage.delete({ where: { id: `${id}-q` } });
       const after = await db.chatMessage.findUniqueOrThrow({
@@ -273,6 +313,28 @@ describe('Chat (e2e)', () => {
         .set('Cookie', cookies)
         .expect(204);
       expect(r2.has(key)).toBe(false);
+    });
+
+    it('shows the agent computer as not set up without an InstaBox key', async () => {
+      const server = app.getHttpServer();
+      const status = await request(server)
+        .get('/v1/computer')
+        .set('Cookie', cookies)
+        .expect(200);
+      expect(status.body.data).toEqual({
+        available: false,
+        created: false,
+        createdAt: null,
+        lastUsedAt: null,
+      });
+      await request(server)
+        .get('/v1/computer/files')
+        .set('Cookie', cookies)
+        .expect(404);
+      await request(server)
+        .delete('/v1/computer')
+        .set('Cookie', cookies)
+        .expect(204);
     });
 
     it('answers 503 for voice calls until LiveKit is set up', async () => {

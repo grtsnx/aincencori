@@ -17,21 +17,26 @@ import {
   type AskBot,
   type BotParts,
   type ChatContext,
+  type ComputerActions,
   createBotAgent,
   createGroupAgent,
   createChatAgent,
   type RoutineActions,
+  followUpsTool,
   replyToMessageTool,
 } from '@/config/agents/agents.js';
 import {
   deleteCencoriSessionJob as deleteAtCencori,
   deleteFilesJob,
+  learnFromChatJob,
   userFilesPrefix,
 } from '@/config/agents/jobs.js';
 import {
   maxAgentTurns,
   maxGroupAsks,
   maxGroupBotTurns,
+  learnDelayMs,
+  learnEveryMs,
 } from '@/config/agents/limits.js';
 import type {
   ChatHistoryMessageDto,
@@ -48,7 +53,7 @@ import {
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { Prisma } from '@/generated/prisma/client.js';
 import { ActivityService } from '../activity/activity.service.js';
-import { ApprovalService } from '../approval/approval.service.js';
+import { ApprovalService, withCards } from '../approval/approval.service.js';
 import { UsageService } from '../usage/usage.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { assertStaff, readableImage, signRunState } from '@/middleware';
@@ -102,6 +107,8 @@ export interface AskInput {
 }
 
 export interface AskResult {
+  // Next steps the agent offered (often none).
+  followUps?: string[];
   chatId: string;
   answeredBy: string;
   answer: string;
@@ -153,6 +160,8 @@ const secretSettings = [
   'LINKEDIN_CLIENT_SECRET',
   'RECAPTCHA_SECRET_KEY',
   'DATABASE_URL',
+  'LIVEKIT_API_SECRET',
+  'INSTABOX_API_KEY',
 ];
 
 // Chat with the agents (see config/agents/agents.ts). The chat streams
@@ -176,6 +185,10 @@ export class ChatService implements OnModuleInit {
     goal: string,
   ) => Promise<{ id: string }>;
   private readonly secrets: string[];
+  // True when agents have their own computer (INSTABOX_API_KEY).
+  private readonly hasComputer: boolean;
+  // Set by the computer module: the user's cloud computer.
+  private computerFor?: (userId: string) => ComputerActions;
 
   constructor(
     private readonly config: ConfigService,
@@ -191,8 +204,10 @@ export class ChatService implements OnModuleInit {
     this.secrets = secretSettings
       .map((key) => this.config.get<string>(key))
       .filter((value): value is string => Boolean(value));
+    this.hasComputer = Boolean(this.config.get<string>('INSTABOX_API_KEY'));
     this.agent = createChatAgent({
       secrets: this.secrets,
+      computer: this.hasComputer,
       onHumanHandoff: ({ sessionId, reason }) =>
         this.logger.warn(`Chat ${sessionId} needs a person: ${reason}`),
     });
@@ -220,6 +235,11 @@ export class ChatService implements OnModuleInit {
     search: (userId: string, query: string) => Promise<string>,
   ): void {
     this.documentSearch = search;
+  }
+
+  // The computer module hands over the user's cloud computer.
+  useComputer(computerFor: (userId: string) => ComputerActions): void {
+    this.computerFor = computerFor;
   }
 
   // The plan module hands over how to start a plan.
@@ -278,12 +298,16 @@ export class ChatService implements OnModuleInit {
         if (++asks > maxGroupAsks) {
           return 'The bots have been asked enough for this message. Answer with what you have.';
         }
-        const agent = createBotAgent({ secrets: this.secrets }, member, {
-          others: canAskOthers
-            ? group.members.filter((bot) => bot.name !== name)
-            : [],
-          ask: askFrom(false),
-        });
+        const agent = createBotAgent(
+          { secrets: this.secrets },
+          { ...member, computer: this.hasComputer },
+          {
+            others: canAskOthers
+              ? group.members.filter((bot) => bot.name !== name)
+              : [],
+            ask: askFrom(false),
+          },
+        );
         try {
           const result = await this.cencori.agentRun(agent, question, {
             context,
@@ -322,7 +346,13 @@ export class ChatService implements OnModuleInit {
   ): Promise<{ agent: Agent<ChatContext>; bot: BotRuntime }> {
     if (!this.bots) throw new NotFoundException('Bot not found.');
     const bot = await this.bots.one(userId, botId);
-    return { agent: createBotAgent({ secrets: this.secrets }, bot), bot };
+    return {
+      agent: createBotAgent(
+        { secrets: this.secrets },
+        { ...bot, computer: this.hasComputer },
+      ),
+      bot,
+    };
   }
 
   // The orchestrator for one user: the default assistant, able to hand the
@@ -335,7 +365,12 @@ export class ChatService implements OnModuleInit {
     const own = bots
       // Handoffs go by name, so a second bot with the same name is skipped.
       .filter((bot) => !taken.has(bot.name) && taken.add(bot.name))
-      .map((bot) => createBotAgent({ secrets: this.secrets }, bot));
+      .map((bot) =>
+        createBotAgent(
+          { secrets: this.secrets },
+          { ...bot, computer: this.hasComputer },
+        ),
+      );
     if (own.length === 0) return this.agent;
     // Naming the bots in the instructions makes the assistant actually use
     // them, instead of doing a bot's job itself.
@@ -528,6 +563,7 @@ export class ChatService implements OnModuleInit {
       where: { sessionId },
       include: {
         replyTo: { select: { id: true, role: true, agent: true, text: true } },
+        reactions: { where: { userId: auth.user.id }, select: { emoji: true } },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit ?? 50,
@@ -541,6 +577,10 @@ export class ChatService implements OnModuleInit {
         agent: row.agent,
         text: row.text,
         widgets: (row.widgets as Record<string, unknown>[] | null) ?? [],
+        followUps: Array.isArray(row.followUps)
+          ? (row.followUps as string[])
+          : [],
+        reaction: row.reactions[0]?.emoji ?? null,
         replyTo: row.replyTo
           ? {
               id: row.replyTo.id,
@@ -749,18 +789,15 @@ export class ChatService implements OnModuleInit {
       item.type === 'widget' ? [item.widget] : [],
     );
     const waiting = result.interruptions.map((item) => item.toolName);
-    // The agent quoted an earlier message (reply_to_message).
-    const quote = result.newItems.flatMap((item) => {
-      if (item.type !== 'tool_call' || item.toolName !== replyToMessageTool) {
-        return [];
-      }
-      try {
-        const args = JSON.parse(item.arguments) as { quote?: unknown };
-        return typeof args.quote === 'string' ? [args.quote] : [];
-      } catch {
-        return [];
-      }
-    })[0];
+    // The agent quoted an earlier message, or offered next steps.
+    const said = result.newItems.reduce<ReturnType<typeof agentToolArgs>>(
+      (found, item) =>
+        item.type === 'tool_call'
+          ? { ...found, ...agentToolArgs(item.toolName, item.arguments) }
+          : found,
+      {},
+    );
+    const quote = said.quote;
     const agentReplyTo = quote
       ? await this.findQuoted(result.sessionId, quote)
       : null;
@@ -810,11 +847,13 @@ export class ChatService implements OnModuleInit {
             text,
             widgets: widgets as never,
             replyToId: agentReplyTo,
+            followUps: (said.followUps ?? null) as never,
           },
         ],
       }),
     ]);
     this.logTools(user.id, result.newItems);
+    if (bot && !group) this.queueLearning(result.sessionId);
     // Nobody was there to approve: the steps wait in the inbox, signed like
     // a chat's, so approving them carries the run on in this chat.
     if (needsApproval && result.state) {
@@ -840,6 +879,7 @@ export class ChatService implements OnModuleInit {
       answeredBy: result.lastAgent.name,
       answer: text,
       needsApproval,
+      followUps: said.followUps ?? [],
     };
   }
 
@@ -905,6 +945,7 @@ export class ChatService implements OnModuleInit {
         this.documentSearch
           ? this.documentSearch(user.id, query)
           : Promise.resolve('Documents are not available.'),
+      computer: this.computerFor?.(user.id),
       startPlan: (goal) => {
         if (!this.planStarter) throw new Error('Plans are not available.');
         return this.planStarter(user.id, goal);
@@ -1026,8 +1067,12 @@ export class ChatService implements OnModuleInit {
     let saved = false;
     // Words the agent quoted (reply_to_message), and the ids it saved.
     let agentQuote: string | undefined;
-    let savedIds: { userMessageId?: string; agentMessageId?: string } | null =
-      null;
+    let followUps: string[] | undefined;
+    let savedIds: {
+      userMessageId?: string;
+      agentMessageId?: string;
+      followUps?: string[];
+    } | null = null;
 
     const save = async (sessionId: string) => {
       if (saved) return;
@@ -1045,7 +1090,11 @@ export class ChatService implements OnModuleInit {
         update: { updatedAt: new Date() },
       });
       const rows = [];
-      const ids: { userMessageId?: string; agentMessageId?: string } = {};
+      const ids: {
+        userMessageId?: string;
+        agentMessageId?: string;
+        followUps?: string[];
+      } = followUps ? { followUps } : {};
       const agentReplyTo = agentQuote
         ? await this.findQuoted(sessionId, agentQuote)
         : null;
@@ -1083,25 +1132,20 @@ export class ChatService implements OnModuleInit {
           text,
           widgets: widgets as never,
           replyToId: agentReplyTo,
+          followUps: (followUps ?? null) as never,
         });
       }
       if (rows.length > 0) await db.chatMessage.createMany({ data: rows });
       savedIds = ids;
+      if (botId && !group) this.queueLearning(sessionId);
     };
 
     const read = async (event: string): Promise<string | undefined> => {
       const { name, data } = parseEvent(event);
-      if (
-        name === 'tool_call' &&
-        data.name === replyToMessageTool &&
-        typeof data.arguments === 'string'
-      ) {
-        try {
-          const args = JSON.parse(data.arguments) as { quote?: unknown };
-          if (typeof args.quote === 'string') agentQuote = args.quote;
-        } catch {
-          // Not JSON: no quote.
-        }
+      if (name === 'tool_call' && typeof data.arguments === 'string') {
+        const said = agentToolArgs(String(data.name), data.arguments);
+        agentQuote = said.quote ?? agentQuote;
+        followUps = said.followUps ?? followUps;
       }
       if (name === 'text' && typeof data.delta === 'string') {
         text += data.delta;
@@ -1164,7 +1208,11 @@ export class ChatService implements OnModuleInit {
             );
             savedIds = null;
           }
-          controller.enqueue(encoder.encode(`${event}\n\n`));
+          controller.enqueue(
+            encoder.encode(
+              `${name === 'approval' ? withApprovalCards(event) : event}\n\n`,
+            ),
+          );
         }
       },
       // The stream ended early (an error, or a person has the chat): keep
@@ -1178,6 +1226,49 @@ export class ChatService implements OnModuleInit {
           this.logger.error('A chat turn could not be saved.');
         }
       },
+    });
+  }
+
+  // After a bot chat, the bot learns from it in the background (see the bot
+  // module). One run per chat per quarter hour, after the chat goes quiet.
+  private queueLearning(sessionId: string): void {
+    const slot = Math.floor(Date.now() / learnEveryMs);
+    this.bullmq
+      .add(
+        learnFromChatJob,
+        { sessionId },
+        {
+          jobId: `learn-${sessionId}-${slot}`,
+          delayMs: learnDelayMs,
+          attempts: 2,
+        },
+      )
+      .catch(() => this.logger.warn('Learning was not queued.'));
+  }
+
+  // The user reacts to a message with an emoji (or clears it with null).
+  async react(
+    sessionId: string,
+    messageId: string,
+    auth: AuthSession,
+    emoji: string | null,
+  ): Promise<void> {
+    const userId = auth.user.id;
+    const message = await this.prisma.db.chatMessage.findFirst({
+      where: { id: messageId, sessionId, session: { userId } },
+      select: { id: true },
+    });
+    if (!message) throw new NotFoundException('Message not found.');
+    if (emoji === null) {
+      await this.prisma.db.messageReaction.deleteMany({
+        where: { messageId, userId },
+      });
+      return;
+    }
+    await this.prisma.db.messageReaction.upsert({
+      where: { messageId_userId: { messageId, userId } },
+      create: { messageId, userId, emoji },
+      update: { emoji, createdAt: new Date() },
     });
   }
 
@@ -1241,6 +1332,44 @@ export class ChatService implements OnModuleInit {
       { chat: [permission] },
     );
   }
+}
+
+// What the agent said through its reply and follow-up tools.
+export function agentToolArgs(
+  toolName: string,
+  argsJson: string,
+): { quote?: string; followUps?: string[] } {
+  if (toolName !== replyToMessageTool && toolName !== followUpsTool) return {};
+  try {
+    const args = JSON.parse(argsJson) as {
+      quote?: unknown;
+      suggestions?: unknown;
+    };
+    if (toolName === replyToMessageTool) {
+      return typeof args.quote === 'string' ? { quote: args.quote } : {};
+    }
+    const list = Array.isArray(args.suggestions)
+      ? args.suggestions
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => item.trim().slice(0, 80))
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
+    return list.length > 0 ? { followUps: list } : {};
+  } catch {
+    return {};
+  }
+}
+
+// An approval event with our fixed card added to each waiting step, so
+// every app shows the same card (see config/agents/cards.ts).
+function withApprovalCards(event: string): string {
+  const { data } = parseEvent(event);
+  if (!Array.isArray(data.items)) return event;
+  return `event: approval\ndata: ${JSON.stringify({
+    ...data,
+    items: withCards(data.items as PendingApprovalItemDto[]),
+  })}`;
 }
 
 // One stream event: its name and its JSON data.
