@@ -60,6 +60,11 @@ export interface ComputerActions {
   ) => Promise<string>;
   read: (path: string) => Promise<string>;
   write: (path: string, content: string) => Promise<string>;
+  // Opens a page in the computer's browser (Chromium), which runs the
+  // page's JavaScript, and returns its text.
+  browse: (url: string) => Promise<string>;
+  // Saves a picture of a page as a PNG in the user's files.
+  screenshot: (url: string, path?: string) => Promise<string>;
 }
 
 export interface RoutineSummary {
@@ -433,6 +438,32 @@ const myPlanAndUsage = tool({
   },
 }) as FunctionTool<ChatContext>;
 
+// What an agent can do, from the tools it really has, so it can answer
+// "what can you do?" truthfully. Inner tools (follow-ups, quoting) are left
+// out; the first sentence of each description is enough.
+const quietTools = new Set(['suggest_follow_ups', 'reply_to_message']);
+function abilities(
+  tools: FunctionTool<ChatContext>[],
+  helpers: { name: string; handoffDescription?: string }[] = [],
+): string {
+  const lines = tools
+    .filter((tool) => !quietTools.has(tool.name))
+    .map(
+      (tool) =>
+        `- ${tool.name}: ${(tool.description ?? '').split(/(?<=\.)\s/)[0]}`,
+    );
+  for (const helper of helpers) {
+    lines.push(
+      `- ${helper.name} (a helper you hand the chat to): ${helper.handoffDescription ?? ''}`,
+    );
+  }
+  return (
+    `What you can do (your tools):\n${lines.join('\n')}\n` +
+    'When asked what you can do, describe these tools (and your skills) in ' +
+    'plain words. Never claim a tool or skill you do not have. '
+  );
+}
+
 // When follow-ups are worth offering.
 const followUpRule =
   'After you give a draft, a list, research or a plan, call ' +
@@ -479,6 +510,36 @@ const computerTools: FunctionTool<ChatContext>[] = [
           )
         : noComputer,
   }),
+  tool({
+    name: 'computer_browse',
+    description:
+      'Open a web page in the browser on the user’s cloud computer and read ' +
+      'its text. It runs the page’s JavaScript, so use it when web_fetch ' +
+      'gets no text or a broken page (weather, prices, apps).',
+    parameters: z.object({ url: z.string().url().max(2000) }),
+    execute: async ({ url }, { context }: { context: ChatContext }) =>
+      context.computer
+        ? untrusted(`web page ${url}`, await context.computer.browse(url))
+        : noComputer,
+  }) as FunctionTool<ChatContext>,
+  tool({
+    name: 'computer_screenshot',
+    description:
+      'Take a picture of a web page with the computer’s browser and save ' +
+      'it as a PNG in the user’s files (for them to open or share).',
+    parameters: z.object({
+      url: z.string().url().max(2000),
+      path: z
+        .string()
+        .max(400)
+        .nullish()
+        .describe('Where to save it, under /data/home. Default: screenshots/'),
+    }),
+    execute: async ({ url, path }, { context }: { context: ChatContext }) =>
+      context.computer
+        ? context.computer.screenshot(url, path ?? undefined)
+        : noComputer,
+  }) as FunctionTool<ChatContext>,
   tool({
     name: 'computer_read_file',
     description:
@@ -803,6 +864,7 @@ export function createBotAgent(
                   `- ${untrusted('bot skill description', `${skill.name}: ${skill.description}`)}`,
               )
               .join('\n'),
+        abilities(tools),
         !team && platformGuide,
         !team && followUpRule,
         truthRules,
@@ -886,6 +948,24 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'missing instead of making it up.',
   });
 
+  const tools: FunctionTool<ChatContext>[] = [
+    myPlanAndUsage,
+    searchMyDocuments as FunctionTool<ChatContext>,
+    startPlan as FunctionTool<ChatContext>,
+    replyToMessage,
+    suggestFollowUps,
+    ...(settings.computer ? computerTools : []),
+    writer.asTool({
+      toolName: 'write_text',
+      toolDescription: 'Draft an email, post or summary.',
+    }) as FunctionTool<ChatContext>,
+    humanHandoff<ChatContext>({
+      onHandoff: ({ sessionId, reason }) =>
+        settings.onHumanHandoff({ sessionId, reason }),
+    }) as FunctionTool<ChatContext>,
+  ];
+  const helpers = [account, research, routines];
+  const canDo = abilities(tools, helpers);
   const options = {
     instructions: ({ context }: { context: ChatContext }) =>
       `You are Agentic, a helpful assistant. The user is ${context.user.name}. ` +
@@ -906,27 +986,15 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       platformGuide +
       followUpRule +
       (settings.computer
-        ? 'The user has their own cloud computer: use the computer_ tools to ' +
-          'run code, work with files or use command-line tools. '
+        ? 'The user has their own cloud computer (Linux, with Python, Node, ' +
+          'Docker, git and a Chromium browser): use the computer_ tools to ' +
+          'run commands in its terminal, read, list and write files, and open ' +
+          'pages in its browser. Files are kept in /data/home. '
         : '') +
+      canDo +
       truthRules,
-    tools: [
-      myPlanAndUsage,
-      searchMyDocuments as FunctionTool<ChatContext>,
-      startPlan as FunctionTool<ChatContext>,
-      replyToMessage,
-      suggestFollowUps,
-      ...(settings.computer ? computerTools : []),
-      writer.asTool({
-        toolName: 'write_text',
-        toolDescription: 'Draft an email, post or summary.',
-      }),
-      humanHandoff<ChatContext>({
-        onHandoff: ({ sessionId, reason }) =>
-          settings.onHumanHandoff({ sessionId, reason }),
-      }),
-    ],
-    handoffs: [account, research, routines],
+    tools,
+    handoffs: helpers,
     ...guardrails(settings),
     widgets: true,
   };

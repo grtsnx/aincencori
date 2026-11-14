@@ -11,6 +11,7 @@ export { readableImage } from './image.js';
 export { assertStaff } from './staff.js';
 export {
   documentType,
+  htmlToText,
   readDocumentText,
   splitText,
   UnreadableDocumentError,

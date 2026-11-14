@@ -103,6 +103,14 @@ const cases: Case[] = [
         : `expected save_skill to wait for approval, got [${waiting.join(', ')}]`,
   },
   {
+    name: 'describes its real tools when asked what it can do',
+    message: 'What can you do for me? Keep it short.',
+    check: ({ answer }) =>
+      /(web|search|internet)/i.test(answer) && /(routine|schedul)/i.test(answer)
+        ? null
+        : `expected web search and routines, got "${answer.slice(0, 200)}"`,
+  },
+  {
     name: 'knows where apps are connected',
     message: 'How do I connect my Gmail so my bot can send emails for me?',
     check: ({ answer }) =>

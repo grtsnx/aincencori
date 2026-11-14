@@ -10,6 +10,7 @@ export {
   type Freshness,
   freshnessFor,
   hashValue,
+  htmlToText,
   httpResponse,
   meteredFetch,
   type ModelUsage,

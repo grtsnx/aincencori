@@ -394,3 +394,62 @@ describe('agent computer, InstaBox answers', () => {
     expect(error.message).not.toContain('@');
   });
 });
+
+describe('the computer’s browser', () => {
+  const setup = (stdout: string) => {
+    const commands: string[] = [];
+    const instabox = new InstaboxService({ get: () => 'ibk_test' } as never);
+    instabox.fetch = (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/wake')) {
+        return Promise.resolve(Response.json({ id: 'm_9', state: 'running' }));
+      }
+      commands.push(String(JSON.parse(String(init?.body)).cmd));
+      return Promise.resolve(Response.json({ stdout, exitCode: 0 }));
+    };
+    const computer = new ComputerService(
+      {
+        db: {
+          agentComputer: {
+            findUnique: vi.fn().mockResolvedValue({ machineId: 'm_9' }),
+            update: vi.fn().mockResolvedValue({}),
+          },
+        },
+      } as never,
+      instabox,
+      { handle: vi.fn(), add: vi.fn() } as never,
+      {
+        assertAllowance: vi.fn().mockResolvedValue(undefined),
+        record: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      { useComputer: vi.fn() } as never,
+    );
+    return { actions: computer.actionsFor('user-1'), commands };
+  };
+
+  it('reads a page after its JavaScript runs, as plain text', async () => {
+    const { actions, commands } = setup(
+      '<html><body><h1>Lagos</h1><p>31°C, sunny</p><script>x()</script></body></html>',
+    );
+
+    const text = await actions.browse('https://weather.example/lagos');
+
+    expect(text).toContain('Lagos');
+    expect(text).toContain('31°C, sunny');
+    expect(text).not.toContain('x()');
+    expect(commands[0]).toContain('chromium');
+    expect(commands[0]).toContain("'https://weather.example/lagos'");
+  });
+
+  it('only opens web pages, and keeps pictures in the home folder', async () => {
+    const { actions, commands } = setup('');
+
+    await expect(actions.browse('file:///etc/passwd')).rejects.toThrow(
+      'Only http and https pages',
+    );
+    await expect(
+      actions.screenshot('https://example.com', '/etc/cron.d/x.png'),
+    ).rejects.toThrow('Computer files are limited to /data/home.');
+    expect(commands).toEqual([]);
+  });
+});

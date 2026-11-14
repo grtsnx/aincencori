@@ -1,3 +1,4 @@
+import { htmlToText } from '@/middleware';
 import {
   BadRequestException,
   Injectable,
@@ -97,6 +98,42 @@ export class ComputerService implements OnModuleInit {
           }
           if (file.binary) return `${file.path} is not a text file.`;
           return cut(file.content ?? '');
+        });
+      },
+      browse: async (url) => {
+        const page = webAddress(url);
+        return this.withAllowance(userId, async () => {
+          const result = await this.withMachine(userId, (machineId) =>
+            this.instabox.run(
+              machineId,
+              `timeout 45 chromium ${browserFlags} --virtual-time-budget=8000 --dump-dom ${shellQuote(page)} 2>/dev/null`,
+              { timeoutSeconds: 60 },
+            ),
+          );
+          const text = htmlToText(result.stdout)
+            .replace(/[ \t]+/g, ' ')
+            .replace(/\n\s*\n\s*/g, '\n\n')
+            .trim();
+          return text ? cut(text) : 'The page showed no text.';
+        });
+      },
+      screenshot: async (url, path) => {
+        const page = webAddress(url);
+        const file = homePath(
+          path ??
+            `/data/home/screenshots/${new Date().toISOString().replace(/[:.]/g, '-')}.png`,
+        );
+        return this.withAllowance(userId, async () => {
+          const result = await this.withMachine(userId, (machineId) =>
+            this.instabox.run(
+              machineId,
+              `mkdir -p ${shellQuote(posix.dirname(file))} && timeout 45 chromium ${browserFlags} --window-size=1366,900 --screenshot=${shellQuote(file)} ${shellQuote(page)} 2>/dev/null && test -s ${shellQuote(file)}`,
+              { timeoutSeconds: 60 },
+            ),
+          );
+          return result.exitCode === 0
+            ? `Saved a picture of the page to ${file}. The user can open it from their computer's files.`
+            : 'The picture could not be taken; the page may not have loaded.';
         });
       },
       write: async (path, content) => {
@@ -255,4 +292,23 @@ function homePath(path: string): string {
     throw new BadRequestException(`Computer files are limited to ${root}.`);
   }
   return resolved;
+}
+
+// The browser on the computer: no window, no sandbox inside the VM (the VM
+// is the sandbox).
+const browserFlags =
+  '--headless=new --no-sandbox --disable-gpu --hide-scrollbars';
+
+// Only web pages, never files on the computer or other schemes.
+function webAddress(value: string): string {
+  const url = new URL(value);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new BadRequestException('Only http and https pages can be opened.');
+  }
+  return url.toString();
+}
+
+// One shell word, whatever it contains.
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
