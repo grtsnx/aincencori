@@ -107,6 +107,41 @@ export class CencoriService {
     return this.client.getConfig();
   }
 
+  /**
+   * Checks text for scams, phishing and abuse with Cencori's moderation
+   * rules (the free layer). Returns the categories it was blocked for, or
+   * null when it may go on. Never holds a chat up: on an error, or after
+   * `timeoutMs`, the text goes on.
+   */
+  async moderate(text: string, timeoutMs = 1500): Promise<string[] | null> {
+    if (!this.cencori || !this.apiKey) return null;
+    try {
+      const response = await fetch(`${this.getBaseUrl()}/v1/moderations`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ input: text, layers: ['rules'] }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) return null;
+      const data = (await response.json()) as {
+        results?: {
+          action?: string;
+          category_scores?: Record<string, number>;
+        }[];
+      };
+      const result = data.results?.[0];
+      if (result?.action !== 'block') return null;
+      return Object.entries(result.category_scores ?? {})
+        .filter(([, score]) => score >= 0.5)
+        .map(([category]) => category);
+    } catch {
+      return null;
+    }
+  }
+
   /** Generic authenticated API request with retry and error handling. */
   request<T>(endpoint: string, options: RequestOptions): Promise<T> {
     return this.client.request<T>(endpoint, options);

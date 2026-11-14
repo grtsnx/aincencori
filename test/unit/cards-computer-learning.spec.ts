@@ -383,7 +383,10 @@ describe('agent computer, InstaBox answers', () => {
         memMiB: 8192,
         autoSuspendAfterSeconds: 300,
       })
-      .catch((caught: Error) => caught);
+      .then(
+        () => new Error('created'),
+        (caught: Error) => caught,
+      );
 
     expect(error.message).toBe(
       'The cloud computer service is full right now. Try again later.',

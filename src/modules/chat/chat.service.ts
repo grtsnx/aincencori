@@ -14,6 +14,7 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Agent } from 'cencori/agents';
 import {
+  type AgentSettings,
   type AskBot,
   type BotParts,
   type ChatContext,
@@ -185,6 +186,8 @@ export class ChatService implements OnModuleInit {
     goal: string,
   ) => Promise<{ id: string }>;
   private readonly secrets: string[];
+  // What every agent checks: no secrets in or out, no scams or abuse in.
+  private readonly guards: Pick<AgentSettings, 'secrets' | 'moderate'>;
   // True when agents have their own computer (INSTABOX_API_KEY).
   private readonly hasComputer: boolean;
   // Set by the computer module: the user's cloud computer.
@@ -205,8 +208,12 @@ export class ChatService implements OnModuleInit {
       .map((key) => this.config.get<string>(key))
       .filter((value): value is string => Boolean(value));
     this.hasComputer = Boolean(this.config.get<string>('INSTABOX_API_KEY'));
-    this.agent = createChatAgent({
+    this.guards = {
       secrets: this.secrets,
+      moderate: (text: string) => this.cencori.moderate(text),
+    };
+    this.agent = createChatAgent({
+      ...this.guards,
       computer: this.hasComputer,
       onHumanHandoff: ({ sessionId, reason }) =>
         this.logger.warn(`Chat ${sessionId} needs a person: ${reason}`),
@@ -299,7 +306,7 @@ export class ChatService implements OnModuleInit {
           return 'The bots have been asked enough for this message. Answer with what you have.';
         }
         const agent = createBotAgent(
-          { secrets: this.secrets },
+          this.guards,
           { ...member, computer: this.hasComputer },
           {
             others: canAskOthers
@@ -335,7 +342,7 @@ export class ChatService implements OnModuleInit {
       };
 
     return {
-      agent: createGroupAgent({ secrets: this.secrets }, group, askFrom(true)),
+      agent: createGroupAgent(this.guards, group, askFrom(true)),
       group: { id: group.id, said },
     };
   }
@@ -347,10 +354,10 @@ export class ChatService implements OnModuleInit {
     if (!this.bots) throw new NotFoundException('Bot not found.');
     const bot = await this.bots.one(userId, botId);
     return {
-      agent: createBotAgent(
-        { secrets: this.secrets },
-        { ...bot, computer: this.hasComputer },
-      ),
+      agent: createBotAgent(this.guards, {
+        ...bot,
+        computer: this.hasComputer,
+      }),
       bot,
     };
   }
@@ -366,10 +373,7 @@ export class ChatService implements OnModuleInit {
       // Handoffs go by name, so a second bot with the same name is skipped.
       .filter((bot) => !taken.has(bot.name) && taken.add(bot.name))
       .map((bot) =>
-        createBotAgent(
-          { secrets: this.secrets },
-          { ...bot, computer: this.hasComputer },
-        ),
+        createBotAgent(this.guards, { ...bot, computer: this.hasComputer }),
       );
     if (own.length === 0) return this.agent;
     // Naming the bots in the instructions makes the assistant actually use
@@ -1159,6 +1163,14 @@ export class ChatService implements OnModuleInit {
           action: 'tool.ran',
           target: data.name,
         });
+      } else if (name === 'error' && data.message === blockedMessage) {
+        // A guardrail stopped it: secrets, a scam or abuse.
+        this.activity.log({
+          userId,
+          actor: 'guardrail',
+          action: 'guardrail.blocked',
+          target: 'chat',
+        });
       }
       if (
         name === 'approval' &&
@@ -1360,6 +1372,9 @@ export function agentToolArgs(
     return {};
   }
 }
+
+// What Cencori's chat stream says when a guardrail stops a message.
+const blockedMessage = 'That request was blocked.';
 
 // An approval event with our fixed card added to each waiting step, so
 // every app shows the same card (see config/agents/cards.ts).

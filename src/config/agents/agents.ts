@@ -20,6 +20,7 @@ import {
   maxLearnedMemories,
   maxPlanSteps,
 } from './limits.js';
+import { billingPlans } from '../billing/plans.js';
 import { deniedToolMessage, type ToolDecision, untrusted } from './policy.js';
 
 // What every tool gets for the signed-in user. ChatService fills it in.
@@ -90,6 +91,9 @@ export interface AgentSettings {
   computer?: boolean;
   // Never shown to anyone: the answer guardrail blocks replies that contain them.
   secrets: string[];
+  // Checks a message for scams, phishing and abuse (Cencori moderation).
+  // Returns why it was blocked, or null. Left out: no such check.
+  moderate?: (text: string) => Promise<string[] | null>;
   // Tells our team when an agent hands a chat to a person.
   onHumanHandoff: (event: { sessionId: string; reason: string }) => void;
 }
@@ -340,6 +344,34 @@ export const truthRules =
   'a tool fails or finds nothing, say that. Say where a fact came from ' +
   'when it is not obvious.';
 
+// What Agentic can do and where, so the AI can explain the app and point
+// users to the right place. Admin features are left out on purpose. The AI
+// may only do what its tools allow; for the rest it says where to go.
+const plans = Object.values(billingPlans)
+  .map((plan) => `${plan.name} $${plan.monthlyLimitUsd}`)
+  .join(', ');
+export const platformGuide =
+  'About Agentic (use this to explain the app; only do what your tools ' +
+  'allow, otherwise tell the user where to go): ' +
+  'Bots: the user makes their own (Bots page): instructions (required), ' +
+  'plus optional skills, routines, apps, memories and documents. Bots learn ' +
+  'from chats and suggest improvements the user can accept or dismiss. ' +
+  'Groups put several bots in one chat. Routines run a prompt on a ' +
+  'schedule. Plans do a big goal in steps in the background. Integrations ' +
+  'connect apps (Gmail, Slack...) or the user’s own MCP server. Documents ' +
+  'are files bots can search. Approvals: risky steps ask first; the user ' +
+  'answers in the chat or the approvals inbox, and can set a rule per tool ' +
+  '(always allow, ask, never). The activity log shows what happened. ' +
+  `Usage: each plan has a monthly AI allowance (${plans}); when it is used ` +
+  'up, AI work stops until next month or an upgrade (Billing page). The ' +
+  'cloud computer keeps files in /data/home and can be reset. Voice: live ' +
+  'calls with the assistant, a bot or a group, and voice typing. In chat ' +
+  'the user can reply to a message, react with an emoji and attach up to 5 ' +
+  'files. The marketplace shares and imports bots. Account: profile, ' +
+  'sign-in (email code, Google, GitHub, Discord, passkeys, two-factor), ' +
+  'sessions, organizations and teams. Outside AI apps can connect through ' +
+  'MCP or Agent Auth. ';
+
 // When follow-ups are worth offering.
 const followUpRule =
   'After you give a draft, a list, research or a plan, call ' +
@@ -437,6 +469,38 @@ const noSecretsOut = (secrets: string[]): OutputGuardrail<ChatContext> => ({
   },
 });
 
+// Stops scams, phishing and abuse before the AI reads them (Cencori's
+// moderation rules). Short messages ("hi", "yes") are not checked, and a
+// slow or failed check lets the message through, so chats stay fast.
+const minModeratedChars = 20;
+const noAbuseIn = (
+  moderate: NonNullable<AgentSettings['moderate']>,
+): InputGuardrail<ChatContext> => ({
+  name: 'no_abuse_in',
+  execute: async ({ input }) => {
+    const text = typeof input === 'string' ? input : JSON.stringify(input);
+    const blocked =
+      text.length >= minModeratedChars ? await moderate(text) : null;
+    return {
+      tripwireTriggered: blocked !== null,
+      outputInfo: blocked
+        ? `This message was blocked as possible ${blocked.join(', ') || 'abuse'}.`
+        : undefined,
+    };
+  },
+});
+
+// The checks every agent runs, on what comes in and what goes out.
+function guardrails(settings: Pick<AgentSettings, 'secrets' | 'moderate'>) {
+  return {
+    inputGuardrails: [
+      noSecretsIn,
+      ...(settings.moderate ? [noAbuseIn(settings.moderate)] : []),
+    ],
+    outputGuardrails: [noSecretsOut(settings.secrets)],
+  };
+}
+
 // ── Agents ───────────────────────────────────────────────────────────────
 
 // What a bot is made of. Only the name and instructions are required;
@@ -498,7 +562,7 @@ function askBotTool(
 // The lead of a group of bots: it reads each message, asks the bots that
 // fit (they can also ask each other), and gives the user one answer.
 export function createGroupAgent(
-  settings: Pick<AgentSettings, 'secrets'>,
+  settings: Pick<AgentSettings, 'secrets' | 'moderate'>,
   group: {
     name: string;
     instructions?: string | null;
@@ -525,14 +589,13 @@ export function createGroupAgent(
         .filter(Boolean)
         .join('\n\n'),
     tools: [askBotTool(group.members, ask), replyToMessage, suggestFollowUps],
-    inputGuardrails: [noSecretsIn],
-    outputGuardrails: [noSecretsOut(settings.secrets)],
+    ...guardrails(settings),
     widgets: true,
   });
 }
 
 export function createBotAgent(
-  settings: Pick<AgentSettings, 'secrets'>,
+  settings: Pick<AgentSettings, 'secrets' | 'moderate'>,
   bot: BotParts,
   // Set when the bot answers inside a group: the other bots it may ask.
   // In a group it cannot rewrite its own instructions (no one to approve).
@@ -639,14 +702,14 @@ export function createBotAgent(
                   `- ${untrusted('bot skill description', `${skill.name}: ${skill.description}`)}`,
               )
               .join('\n'),
+        !team && platformGuide,
         !team && followUpRule,
         truthRules,
       ]
         .filter(Boolean)
         .join('\n\n'),
     tools,
-    inputGuardrails: [noSecretsIn],
-    outputGuardrails: [noSecretsOut(settings.secrets)],
+    ...guardrails(settings),
     // Widgets are for the user's screen; inside a group the reader is a bot.
     widgets: !team,
     mcpServers: bot.mcpServers,
@@ -734,6 +797,7 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       'offer to start a plan with start_plan. ' +
       'If the user asks for a person, or you cannot help, hand the chat to a human. ' +
       'A message starting with [Replying to ...] answers the quoted message. ' +
+      platformGuide +
       followUpRule +
       (settings.computer
         ? 'The user has their own cloud computer: use the computer_ tools to ' +
@@ -756,8 +820,7 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
       }),
     ],
     handoffs: [account, research, routines],
-    inputGuardrails: [noSecretsIn],
-    outputGuardrails: [noSecretsOut(settings.secrets)],
+    ...guardrails(settings),
     widgets: true,
   };
 
