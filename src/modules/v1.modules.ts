@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { BotModule } from './bot/bot.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { AlertModule } from './alert/alert.module.js';
+import { NotificationModule } from './notification/notification.module.js';
 import { BillingModule } from './billing/billing.module.js';
 import { ComputerModule } from './computer/computer.module.js';
 import { DocumentModule } from './document/document.module.js';
@@ -42,6 +43,7 @@ import { VoiceModule } from './voice/voice.module.js';
     ComputerModule,
     BillingModule,
     AlertModule,
+    NotificationModule,
     McpModule,
     VoiceModule,
   ],

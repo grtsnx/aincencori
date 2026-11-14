@@ -25,6 +25,7 @@ import { Prisma, type Routine } from '@/generated/prisma/client.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { ChatService } from '../chat/chat.service.js';
+import { NotificationService } from '../notification/notification.service.js';
 
 // Whose routines: the signed-in user, or the user an agent or MCP app acts for.
 export interface Owner {
@@ -47,6 +48,7 @@ export class RoutineService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly bullmq: BullmqService,
     private readonly chat: ChatService,
+    private readonly notifications?: NotificationService,
   ) {}
 
   onModuleInit(): void {
@@ -253,6 +255,28 @@ export class RoutineService implements OnModuleInit, OnModuleDestroy {
       where: { id: routine.id },
       data: { lastRunAt: new Date(), lastStatus: status },
     });
+    // A step waiting for approval is told by the approvals inbox.
+    const said = {
+      ok: {
+        title: `"${routine.name}" ran`,
+        body: 'Its answer is in your chats.',
+      },
+      failed: {
+        title: `"${routine.name}" failed`,
+        body: 'Something went wrong; it will try again at its next time.',
+      },
+      'no-allowance': {
+        title: `"${routine.name}" was skipped`,
+        body: "This month's AI allowance is used up. Upgrade or buy credits to carry on.",
+      },
+    }[status];
+    if (said) {
+      this.notifications?.notify(routine.userId, 'routine', {
+        ...said,
+        link:
+          status === 'no-allowance' ? '/billing' : `/routines/${routine.id}`,
+      });
+    }
   }
 
   // Puts the queue's timetable in line with the routine: on or off.

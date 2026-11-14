@@ -181,3 +181,13 @@ export {
   StartTrialDto,
 } from './billing/billing.dto.js';
 export { AlertDto } from './alert/alert.dto.js';
+export {
+  ListNotificationsQueryDto,
+  MarkReadDto,
+  NotificationDto,
+  NotificationListDto,
+  NotificationSettingDto,
+  NotificationSettingInfoDto,
+  RegisterDeviceDto,
+  UpdateNotificationSettingsDto,
+} from './notification/notification.dto.js';

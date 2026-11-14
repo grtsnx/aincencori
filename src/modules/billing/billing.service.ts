@@ -52,6 +52,7 @@ import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { ActivityService } from '../activity/activity.service.js';
+import { NotificationService } from '../notification/notification.service.js';
 import { MarketplaceService } from '../marketplace/marketplace.service.js';
 import { effectivePlan, UsageService } from '../usage/usage.service.js';
 
@@ -77,6 +78,7 @@ export class BillingService implements OnModuleInit {
     private readonly betterAuth: BetterAuthService,
     private readonly marketplace: MarketplaceService,
     private readonly email: EmailService,
+    private readonly notifications?: NotificationService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -352,6 +354,19 @@ export class BillingService implements OnModuleInit {
             : 'Naira plans are paid one month at a time: pay for the next month to keep it.',
         link: `${app}/billing`,
       });
+      this.notifications?.notify(
+        plan.userId,
+        'billing',
+        {
+          title: `Your ${plan.source === 'trial' ? `${name} free trial` : `${name} plan`} ends on ${day(plan.paidUntil)}`,
+          body:
+            plan.source === 'trial'
+              ? 'Choose a plan to keep its AI allowance.'
+              : 'Pay for the next month to keep it.',
+          link: '/billing',
+        },
+        { email: false },
+      );
       sent++;
     }
     for (const bot of hired) {
@@ -366,6 +381,16 @@ export class BillingService implements OnModuleInit {
           'Pay for another month to keep using it; it pauses when the month ends.',
         link: `${app}/marketplace/${bot.hiredListingId ?? ''}`,
       });
+      this.notifications?.notify(
+        bot.userId,
+        'marketplace',
+        {
+          title: `Your hire of ${bot.name} ends on ${day(bot.hiredUntil)}`,
+          body: 'Pay for another month to keep using it.',
+          link: `/marketplace/${bot.hiredListingId ?? ''}`,
+        },
+        { email: false },
+      );
       sent++;
     }
     return sent;
@@ -573,6 +598,8 @@ export class BillingService implements OnModuleInit {
       { maxWait: 10_000, timeout: 30_000 },
     );
     if (result) {
+      // After the payment is saved, never for one that was rolled back.
+      this.notifyPayment(result);
       this.activity.log({
         userId: result.activityUserId ?? result.userId,
         actor: 'bachs',
@@ -582,6 +609,49 @@ export class BillingService implements OnModuleInit {
       });
       if (result.plan) await this.usage.syncPlan(result.userId, result.plan);
     }
+  }
+
+  // Tells the user (and, for a bot sale, its creator) what a payment changed.
+  private notifyPayment(result: {
+    userId: string;
+    plan?: string;
+    detail: string;
+    activityAction?: string;
+    activityUserId?: string;
+    activityTarget?: string;
+  }): void {
+    if (result.activityAction === 'marketplace.sold') {
+      this.notifications?.notify(result.userId, 'marketplace', {
+        title: `${result.activityTarget ?? 'Your bot'} is ready`,
+        body: `${result.detail}. It is in your bots.`,
+        link: '/bots',
+      });
+      if (result.activityUserId) {
+        this.notifications?.notify(result.activityUserId, 'marketplace', {
+          title: `You sold ${result.activityTarget ?? 'a bot'}`,
+          body: 'Someone hired it. Your share is paid out by Bachs.',
+          link: '/marketplace/earnings',
+        });
+      }
+      return;
+    }
+    const failed = /past_due/.test(result.detail);
+    const ended = /ended/.test(result.detail);
+    const title = failed
+      ? 'Your card payment failed'
+      : ended
+        ? 'Your plan ended'
+        : /credits/.test(result.detail)
+          ? 'AI credits added'
+          : 'Payment received';
+    const body = failed
+      ? 'Bachs will try again. Update your card in the customer portal to keep your plan.'
+      : `${result.detail.charAt(0).toUpperCase()}${result.detail.slice(1)}.`;
+    this.notifications?.notify(result.userId, 'billing', {
+      title,
+      body,
+      link: '/billing',
+    });
   }
 
   // Changes what the user has, from one Bachs event.

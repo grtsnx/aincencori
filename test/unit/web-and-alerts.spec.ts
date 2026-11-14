@@ -220,3 +220,69 @@ describe('web search: order, billing and fair use', () => {
     expect(searchWeb.record).not.toHaveBeenCalled();
   });
 });
+
+describe('push notifications (Firebase)', () => {
+  it('signs in with the service account, sends the push, and spots removed devices', async () => {
+    const { generateKeyPairSync } = await import('node:crypto');
+    const { FirebaseService } =
+      await import('@/lib/firebase/firebase.service.js');
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const account = JSON.stringify({
+      project_id: 'agentic-test',
+      client_email: 'push@agentic-test.iam.gserviceaccount.com',
+      private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    });
+    const firebase = new FirebaseService({
+      get: () => Buffer.from(account).toString('base64'),
+    } as never);
+    const calls: { url: string; body: string }[] = [];
+    firebase.fetch = (input, init) => {
+      const url = String(input);
+      calls.push({ url, body: String(init?.body) });
+      if (url.includes('oauth2')) {
+        return Promise.resolve(
+          Response.json({ access_token: 'ya29.test', expires_in: 3600 }),
+        );
+      }
+      return Promise.resolve(
+        String(init?.body).includes('old-token')
+          ? Response.json(
+              {
+                error: {
+                  status: 'NOT_FOUND',
+                  details: [{ errorCode: 'UNREGISTERED' }],
+                },
+              },
+              { status: 404 },
+            )
+          : Response.json({ name: 'projects/agentic-test/messages/1' }),
+      );
+    };
+
+    expect(firebase.isConfigured).toBe(true);
+    await expect(
+      firebase.push('new-token', {
+        title: 'Hi',
+        body: 'There',
+        link: 'https://app.example.com/approvals',
+      }),
+    ).resolves.toBe('sent');
+    await expect(
+      firebase.push('old-token', { title: 'Hi', body: 'There' }),
+    ).resolves.toBe('gone');
+
+    // One sign-in, reused.
+    expect(calls.filter((call) => call.url.includes('oauth2'))).toHaveLength(1);
+    const send = calls.find((call) => call.url.includes('fcm.googleapis.com'))!;
+    expect(send.url).toBe(
+      'https://fcm.googleapis.com/v1/projects/agentic-test/messages:send',
+    );
+    expect(JSON.parse(send.body)).toMatchObject({
+      message: {
+        token: 'new-token',
+        notification: { title: 'Hi', body: 'There' },
+        webpush: { fcm_options: { link: 'https://app.example.com/approvals' } },
+      },
+    });
+  });
+});

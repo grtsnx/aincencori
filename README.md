@@ -63,6 +63,7 @@ Then open the API docs:
 | 💳  | **Billing**            | 6 plans, naira or dollars, a free trial, AI credits, customer portal (Bachs)            |
 | 🛒  | **Marketplace**        | Share bots for free, or sell them; creators get paid out                                |
 | 🔐  | **Sign-in**            | Email codes, Google, GitHub, Discord, passkeys, two-factor, organizations               |
+| 🔔  | **Notifications**      | An in-app bell, plus email and phone or browser push (Firebase, free), per user choice  |
 | 👮  | **Admin**              | Users, roles, usage, billing, marketplace review, alerts                                |
 
 Every feature, in detail: **[docs/features.md](docs/features.md)**.

@@ -1146,3 +1146,48 @@ model Hire {
   @@index([listingId])
   @@map("hire")
 }
+
+// Something for the user to know: shown in the app's inbox (the bell), and
+// also emailed or pushed to their phone when they chose so for its type.
+model Notification {
+  id        String    @id
+  userId    String
+  // "approval", "routine", "plan", "billing", "marketplace" or "bot".
+  type      String
+  title     String
+  body      String
+  // Where the app should take them (a path in the app, like /approvals).
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("notification")
+}
+
+// A user's choice for one type of notification. No row: the type's default.
+model NotificationSetting {
+  userId String
+  type   String
+  email  Boolean
+  push   Boolean
+
+  @@id([userId, type])
+  @@map("notificationSetting")
+}
+
+// A phone or browser that gets push notifications (Firebase Cloud Messaging).
+model PushDevice {
+  // The FCM registration token.
+  token      String   @id
+  userId     String
+  // "android", "ios" or "web".
+  platform   String
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("pushDevice")
+}
+

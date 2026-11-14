@@ -160,6 +160,9 @@ export class BetterAuthService implements OnModuleInit {
         }
         await db.billingPlan.deleteMany({ where: { userId } });
         await db.creatorAccount.deleteMany({ where: { userId } });
+        await db.notification.deleteMany({ where: { userId } });
+        await db.notificationSetting.deleteMany({ where: { userId } });
+        await db.pushDevice.deleteMany({ where: { userId } });
         await db.billingEvent.updateMany({
           where: { userId },
           data: { userId: null },

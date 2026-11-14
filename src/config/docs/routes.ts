@@ -24,6 +24,7 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Activity', description: 'What happened, and when' },
   { name: 'Usage', description: 'AI spend and plan' },
   { name: 'Billing', description: 'Plans, credits, payments' },
+  { name: 'Notifications', description: 'Inbox, email and push' },
   { name: 'MCP', description: 'MCP servers and apps' },
   { name: 'Admin', description: 'Manage all users' },
 ];

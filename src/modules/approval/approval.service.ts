@@ -33,6 +33,7 @@ import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { ActivityService } from '../activity/activity.service.js';
+import { NotificationService } from '../notification/notification.service.js';
 
 // How long a user's rules are kept in memory between chat turns.
 const cacheMs = 60_000;
@@ -91,6 +92,7 @@ export class ApprovalService {
     private readonly activity: ActivityService,
     private readonly cencori: CencoriService,
     private readonly config: ConfigService,
+    private readonly notifications?: NotificationService,
   ) {}
 
   // The user's current rules (read fresh, then kept briefly in memory).
@@ -224,6 +226,22 @@ export class ApprovalService {
         },
       }),
     ]);
+    // In a chat the user sees the card; elsewhere they are told.
+    if (input.source !== 'chat') {
+      const first = withCards(input.items)[0]?.card;
+      const from = {
+        routine: 'A routine',
+        plan: 'A plan',
+        app: 'A connected app',
+      }[input.source];
+      this.notifications?.notify(input.userId, 'approval', {
+        title: 'A step is waiting for your approval',
+        body: `${from} wants to: ${first?.title ?? 'do something'}${
+          input.items.length > 1 ? ` (and ${input.items.length - 1} more)` : ''
+        }.`,
+        link: '/approvals',
+      });
+    }
     for (const item of input.items) {
       this.activity.log({
         userId: input.userId,

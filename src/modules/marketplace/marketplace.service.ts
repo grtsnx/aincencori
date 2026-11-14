@@ -8,6 +8,7 @@ import {
 import { BachsService } from '@/lib/bachs/bachs.service.js';
 import { reportProblem } from '@/middleware';
 import { ActivityService } from '../activity/activity.service.js';
+import { NotificationService } from '../notification/notification.service.js';
 import {
   BadRequestException,
   ConflictException,
@@ -84,6 +85,7 @@ export class MarketplaceService implements OnModuleInit {
     private readonly bachs: BachsService,
     private readonly config: ConfigService,
     private readonly activity: ActivityService,
+    private readonly notifications?: NotificationService,
   ) {}
 
   onModuleInit(): void {
@@ -320,6 +322,10 @@ export class MarketplaceService implements OnModuleInit {
     accountId: string,
     tx: Prisma.TransactionClient = this.prisma.db,
   ): Promise<boolean> {
+    const before = await tx.creatorAccount.findUnique({
+      where: { bachsAccountId: accountId },
+      select: { userId: true, payoutsActive: true },
+    });
     const payoutsActive = await this.bachs
       .creatorCanBePaid(accountId)
       .catch((error: unknown) => {
@@ -330,6 +336,13 @@ export class MarketplaceService implements OnModuleInit {
       where: { bachsAccountId: accountId },
       data: { payoutsActive },
     });
+    if (before && !before.payoutsActive && payoutsActive) {
+      this.notifications?.notify(before.userId, 'marketplace', {
+        title: 'Payouts are on',
+        body: 'Bachs checked your details. People can now hire your paid bots.',
+        link: '/marketplace/payouts',
+      });
+    }
     return payoutsActive;
   }
 

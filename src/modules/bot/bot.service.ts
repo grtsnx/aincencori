@@ -70,6 +70,7 @@ import { DocumentService } from '../document/document.service.js';
 import { IntegrationService } from '../integration/integration.service.js';
 import { ActivityService } from '../activity/activity.service.js';
 import { ApprovalService } from '../approval/approval.service.js';
+import { NotificationService } from '../notification/notification.service.js';
 import { UsageService } from '../usage/usage.service.js';
 
 interface Owner {
@@ -109,6 +110,7 @@ export class BotService implements OnModuleInit {
     private readonly activity: ActivityService,
     private readonly config?: ConfigService,
     private readonly approvals?: ApprovalService,
+    private readonly notifications?: NotificationService,
   ) {}
 
   onModuleInit(): void {
@@ -458,6 +460,13 @@ export class BotService implements OnModuleInit {
         },
       });
       suggested++;
+    }
+    if (suggested > 0) {
+      this.notifications?.notify(chat.userId, 'bot', {
+        title: `${bot.name} has ${suggested === 1 ? 'an idea' : `${suggested} ideas`} to improve`,
+        body: 'It learned from your chats. Accept or dismiss each suggestion.',
+        link: `/bots/${bot.id}`,
+      });
     }
     await db.chatSession.update({
       where: { id: sessionId },

@@ -21,6 +21,7 @@ import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { serializableTransaction } from '@/middleware';
 import { ChatService } from '../chat/chat.service.js';
 import { UsageService } from '../usage/usage.service.js';
+import { NotificationService } from '../notification/notification.service.js';
 
 interface Owner {
   user: { id: string };
@@ -52,6 +53,7 @@ export class PlanService implements OnModuleInit {
     private readonly cencori: CencoriService,
     private readonly chat: ChatService,
     private readonly usage: UsageService,
+    private readonly notifications?: NotificationService,
   ) {}
 
   onModuleInit(): void {
@@ -341,9 +343,26 @@ export class PlanService implements OnModuleInit {
     status: string,
     summary: string,
   ): Promise<void> {
-    await this.prisma.db.plan.updateMany({
+    const { count } = await this.prisma.db.plan.updateMany({
       where: { id: planId, status: { in: activeStatuses } },
       data: { status, summary },
+    });
+    // A step waiting for approval is told by the approvals inbox.
+    if (count === 0 || (status !== 'done' && status !== 'failed')) return;
+    const plan = await this.prisma.db.plan.findUnique({
+      where: { id: planId },
+      select: { userId: true, goal: true },
+    });
+    if (!plan) return;
+    const goal =
+      plan.goal.length > 60 ? `${plan.goal.slice(0, 60)}…` : plan.goal;
+    this.notifications?.notify(plan.userId, 'plan', {
+      title: status === 'done' ? 'Your plan is done' : 'Your plan stopped',
+      body:
+        status === 'done'
+          ? `"${goal}" is finished. Open it to see the result.`
+          : `"${goal}" could not finish. You can resume it.`,
+      link: `/plans/${planId}`,
     });
   }
 

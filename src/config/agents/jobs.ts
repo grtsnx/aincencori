@@ -46,3 +46,6 @@ export const cancelSubscriptionJob = 'billing-cancel';
 // Each day: reminds people whose plan, trial or hired bot ends in 3 days
 // (naira plans, trials and monthly hires do not renew by themselves).
 export const renewalRemindersJob = 'billing-reminders';
+
+// Each day: deletes notifications older than notificationKeepDays.
+export const purgeNotificationsJob = 'notifications-purge';

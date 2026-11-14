@@ -219,6 +219,7 @@ const environmentSchema = z
     FIRECRAWL_API_KEY: optionalString(),
     FIRECRAWL_API_KEY_2: optionalString(),
     CONTEXT_API_KEY: optionalString(),
+    FIREBASE_SERVICE_ACCOUNT: optionalString(),
     SEARXNG_URL: optionalString(),
     BACHS_WEBHOOK_SECRET: optionalString(),
     LIVEKIT_API_SECRET: optionalString(),
@@ -377,6 +378,7 @@ export interface Environment {
   FIRECRAWL_API_KEY?: string;
   FIRECRAWL_API_KEY_2?: string;
   CONTEXT_API_KEY?: string;
+  FIREBASE_SERVICE_ACCOUNT?: string;
   SEARXNG_URL?: string;
   BACHS_WEBHOOK_SECRET?: string;
   LIVEKIT_API_SECRET?: string;

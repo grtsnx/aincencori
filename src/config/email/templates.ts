@@ -8,7 +8,8 @@ export type EmailTemplate =
   | 'two-factor'
   | 'invitation'
   | 'alert'
-  | 'renewal-reminder';
+  | 'renewal-reminder'
+  | 'notification';
 
 export interface RenderedEmail {
   subject: string;
@@ -90,6 +91,18 @@ export function renderEmail(
           <p>${v.action}</p>
           <p><a href="${v.link}">Keep it going</a></p>`,
         text: `Hi ${v.name},\n\nYour ${v.what} on ${v.appName} ends on ${v.endsOn}.\n\n${v.action}\n\nKeep it going: ${v.link}`,
+      };
+    // A notification the user chose to get by email (see config/notifications).
+    case 'notification':
+      return {
+        subject: v.title,
+        html: html`<p>${v.body}</p>
+          <p><a href="${v.link}">Open ${v.appName}</a></p>
+          <p style="color:#666;font-size:12px">
+            You can choose which notifications you get by email in your
+            settings.
+          </p>`,
+        text: `${v.body}\n\nOpen ${v.appName}: ${v.link}\n\nYou can choose which notifications you get by email in your settings.`,
       };
     // For admins: something broke. Users only saw a plain message.
     case 'alert':
