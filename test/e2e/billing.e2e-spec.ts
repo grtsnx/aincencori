@@ -8,6 +8,7 @@ import { validateEnvironment } from '@/config/index.js';
 import { BachsService } from '@/lib/bachs/bachs.service.js';
 import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
+import { BillingService } from '@/modules/billing/billing.service.js';
 import { UsageService } from '@/modules/usage/usage.service.js';
 
 // A stand-in for Bachs: records checkouts, and treats a webhook as signed
@@ -438,6 +439,34 @@ describe('Billing (e2e)', () => {
         }),
       );
       await db().user.update({ where: { id: userId }, data: { role: 'user' } });
+    });
+
+    it('reminds people 3 days before a naira plan ends, once', async () => {
+      const service = app.get(BillingService);
+      const now = new Date();
+      await db().billingPlan.update({
+        where: { userId },
+        data: {
+          plan: 'pro',
+          source: 'prepaid',
+          status: 'active',
+          paidUntil: new Date(now.getTime() + 2.5 * 86_400_000),
+        },
+      });
+
+      expect(await service.remindRenewals(now)).toBeGreaterThanOrEqual(1);
+      expect(app.get(EmailService).lastTestEmail(email)).toMatchObject({
+        what: 'Pro plan',
+        link: expect.stringContaining('/billing'),
+      });
+      // The next day it is outside the window: no second email.
+      const tomorrow = new Date(now.getTime() + 86_400_000);
+      await db().billingPlan.update({
+        where: { userId },
+        data: { paidUntil: new Date(now.getTime() + 2.5 * 86_400_000) },
+      });
+      const before = await service.remindRenewals(tomorrow);
+      expect(before).toBe(0);
     });
   });
 });

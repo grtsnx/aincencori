@@ -2,6 +2,8 @@
 
 A NestJS API with sign-in, users, organizations, admin tools and AI agent access. Auth is handled by [Better Auth](https://better-auth.com), data lives in Postgres through Prisma.
 
+**Building the app?** See [docs/frontend.md](docs/frontend.md): sign-in, streaming chat, approval cards, payments, marketplace and the rest, with examples.
+
 ## Run it locally
 
 You need Bun 1.3.14+, Node.js 24+ and Docker.
@@ -105,6 +107,21 @@ The assistant and bots can read the user's own plan, AI use and credits (`my_pla
 - Install a skill from a link or a pasted `SKILL.md` (the common Agent Skills format): `POST /v1/bots/:id/skills/import/preview` reads it (GitHub folder and file links become the raw `SKILL.md`), Cencori scans it, and the user sees its name, description and steps. `POST /v1/bots/:id/skills/import` with the preview's token installs exactly that skill on that bot (the token lasts an hour). Only public addresses are fetched, up to 256 KB.
 - MCP catalog: `GET /v1/integrations/catalog?search=` lists servers from the public MCP registry that we can connect to (online, at most a Bearer token). `POST /v1/integrations/catalog` adds one by its registry name; the address always comes from the registry, never from the request. Servers that run on a laptop (stdio) or need other headers are left out.
 
+**Web search and alerts**
+
+- Agents search the live web with our own search, not the AI provider's: Brave Search first when `BRAVE_SEARCH_API_KEY` is set, otherwise (or when Brave fails) our own SearXNG (`compose.yaml`, `SEARXNG_URL`). Pages are read by our own code from the public internet only. Pages that need JavaScript are opened in the computer's browser (below).
+- Users never see errors from services we use (AI, search, InstaBox, Bachs, Cencori). They get a plain message; the real error becomes an **alert**: kept for 90 days (`GET /v1/admin/alerts`), emailed to every admin, and posted to `ALERT_WEBHOOK_URL` when set. The same alert within 10 minutes is counted, not sent again.
+
+**The agent's computer** (InstaBox): a Linux machine per user with a terminal (`computer_run_command`), files under `/data/home` (read, list, write), and a Chromium browser: `computer_browse` opens a page and reads it after its JavaScript runs, `computer_screenshot` saves a picture of a page in the user's files.
+
+**Paid bots on the marketplace** (Bachs Connect)
+
+- Creators set up payouts once (`POST /v1/marketplace/payouts`): Bachs's page checks who they are and where to pay them (bank, mobile money or crypto). Then they share a bot with a price: `one_off` or `monthly`, in US dollars (naira buyers pay the same in naira).
+- A paid bot can be hired only when staff approved it (after the safety review) and the creator's payouts are on. Its instructions and skill steps stay hidden until hired.
+- Hiring (`POST /v1/marketplace/:id/hire`) is a Bachs checkout where the buyer pays us, we keep `marketplaceFeePercent` (20%, in `src/config/billing/plans.ts`) and Bachs sends the rest to the creator. Once Bachs confirms, the buyer gets their own copy. A monthly hire lasts 30 days; paying again adds 30 days; when it runs out the bot pauses (402) until renewed.
+- Creators see sales and their share (`GET /v1/marketplace/earnings`); buyers see their hires (`GET /v1/marketplace/hires`).
+- The Bachs webhook must send Connect events too (event source "all"), so creator checks reach us.
+
 **Guardrails** (in `src/config/agents/agents.ts`; every agent, bot and group runs them)
 
 - Secrets in: a message that looks like a key or password (`sk-...`, private keys, AWS keys, `password: ...`) is stopped before the AI reads it.
@@ -194,6 +211,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `DATABASE_URL`                                                               | Postgres connection                                               |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`                       | Optional: live voice calls (LiveKit Cloud). Set all three or none |
+| `BRAVE_SEARCH_API_KEY`, `SEARXNG_URL`                                        | Web search: Brave (optional), our SearXNG (local default)         |
 | `BACHS_API_KEY`, `BACHS_WEBHOOK_SECRET`                                      | Optional: payments with Bachs. Without them billing answers 503   |
 | `CENCORI_WEBHOOK_SECRET`                                                     | Optional: lets app steps (Gmail...) follow your tool rules        |
 | `STORAGE_URL`                                                                | Cloudflare R2 (or S3-compatible) for chat files. Required in prod |
@@ -246,6 +264,10 @@ CI runs all of these on every push, then builds and scans the Docker image. Tagg
 - `livekit-docs`: LiveKit's docs, code search and prices. No key needed.
 
 ## Known issues
+
+- **Monthly paid bots are paid a month at a time.** Bachs does not document splitting a subscription between us and a creator, so monthly hires work like naira plans: one payment, 30 days. Refunds and lost disputes on paid bots come out of our balance, not the creator's.
+- **Bachs Connect is untested with a real account.** Paid bots are tested with a stand-in for Bachs; the Connect calls follow Bachs's docs (their SDK does not cover Connect yet).
+- **SearXNG depends on the engines it asks.** Busy search engines can refuse it for a while; set `BRAVE_SEARCH_API_KEY` for steady results in production.
 
 - **The agent computer is untested with a real InstaBox account.** It is tested against a stand-in of InstaBox's API; add `INSTABOX_API_KEY` to try it. Its live screen view needs a personal InstaBox key, so it is left out for now.
 - **Computer cost is an estimate.** We count each command's run time (at least a minute); InstaBox also bills the idle minutes before the machine pauses.

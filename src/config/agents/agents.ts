@@ -378,7 +378,9 @@ export const platformGuide =
   'cloud computer keeps files in /data/home and can be reset. Voice: live ' +
   'calls with the assistant, a bot or a group, and voice typing. In chat ' +
   'the user can reply to a message, react with an emoji and attach up to 5 ' +
-  'files. The marketplace shares and imports bots. Account: profile, ' +
+  'files. The marketplace shares bots: free ones are copied; paid ones ' +
+  '(once or monthly) are hired, and creators earn a share after setting ' +
+  'up payouts. Account: profile, ' +
   'sign-in (email code, Google, GitHub, Discord, passkeys, two-factor), ' +
   'sessions, organizations and teams. Outside AI apps can connect through ' +
   'MCP or Agent Auth. ';

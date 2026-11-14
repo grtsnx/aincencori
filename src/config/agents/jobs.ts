@@ -42,3 +42,7 @@ export const deleteComputerJob = 'computer-delete';
 
 // Stops a deleted user's card subscription at Bachs, so they are not charged.
 export const cancelSubscriptionJob = 'billing-cancel';
+
+// Each day: reminds people whose plan, trial or hired bot ends in 3 days
+// (naira plans, trials and monthly hires do not renew by themselves).
+export const renewalRemindersJob = 'billing-reminders';

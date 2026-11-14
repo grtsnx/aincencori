@@ -19,7 +19,6 @@ import {
   creditPackNames,
   creditPacks,
   currencyFor,
-  ngnCountries,
   paidPlanNames,
   prepaidDays,
   priceIn,
@@ -38,7 +37,10 @@ import type {
   StartCheckoutDto,
   StartTrialDto,
 } from '@/dto';
-import { cancelSubscriptionJob } from '@/config/agents/jobs.js';
+import {
+  cancelSubscriptionJob,
+  renewalRemindersJob,
+} from '@/config/agents/jobs.js';
 import { BachsService } from '@/lib/bachs/bachs.service.js';
 import {
   type AuthSession,
@@ -46,6 +48,7 @@ import {
 } from '@/lib/better-auth/better-auth.service.js';
 import { assertStaff } from '@/middleware';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
+import { EmailService } from '@/lib/email/email.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { ActivityService } from '../activity/activity.service.js';
 import { MarketplaceService } from '../marketplace/marketplace.service.js';
@@ -72,9 +75,21 @@ export class BillingService implements OnModuleInit {
     private readonly bullmq: BullmqService,
     private readonly betterAuth: BetterAuthService,
     private readonly marketplace: MarketplaceService,
+    private readonly email: EmailService,
   ) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
+    this.bullmq.handle(renewalRemindersJob, async () => {
+      await this.remindRenewals();
+    });
+    await this.bullmq
+      .schedule(
+        renewalRemindersJob,
+        'daily',
+        { cron: '0 9 * * *', timezone: 'UTC' },
+        {},
+      )
+      .catch(() => this.logger.warn('Renewal reminders were not scheduled.'));
     // A deleted account's card plan stops at once.
     this.bullmq.handle<{ subscriptionId: string }>(
       cancelSubscriptionJob,
@@ -274,6 +289,81 @@ export class BillingService implements OnModuleInit {
       data: { cancelAtPeriodEnd: true },
     });
     return this.mine(auth);
+  }
+
+  // Emails people whose naira plan, trial or monthly bot hire ends in about
+  // 3 days (one window a day, so each is reminded once). Card plans renew by
+  // themselves, so they are left alone.
+  async remindRenewals(now = new Date()): Promise<number> {
+    const db = this.prisma.db;
+    const from = new Date(now.getTime() + 2 * dayMs);
+    const to = new Date(now.getTime() + 3 * dayMs);
+    const app = this.config.getOrThrow<string>('APP_URL');
+    const appName = this.config.get<string>('PLATFORM_NAME') ?? 'Agentic';
+    const day = (date: Date) => date.toISOString().slice(0, 10);
+    let sent = 0;
+
+    const plans = await db.billingPlan.findMany({
+      where: {
+        source: { in: ['prepaid', 'trial'] },
+        status: { not: 'canceled' },
+        paidUntil: { gte: from, lt: to },
+      },
+      take: 1000,
+    });
+    const hired = await db.bot.findMany({
+      where: { hiredUntil: { gte: from, lt: to } },
+      select: {
+        userId: true,
+        name: true,
+        hiredUntil: true,
+        hiredListingId: true,
+      },
+      take: 1000,
+    });
+    const people = await db.user.findMany({
+      where: {
+        id: {
+          in: [...plans.map((p) => p.userId), ...hired.map((b) => b.userId)],
+        },
+      },
+      select: { id: true, email: true, name: true },
+    });
+    const person = (id: string) => people.find((p) => p.id === id);
+
+    for (const plan of plans) {
+      const user = person(plan.userId);
+      if (!user || !plan.paidUntil) continue;
+      const name =
+        billingPlans[plan.plan as BillingPlanName]?.name ?? plan.plan;
+      await this.email.enqueue('renewal-reminder', user.email, {
+        appName,
+        name: user.name || 'there',
+        what: plan.source === 'trial' ? `${name} free trial` : `${name} plan`,
+        endsOn: day(plan.paidUntil),
+        action:
+          plan.source === 'trial'
+            ? 'Choose a plan to keep its AI allowance; otherwise you go back to Free.'
+            : 'Naira plans are paid one month at a time: pay for the next month to keep it.',
+        link: `${app}/billing`,
+      });
+      sent++;
+    }
+    for (const bot of hired) {
+      const user = person(bot.userId);
+      if (!user || !bot.hiredUntil) continue;
+      await this.email.enqueue('renewal-reminder', user.email, {
+        appName,
+        name: user.name || 'there',
+        what: `monthly hire of ${bot.name}`,
+        endsOn: day(bot.hiredUntil),
+        action:
+          'Pay for another month to keep using it; it pauses when the month ends.',
+        link: `${app}/marketplace/${bot.hiredListingId ?? ''}`,
+      });
+      sent++;
+    }
+    return sent;
   }
 
   // ── For staff ──────────────────────────────────────────────────────────

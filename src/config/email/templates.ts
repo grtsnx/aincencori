@@ -7,7 +7,8 @@ export type EmailTemplate =
   | 'reset-password-otp'
   | 'two-factor'
   | 'invitation'
-  | 'alert';
+  | 'alert'
+  | 'renewal-reminder';
 
 export interface RenderedEmail {
   subject: string;
@@ -77,6 +78,18 @@ export function renderEmail(
           <p><a href="${v.inviteLink}">Accept the invite</a></p>
           <p>If you weren't expecting this, ignore this email.</p>`,
         text: `${v.inviterName} (${v.inviterEmail}) invited you to join ${v.organizationName} on ${v.appName} as ${v.role}.\n\nAccept the invite: ${v.inviteLink}\n\nIf you weren't expecting this, ignore this email.`,
+      };
+    // Something the user pays for ends soon and will not renew by itself.
+    case 'renewal-reminder':
+      return {
+        subject: `${v.what} ends on ${v.endsOn}`,
+        html: html`<p>Hi ${v.name},</p>
+          <p>
+            Your ${v.what} on ${v.appName} ends on <strong>${v.endsOn}</strong>.
+          </p>
+          <p>${v.action}</p>
+          <p><a href="${v.link}">Keep it going</a></p>`,
+        text: `Hi ${v.name},\n\nYour ${v.what} on ${v.appName} ends on ${v.endsOn}.\n\n${v.action}\n\nKeep it going: ${v.link}`,
       };
     // For admins: something broke. Users only saw a plain message.
     case 'alert':
