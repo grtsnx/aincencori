@@ -45,7 +45,7 @@ export interface ChatContext {
   computer?: ComputerActions;
   // The user's plan, this month's AI use and credits, in plain words.
   myPlan?: () => Promise<string>;
-  // Searches the live web (ours: Brave, else our SearXNG). Plain text.
+  // Searches the live web (ours: Exa, else our SearXNG). Plain text.
   webSearch?: (query: string, freshness?: string) => Promise<string>;
   // Reads one web page as plain text.
   readPage?: (url: string) => Promise<string>;

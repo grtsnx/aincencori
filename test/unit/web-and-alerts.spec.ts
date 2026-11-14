@@ -14,7 +14,7 @@ const search = (answer: () => Promise<unknown[]>) => ({
 });
 
 function chatWith(
-  brave?: ReturnType<typeof search>,
+  exa?: ReturnType<typeof search>,
   searxng?: ReturnType<typeof search>,
 ) {
   const service = new ChatService(
@@ -27,7 +27,7 @@ function chatWith(
     {} as never,
     {} as never,
     { log: vi.fn() } as never,
-    brave as never,
+    exa as never,
     searxng as never,
   );
   return (
@@ -45,45 +45,45 @@ const result = {
 };
 
 describe('web search, our own', () => {
-  it('uses Brave first, with the date range asked for', async () => {
-    const brave = search(() => Promise.resolve([result]));
+  it('uses Exa first, with the date range asked for', async () => {
+    const exa = search(() => Promise.resolve([result]));
     const searxng = search(() => Promise.resolve([]));
 
-    const text = await chatWith(brave, searxng)('bitcoin price', '24h');
+    const text = await chatWith(exa, searxng)('bitcoin price', '24h');
 
     expect(text).toContain('1. Bitcoin price today');
     expect(text).toContain('https://www.coindesk.com/price/bitcoin');
-    expect(brave.search).toHaveBeenCalledWith('bitcoin price', {
+    expect(exa.search).toHaveBeenCalledWith('bitcoin price', {
       freshness: 'day',
     });
     expect(searxng.search).not.toHaveBeenCalled();
     expect(alerts).toEqual([]);
   });
 
-  it('falls back to our SearXNG when Brave fails, and tells the team', async () => {
-    const brave = search(() => Promise.reject(new Error('Brave answered 429')));
+  it('falls back to our SearXNG when Exa fails, and tells the team', async () => {
+    const exa = search(() => Promise.reject(new Error('Exa answered 429')));
     const searxng = search(() => Promise.resolve([result]));
 
-    const text = await chatWith(brave, searxng)('bitcoin price');
+    const text = await chatWith(exa, searxng)('bitcoin price');
 
     expect(text).toContain('Bitcoin price today');
     expect(alerts).toEqual([
       expect.objectContaining({
         source: 'web-search',
-        detail: expect.stringContaining('Brave answered 429'),
+        detail: expect.stringContaining('Exa answered 429'),
       }),
     ]);
   });
 
   it('never passes an outside error to the AI, and says plainly it cannot search', async () => {
-    const brave = search(() =>
+    const exa = search(() =>
       Promise.reject(new Error('credit balance exhausted for key sk-123')),
     );
     const searxng = search(() =>
       Promise.reject(new Error('SearXNG answered 502.')),
     );
 
-    const text = await chatWith(brave, searxng)('weather in Lagos');
+    const text = await chatWith(exa, searxng)('weather in Lagos');
 
     expect(text).toContain('Web search is not available right now');
     expect(text).not.toContain('credit');
@@ -103,5 +103,58 @@ describe('web search, our own', () => {
     expect(freshnessFor('1m')).toBe('month');
     expect(freshnessFor('soon')).toBeUndefined();
     expect(formatResults([])).toBe('No results.');
+  });
+});
+
+describe('Exa', () => {
+  it('asks for recent pages with their best passages, and reads them back', async () => {
+    const { ExaService } = await import('@/lib/exa/exa.service.js');
+    const exa = new ExaService({ get: () => 'exa_test' } as never);
+    let sent:
+      | {
+          url: string;
+          headers: Record<string, string>;
+          body: Record<string, unknown>;
+        }
+      | undefined;
+    exa.fetch = (input, init) => {
+      sent = {
+        url: String(input),
+        headers: init?.headers as Record<string, string>,
+        body: JSON.parse(String(init?.body)),
+      };
+      return Promise.resolve(
+        Response.json({
+          results: [
+            {
+              title: 'Bitcoin price today',
+              url: 'https://www.coindesk.com/price/bitcoin',
+              publishedDate: '2026-11-14T08:00:00.000Z',
+              highlights: ['BTC is trading at $68,399.', 'Up 2% today.'],
+            },
+          ],
+        }),
+      );
+    };
+
+    const results = await exa.search('bitcoin price', { freshness: 'day' });
+
+    expect(sent?.url).toBe('https://api.exa.ai/search');
+    expect(sent?.headers['x-api-key']).toBe('exa_test');
+    expect(sent?.body).toMatchObject({
+      query: 'bitcoin price',
+      type: 'auto',
+      contents: { highlights: { maxCharacters: 600 } },
+    });
+    const since = Date.parse(String(sent?.body.startPublishedDate));
+    expect(Date.now() - since).toBeLessThan(25 * 60 * 60_000);
+    expect(results).toEqual([
+      {
+        title: 'Bitcoin price today',
+        url: 'https://www.coindesk.com/price/bitcoin',
+        snippet: 'BTC is trading at $68,399. … Up 2% today.',
+        date: '2026-11-14',
+      },
+    ]);
   });
 });

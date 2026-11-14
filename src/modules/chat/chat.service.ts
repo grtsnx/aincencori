@@ -57,7 +57,7 @@ import { Prisma } from '@/generated/prisma/client.js';
 import { ActivityService } from '../activity/activity.service.js';
 import { ApprovalService, withCards } from '../approval/approval.service.js';
 import { UsageService } from '../usage/usage.service.js';
-import { BraveService } from '@/lib/brave/brave.service.js';
+import { ExaService } from '@/lib/exa/exa.service.js';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { SearxngService } from '@/lib/searxng/searxng.service.js';
 import {
@@ -176,7 +176,7 @@ const secretSettings = [
   'LIVEKIT_API_SECRET',
   'INSTABOX_API_KEY',
   'BACHS_API_KEY',
-  'BRAVE_SEARCH_API_KEY',
+  'EXA_API_KEY',
   'BACHS_WEBHOOK_SECRET',
   'CENCORI_WEBHOOK_SECRET',
 ];
@@ -219,7 +219,7 @@ export class ChatService implements OnModuleInit {
     private readonly usage: UsageService,
     private readonly approvals: ApprovalService,
     private readonly activity: ActivityService,
-    private readonly brave?: BraveService,
+    private readonly exa?: ExaService,
     private readonly searxng?: SearxngService,
   ) {
     this.secrets = secretSettings
@@ -923,14 +923,14 @@ export class ChatService implements OnModuleInit {
 
   // What the agent's tools can see and do, as the user. Without headers (a
   // routine, no browser) changes that need the user's session are refused.
-  // Searches the live web: Brave first when set up (better results), our
-  // own SearXNG otherwise or when Brave fails. If every search fails, the AI
+  // Searches the live web: Exa first when set up (search built for AI, with
+  // the passages that answer), our own SearXNG otherwise or when Exa fails. If every search fails, the AI
   // is told plainly (so it says so instead of guessing) and our team gets
   // the real error. Users never see an outside service's error.
   private async searchWeb(query: string, freshness?: string): Promise<string> {
     const range = freshnessFor(freshness);
     const searches = [
-      { name: 'Brave', service: this.brave },
+      { name: 'Exa', service: this.exa },
       { name: 'SearXNG', service: this.searxng },
     ].filter((search) => search.service?.isConfigured);
     const problems: string[] = [];
@@ -954,7 +954,7 @@ export class ChatService implements OnModuleInit {
     reportProblem(
       'web-search',
       searches.length === 0 ? 'Web search is not set up' : 'Web search failed',
-      problems.join('\n') || 'Set BRAVE_SEARCH_API_KEY or SEARXNG_URL.',
+      problems.join('\n') || 'Set EXA_API_KEY or SEARXNG_URL.',
     );
     return 'Web search is not available right now. Tell the user you could not search the web just now; do not guess.';
   }

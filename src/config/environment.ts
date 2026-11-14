@@ -215,7 +215,7 @@ const environmentSchema = z
     LIVEKIT_API_KEY: optionalString(),
     INSTABOX_API_KEY: optionalString(),
     BACHS_API_KEY: optionalString(),
-    BRAVE_SEARCH_API_KEY: optionalString(),
+    EXA_API_KEY: optionalString(),
     SEARXNG_URL: optionalString(),
     BACHS_WEBHOOK_SECRET: optionalString(),
     LIVEKIT_API_SECRET: optionalString(),
@@ -370,7 +370,7 @@ export interface Environment {
   LIVEKIT_API_KEY?: string;
   INSTABOX_API_KEY?: string;
   BACHS_API_KEY?: string;
-  BRAVE_SEARCH_API_KEY?: string;
+  EXA_API_KEY?: string;
   SEARXNG_URL?: string;
   BACHS_WEBHOOK_SECRET?: string;
   LIVEKIT_API_SECRET?: string;

@@ -10,12 +10,12 @@ export class AlertDto {
   })
   source: string;
 
-  @ApiProperty({ example: 'Web search failed (Brave and SearXNG)' })
+  @ApiProperty({ example: 'Web search failed (Exa and SearXNG)' })
   title: string;
 
   @ApiProperty({
     description: 'The real error, for staff only',
-    example: 'Brave answered 429: rate limit',
+    example: 'Exa answered 429: rate limit',
     nullable: true,
   })
   detail: string | null;
