@@ -177,6 +177,8 @@ export class ComputerService implements OnModuleInit {
       if (!(error instanceof InstaboxError) || error.status !== 404)
         throw error;
       if (error.code !== 'not_found') throw error;
+      // Make sure the old one is gone too, so it never takes a slot.
+      await this.bullmq.add(deleteComputerJob, { machineId });
       await this.prisma.db.agentComputer.deleteMany({ where: { userId } });
       return work(await this.machineFor(userId));
     }

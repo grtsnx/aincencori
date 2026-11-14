@@ -16,7 +16,7 @@ export const auth = betterAuth(
     oauth: {
       google: { clientId: 'schema', clientSecret: 'schema' },
       github: { clientId: 'schema', clientSecret: 'schema' },
-      linkedin: { clientId: 'schema', clientSecret: 'schema' },
+      discord: { clientId: 'schema', clientSecret: 'schema' },
     },
     recaptchaSecretKey: 'schema',
     passkeyRpID: 'localhost',

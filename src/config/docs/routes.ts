@@ -79,7 +79,7 @@ export const authRouteDocs: Record<
   },
   '/sign-in/social': {
     title: 'Sign in with provider',
-    description: 'Starts sign-in with Google, GitHub or LinkedIn.',
+    description: 'Starts sign-in with Google, GitHub or Discord.',
   },
   '/callback/{id}': {
     title: 'Return from provider sign-in',
@@ -307,7 +307,7 @@ export const authRouteDocs: Record<
   },
   '/link-social': {
     title: 'Link a provider account',
-    description: 'Connects Google, GitHub or LinkedIn to this account.',
+    description: 'Connects Google, GitHub or Discord to this account.',
   },
   '/list-accounts': {
     title: 'List sign-in methods',

@@ -74,7 +74,7 @@ export class BetterAuthService implements OnModuleInit {
   ) {
     const nodeEnv = config.getOrThrow<string>('NODE_ENV');
     // A provider is on when both its ID and secret are set.
-    const provider = (name: 'GOOGLE' | 'GITHUB' | 'LINKEDIN') => {
+    const provider = (name: 'GOOGLE' | 'GITHUB' | 'DISCORD') => {
       const clientId = config.get<string>(`${name}_CLIENT_ID`);
       const clientSecret = config.get<string>(`${name}_CLIENT_SECRET`);
       return clientId && clientSecret ? { clientId, clientSecret } : undefined;
@@ -95,7 +95,7 @@ export class BetterAuthService implements OnModuleInit {
       oauth: {
         google: provider('GOOGLE'),
         github: provider('GITHUB'),
-        linkedin: provider('LINKEDIN'),
+        discord: provider('DISCORD'),
       },
       recaptchaSecretKey: config.get<string>('RECAPTCHA_SECRET_KEY'),
       passkeyRpID: config.getOrThrow<string>('PASSKEY_RP_ID'),

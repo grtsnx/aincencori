@@ -198,8 +198,8 @@ const environmentSchema = z
     GOOGLE_CLIENT_SECRET: optionalString(),
     GITHUB_CLIENT_ID: optionalString(),
     GITHUB_CLIENT_SECRET: optionalString(),
-    LINKEDIN_CLIENT_ID: optionalString(),
-    LINKEDIN_CLIENT_SECRET: optionalString(),
+    DISCORD_CLIENT_ID: optionalString(),
+    DISCORD_CLIENT_SECRET: optionalString(),
     RECAPTCHA_SECRET_KEY: optionalString(),
     SENDBYTE_API_KEY: optionalString(),
     CENCORI_API_KEY: optionalString(),
@@ -303,7 +303,7 @@ const environmentSchema = z
     }
 
     // Each sign-in provider needs both its ID and secret, or neither.
-    for (const provider of ['GOOGLE', 'GITHUB', 'LINKEDIN'] as const) {
+    for (const provider of ['GOOGLE', 'GITHUB', 'DISCORD'] as const) {
       const id = environment[`${provider}_CLIENT_ID`];
       const secret = environment[`${provider}_CLIENT_SECRET`];
       if (!id !== !secret) {
@@ -356,8 +356,8 @@ export interface Environment {
   GOOGLE_CLIENT_SECRET?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
-  LINKEDIN_CLIENT_ID?: string;
-  LINKEDIN_CLIENT_SECRET?: string;
+  DISCORD_CLIENT_ID?: string;
+  DISCORD_CLIENT_SECRET?: string;
   RECAPTCHA_SECRET_KEY?: string;
   SENDBYTE_API_KEY?: string;
   CENCORI_API_KEY?: string;

@@ -106,8 +106,10 @@ export const maxLearnedMemories = 5;
 export const maxPendingSuggestions = 5;
 
 // The user's cloud computer (InstaBox): its size, how long it waits idle
-// before pausing, and how much of a command's output the AI sees.
-export const computerSize = { vcpus: 2, memMiB: 4096 };
+// before pausing, and how much of a command's output the AI sees. InstaBox's
+// free plan has one fixed size (4 vCPU, 8 GB); if a plan refuses a size, the
+// machine is made at the plan's own size instead.
+export const computerSize = { vcpus: 4, memMiB: 8192 };
 export const computerIdleSeconds = 300;
 export const computerOutputChars = 8000;
 // What the computer costs us an hour at that size (InstaBox: $0.004 per vCPU

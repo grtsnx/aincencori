@@ -222,7 +222,7 @@ describe('validateEnvironment', () => {
   });
 
   it('requires both ID and secret for each sign-in provider', () => {
-    for (const provider of ['GOOGLE', 'GITHUB', 'LINKEDIN']) {
+    for (const provider of ['GOOGLE', 'GITHUB', 'DISCORD']) {
       expect(() =>
         validateEnvironment({ [`${provider}_CLIENT_ID`]: 'id' }),
       ).toThrow(

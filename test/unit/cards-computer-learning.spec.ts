@@ -110,7 +110,7 @@ describe('agent computer', () => {
     const created = calls.find((c) => c.path === '/v1/machines');
     const body = JSON.parse(String(created?.body)) as Record<string, unknown>;
     // Never the user's id or any secret: a hash names it.
-    expect(body).toMatchObject({ vcpus: 2, memMiB: 4096, vault: false });
+    expect(body).toMatchObject({ vcpus: 4, memMiB: 8192, vault: false });
     expect(String(body.name)).toMatch(/^agent-[0-9a-f]{24}$/);
     expect(JSON.stringify(body)).not.toContain('user-1');
     expect(db.agentComputer.create).toHaveBeenCalledWith({
@@ -330,5 +330,64 @@ describe('bots learning from their chats', () => {
     await learn();
 
     expect(db.botSuggestion.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('agent computer, InstaBox answers', () => {
+  it('carries on when a running machine answers a wake-up with itself', async () => {
+    const service = new InstaboxService({ get: () => 'ibk_test' } as never);
+    const calls: string[] = [];
+    service.fetch = (input, init) => {
+      const url = new URL(String(input));
+      calls.push(`${init?.method ?? 'GET'} ${url.pathname}`);
+      if (url.pathname.endsWith('/wake')) {
+        return Promise.resolve(
+          Response.json({ id: 'm_1', state: 'running' }, { status: 200 }),
+        );
+      }
+      return Promise.resolve(
+        Response.json({ stdout: 'ok', exitCode: 0 }, { status: 200 }),
+      );
+    };
+
+    await expect(service.run('m_1', 'echo ok')).resolves.toMatchObject({
+      stdout: 'ok',
+    });
+    // No look-up of the machine id as if it were a wake-up job.
+    expect(calls).toEqual([
+      'POST /v1/machines/m_1/wake',
+      'POST /v1/machines/m_1/exec',
+    ]);
+  });
+
+  it('never passes on InstaBox’s own error words (they can name our account)', async () => {
+    const service = new InstaboxService({ get: () => 'ibk_test' } as never);
+    service.fetch = () =>
+      Promise.resolve(
+        Response.json(
+          {
+            error: {
+              code: 'quota_exceeded',
+              message: 'sandbox limit reached in org owner@example.com',
+            },
+          },
+          { status: 429 },
+        ),
+      );
+
+    const error = await service
+      .create({
+        name: 'agent-x',
+        metadata: {},
+        vcpus: 4,
+        memMiB: 8192,
+        autoSuspendAfterSeconds: 300,
+      })
+      .catch((caught: Error) => caught);
+
+    expect(error.message).toBe(
+      'The cloud computer service is full right now. Try again later.',
+    );
+    expect(error.message).not.toContain('@');
   });
 });

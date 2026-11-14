@@ -55,7 +55,7 @@ export interface AuthSettings {
   // OAuth sign-in. A provider is on when its ID and secret are set.
   oauth: Partial<
     Record<
-      'google' | 'github' | 'linkedin',
+      'google' | 'github' | 'discord',
       { clientId: string; clientSecret: string }
     >
   >;
@@ -166,10 +166,10 @@ export function createAuthOptions(settings: AuthSettings) {
         google: { ...settings.oauth.google, prompt: 'select_account' as const },
       }),
       ...(settings.oauth.github && { github: settings.oauth.github }),
-      ...(settings.oauth.linkedin && { linkedin: settings.oauth.linkedin }),
+      ...(settings.oauth.discord && { discord: settings.oauth.discord }),
     },
 
-    // An OAuth sign-in (Google, GitHub, LinkedIn) never joins an existing
+    // An OAuth sign-in (Google, GitHub, Discord) never joins an existing
     // account by matching email. The user signs in first (email OTP), then
     // links the provider with linkSocial().
     account: {

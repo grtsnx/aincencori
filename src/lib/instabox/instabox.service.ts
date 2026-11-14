@@ -162,13 +162,17 @@ export class InstaboxService {
   // Wakes a machine that paused itself; others are left as they are.
   private async wake(machineId: string): Promise<void> {
     try {
-      const operation = await this.call<Operation>(
+      const answer = await this.call<Operation & { type?: string }>(
         'POST',
         `/v1/machines/${machineId}/wake`,
         {},
       );
-      if (operation?.id && operation.state !== 'succeeded') {
-        await this.waitFor(operation);
+      // A running machine answers with itself; only a started wake-up is
+      // something to wait for.
+      const isOperation =
+        typeof answer?.id === 'string' && answer.id.startsWith('op_');
+      if (isOperation && answer.state !== 'succeeded') {
+        await this.waitFor(answer);
       }
     } catch (error) {
       // Already running, or not paused by idleness: carry on.
@@ -241,14 +245,29 @@ export class InstaboxService {
     if (!response.ok) {
       const error = (data as { error?: { code?: string; message?: string } })
         ?.error;
-      throw new InstaboxError(
-        response.status,
-        error?.code ?? 'error',
-        error?.message ?? `InstaBox answered ${response.status}.`,
-      );
+      const code = error?.code ?? 'error';
+      throw new InstaboxError(response.status, code, plainError(code, path));
     }
     return data as T;
   }
+}
+
+// What the AI and the user see when InstaBox says no. Never InstaBox's own
+// words: they can name our InstaBox account (its owner's email).
+function plainError(code: string, path: string): string {
+  if (code === 'quota_exceeded') {
+    return 'The cloud computer service is full right now. Try again later.';
+  }
+  if (code === 'rate_limited') {
+    return 'The cloud computer is busy. Try again in a minute.';
+  }
+  if (code === 'not_found') {
+    return path.includes('/files')
+      ? 'No such file or folder on the computer.'
+      : 'The computer was not found.';
+  }
+  if (code === 'spec_not_allowed') return 'This computer size is not allowed.';
+  return `The cloud computer could not do that (${code}).`;
 }
 
 function safeJson(text: string): unknown {

@@ -25,9 +25,9 @@ Then open the API docs:
 **Sign-in**
 
 - Email codes (one-time codes sent by email). There are no passwords.
-- Google, GitHub and LinkedIn. Each turns on when its ID and secret are set in `.env`.
+- Google, GitHub and Discord. Each turns on when its ID and secret are set in `.env`.
 - Passkeys and two-factor (2FA).
-- A Google, GitHub or LinkedIn sign-in never takes over an existing account just because the email matches. The user signs in first, then links the provider.
+- A Google, GitHub or Discord sign-in never takes over an existing account just because the email matches. The user signs in first, then links the provider.
 - Throwaway email domains are blocked, and `ada+1@gmail.com` can't make a second account for `ada@gmail.com`.
 - Free-trial abuse: Sentinel counts accounts per device (fingerprint, 90 days). The 3rd account from one device must solve a challenge; the 4th is blocked. It needs `sentinelClient()` on the frontend.
 - Optional Google reCAPTCHA on the email code routes.
@@ -177,7 +177,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | `MAIL_REPLY_TO`                                                              | Optional: where replies to our emails go                          |
 | `MAIL_FROM`                                                                  | The sender address. Required in production                        |
 | `BETTER_AUTH_API_KEY`                                                        | Optional: Better Auth dashboard and Sentinel abuse protection     |
-| `GOOGLE_*`, `GITHUB_*`, `LINKEDIN_*`                                         | Sign-in providers. Set both ID and secret, or leave both empty    |
+| `GOOGLE_*`, `GITHUB_*`, `DISCORD_*`                                         | Sign-in providers. Set both ID and secret, or leave both empty    |
 | `RECAPTCHA_SECRET_KEY`                                                       | Turns on reCAPTCHA                                                |
 | `CENCORI_API_KEY`                                                            | Turns on the AI chat. Without it chat routes answer 503           |
 
