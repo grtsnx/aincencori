@@ -19,11 +19,14 @@ import {
 } from '@nestjs/swagger';
 import {
   CreateIntegrationDto,
+  InstallMcpServerDto,
   IntegrationAppDto,
   IntegrationConnectDto,
   IntegrationDto,
   IntegrationToolDto,
   ListIntegrationsQueryDto,
+  McpCatalogPageDto,
+  McpCatalogQueryDto,
   UpdateIntegrationDto,
 } from '@/dto';
 import type { AuthSession } from '@/lib/better-auth/better-auth.service.js';
@@ -45,6 +48,30 @@ export class IntegrationController {
   @Get('apps')
   apps(): Promise<IntegrationAppDto[]> {
     return this.integrationService.apps();
+  }
+
+  @ApiOperation({
+    summary: 'Browse MCP catalog',
+    description: 'MCP servers from the public registry you can add in a click.',
+  })
+  @ApiOkResponse({ type: McpCatalogPageDto })
+  @Get('catalog')
+  catalog(@Query() query: McpCatalogQueryDto): Promise<McpCatalogPageDto> {
+    return this.integrationService.catalog(query);
+  }
+
+  @ApiOperation({
+    summary: 'Add catalog server',
+    description: 'Connects an MCP server from the catalog, with your token.',
+  })
+  @ApiOkResponse({ type: IntegrationDto })
+  @Post('catalog')
+  @HttpCode(200)
+  install(
+    @CurrentSession() auth: AuthSession,
+    @Body() body: InstallMcpServerDto,
+  ): Promise<IntegrationDto> {
+    return this.integrationService.install(auth, body);
   }
 
   @ApiOperation({

@@ -100,6 +100,11 @@ Then open the API docs:
 
 The assistant and bots can read the user's own plan, AI use and credits (`my_plan_and_usage`), so answers about limits are facts.
 
+**Skills and MCP servers from outside**
+
+- Install a skill from a link or a pasted `SKILL.md` (the common Agent Skills format): `POST /v1/bots/:id/skills/import/preview` reads it (GitHub folder and file links become the raw `SKILL.md`), Cencori scans it, and the user sees its name, description and steps. `POST /v1/bots/:id/skills/import` with the preview's token installs exactly that skill on that bot (the token lasts an hour). Only public addresses are fetched, up to 256 KB.
+- MCP catalog: `GET /v1/integrations/catalog?search=` lists servers from the public MCP registry that we can connect to (online, at most a Bearer token). `POST /v1/integrations/catalog` adds one by its registry name; the address always comes from the registry, never from the request. Servers that run on a laptop (stdio) or need other headers are left out.
+
 **Guardrails** (in `src/config/agents/agents.ts`; every agent, bot and group runs them)
 
 - Secrets in: a message that looks like a key or password (`sk-...`, private keys, AWS keys, `password: ...`) is stopped before the AI reads it.

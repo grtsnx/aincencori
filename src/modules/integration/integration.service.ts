@@ -6,6 +6,7 @@ import {
   NotFoundException,
   type OnModuleDestroy,
   type OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
@@ -16,11 +17,15 @@ import { deleteWorkspaceJob } from '@/config/agents/jobs.js';
 import { maxIntegrationsPerUser } from '@/config/agents/limits.js';
 import type {
   CreateIntegrationDto,
+  InstallMcpServerDto,
   IntegrationAppDto,
   IntegrationConnectDto,
   IntegrationDto,
   IntegrationToolDto,
   ListIntegrationsQueryDto,
+  McpCatalogPageDto,
+  McpCatalogQueryDto,
+  McpCatalogServerDto,
   UpdateIntegrationDto,
 } from '@/dto';
 import type { Integration } from '@/generated/prisma/client.js';
@@ -32,6 +37,68 @@ import { ApprovalService } from '../approval/approval.service.js';
 
 interface Owner {
   user: { id: string };
+}
+
+// The public MCP registry (registry.modelcontextprotocol.io). Fixed, so not a
+// setting.
+const registryUrl = 'https://registry.modelcontextprotocol.io/v0';
+const registryCacheMs = 5 * 60_000;
+
+interface RegistryEntry {
+  server?: {
+    name?: string;
+    title?: string | null;
+    description?: string;
+    version?: string;
+    websiteUrl?: string | null;
+    remotes?: {
+      type?: string;
+      url?: string;
+      headers?: {
+        name?: string;
+        value?: string;
+        description?: string;
+        isRequired?: boolean;
+        isSecret?: boolean;
+      }[];
+    }[];
+  };
+}
+
+// A registry server we can connect to: an online (streamable HTTP) address
+// with nothing to fill in, needing at most a Bearer token. Others: null.
+export function catalogServer(
+  entry: RegistryEntry,
+): McpCatalogServerDto | null {
+  const server = entry.server;
+  if (!server?.name) return null;
+  for (const remote of server.remotes ?? []) {
+    if (remote.type !== 'streamable-http' || !remote.url) continue;
+    if (!remote.url.startsWith('https://') || remote.url.includes('{'))
+      continue;
+    const headers = remote.headers ?? [];
+    const bearer = headers.find(
+      (header) =>
+        header.name?.toLowerCase() === 'authorization' &&
+        (header.value ?? 'Bearer ').startsWith('Bearer '),
+    );
+    // Any other header to fill in is one we cannot send.
+    const others = headers.filter(
+      (header) => header !== bearer && header.isRequired,
+    );
+    if (others.length > 0) continue;
+    return {
+      server: server.name,
+      title: server.title || server.name.split('/').pop() || server.name,
+      description: server.description ?? '',
+      version: server.version ?? '',
+      url: remote.url,
+      needsToken: Boolean(bearer),
+      tokenHint: bearer?.description ?? null,
+      website: server.websiteUrl ?? null,
+    };
+  }
+  return null;
 }
 
 // What Cencori tells us about an app and a connection (the parts we use).
@@ -61,6 +128,13 @@ const ownMcp: IntegrationAppDto = {
 // A bot only gets the integrations its owner picked for it (see modules/bot).
 @Injectable()
 export class IntegrationService implements OnModuleInit, OnModuleDestroy {
+  // Tests swap in a stand-in for the MCP registry.
+  registryFetch: typeof fetch = (input, init) => fetch(input, init);
+  private readonly catalogCache = new Map<
+    string,
+    { at: number; page: McpCatalogPageDto }
+  >();
+
   private readonly logger = new Logger(IntegrationService.name);
   // Only local development may use http and localhost addresses.
   private readonly allowPrivate: boolean;
@@ -136,6 +210,72 @@ export class IntegrationService implements OnModuleInit, OnModuleDestroy {
     });
     const statuses = await this.statuses(auth.user.id, integrations);
     return integrations.map((integration) => toDto(integration, statuses));
+  }
+
+  // The MCP catalog: servers from the public MCP registry that can be
+  // added in a click. Pages are kept for 5 minutes.
+  async catalog(query: McpCatalogQueryDto): Promise<McpCatalogPageDto> {
+    const params = new URLSearchParams({ limit: '50', version: 'latest' });
+    if (query.search) params.set('search', query.search);
+    if (query.cursor) params.set('cursor', query.cursor);
+    const key = params.toString();
+    const cached = this.catalogCache.get(key);
+    if (cached && cached.at > Date.now() - registryCacheMs) return cached.page;
+    const data = (await this.fromRegistry(`/servers?${key}`)) as {
+      servers?: RegistryEntry[];
+      metadata?: { nextCursor?: string | null };
+    };
+    const page = {
+      servers: (data.servers ?? [])
+        .map(catalogServer)
+        .filter((server): server is McpCatalogServerDto => server !== null),
+      nextCursor: data.metadata?.nextCursor ?? null,
+    };
+    if (this.catalogCache.size > 500) this.catalogCache.clear();
+    this.catalogCache.set(key, { at: Date.now(), page });
+    return page;
+  }
+
+  // Adds a catalog server as the user's own MCP server. Its address comes
+  // from the registry, never from the request; the usual checks apply.
+  async install(
+    auth: Owner,
+    body: InstallMcpServerDto,
+  ): Promise<IntegrationDto> {
+    const entry = (await this.fromRegistry(
+      `/servers/${encodeURIComponent(body.server)}/versions/latest`,
+    ).catch(() => null)) as RegistryEntry | null;
+    const server = entry ? catalogServer(entry) : null;
+    if (!server) {
+      throw new NotFoundException(
+        'That server is not in the catalog, or cannot be added here.',
+      );
+    }
+    if (server.needsToken && !body.token) {
+      throw new BadRequestException(
+        `This server needs a token: ${server.tokenHint ?? 'an access token'}.`,
+      );
+    }
+    return this.create(auth, {
+      name: body.name,
+      app: ownMcp.slug,
+      url: server.url,
+      token: body.token,
+    });
+  }
+
+  private async fromRegistry(path: string): Promise<unknown> {
+    const response = await this.registryFetch(`${registryUrl}${path}`, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (response.status === 404) throw new NotFoundException('Not found.');
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        'The MCP catalog is not answering. Try again soon.',
+      );
+    }
+    return response.json();
   }
 
   async create(

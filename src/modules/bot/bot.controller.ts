@@ -25,7 +25,10 @@ import {
   CreateBotDto,
   CreateBotMemoryDto,
   CreateBotSkillDto,
+  InstallSkillDto,
   ListBotsQueryDto,
+  PreviewSkillImportDto,
+  SkillImportPreviewDto,
   UpdateBotDto,
   UpdateBotSkillDto,
 } from '@/dto';
@@ -222,6 +225,36 @@ export class BotController {
     @Body() body: CreateBotSkillDto,
   ): Promise<BotSkillDto> {
     return this.botService.addSkill(id, auth, body);
+  }
+
+  @ApiOperation({
+    summary: 'Preview a skill',
+    description: 'Reads a SKILL.md from a link or text, safety scanned.',
+  })
+  @ApiOkResponse({ type: SkillImportPreviewDto })
+  @Post(':id/skills/import/preview')
+  @HttpCode(200)
+  previewSkill(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+    @Body() body: PreviewSkillImportDto,
+  ): Promise<SkillImportPreviewDto> {
+    return this.botService.previewSkill(id, auth, body);
+  }
+
+  @ApiOperation({
+    summary: 'Install a skill',
+    description: 'Adds a previewed skill to the bot.',
+  })
+  @ApiOkResponse({ type: BotSkillDto })
+  @Post(':id/skills/import')
+  @HttpCode(200)
+  installSkill(
+    @Param('id') id: string,
+    @CurrentSession() auth: AuthSession,
+    @Body() body: InstallSkillDto,
+  ): Promise<BotSkillDto> {
+    return this.botService.installSkill(id, auth, body);
   }
 
   @ApiOperation({

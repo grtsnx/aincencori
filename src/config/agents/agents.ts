@@ -360,7 +360,9 @@ export const platformGuide =
   'from chats and suggest improvements the user can accept or dismiss. ' +
   'Groups put several bots in one chat. Routines run a prompt on a ' +
   'schedule. Plans do a big goal in steps in the background. Integrations ' +
-  'connect apps (Gmail, Slack...) or the user’s own MCP server. Documents ' +
+  'connect apps (Gmail, Slack...), an MCP server from the catalog, or the ' +
+  'user’s own MCP server. Skills can also be installed from a link or a ' +
+  'SKILL.md, or taught in chat. Documents ' +
   'are files bots can search. Approvals: risky steps ask first; the user ' +
   'answers in the chat or the approvals inbox, and can set a rule per tool ' +
   '(always allow, ask, never). The activity log shows what happened. ' +

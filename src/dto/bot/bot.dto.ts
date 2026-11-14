@@ -8,6 +8,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -357,4 +358,83 @@ export class BotSuggestionDto {
 
   @ApiProperty({ example: '2026-11-14T09:30:00.000Z' })
   createdAt: Date;
+}
+
+// A skill to bring in from outside: a link or the text of a SKILL.md.
+export class PreviewSkillImportDto {
+  @ApiPropertyOptional({
+    description: 'A SKILL.md link, or a GitHub skill folder',
+    example:
+      'https://github.com/anthropics/skills/tree/main/skills/brand-guidelines',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2_000)
+  url?: string;
+
+  @ApiPropertyOptional({
+    description: 'Or the SKILL.md text itself',
+    example:
+      '---\nname: meeting-notes\ndescription: Short notes.\n---\n1. Read it.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60_000)
+  text?: string;
+}
+
+export class SkillImportPreviewDto {
+  @ApiProperty({
+    description: 'Send back to install exactly this skill',
+    example: 'eyJpbXBvcnRJZCI6ImltcF8xIn0.c2lnbmF0dXJl',
+  })
+  token: string;
+
+  @ApiProperty({ example: 'brand-guidelines' })
+  name: string;
+
+  @ApiProperty({ example: 'Apply the brand colors and fonts to any document.' })
+  description: string;
+
+  @ApiProperty({
+    description: 'The steps the bot will follow',
+    example: '1. Use the brand colors.\n2. Use the brand fonts.',
+  })
+  instructions: string;
+
+  @ApiProperty({
+    description: 'Where it came from',
+    example:
+      'https://raw.githubusercontent.com/anthropics/skills/main/skills/brand-guidelines/SKILL.md',
+  })
+  source: string;
+
+  @ApiProperty({
+    description: 'What the safety scan noticed (empty: nothing)',
+    example: [],
+    type: [String],
+  })
+  findings: string[];
+}
+
+export class InstallSkillDto {
+  @ApiProperty({
+    description: 'The token from the preview',
+    example: 'eyJpbXBvcnRJZCI6ImltcF8xIn0.c2lnbmF0dXJl',
+  })
+  @IsString()
+  @MaxLength(4_000)
+  token: string;
+
+  @ApiPropertyOptional({
+    description: 'A different name for it on this bot',
+    example: 'brand-rules',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-z0-9]+(-[a-z0-9]+)*$/, {
+    message: 'name: use lowercase letters, numbers and dashes',
+  })
+  @MaxLength(60)
+  name?: string;
 }

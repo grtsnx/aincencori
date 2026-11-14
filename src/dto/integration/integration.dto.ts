@@ -199,7 +199,9 @@ export class McpCatalogServerDto {
   @ApiProperty({ example: '1.0.0' })
   version: string;
 
-  @ApiProperty({ example: 'https://server.smithery.ai/@smithery-ai/github/mcp' })
+  @ApiProperty({
+    example: 'https://server.smithery.ai/@smithery-ai/github/mcp',
+  })
   url: string;
 
   @ApiProperty({ description: 'It needs an access token', example: true })

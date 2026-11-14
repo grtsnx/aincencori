@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
   ConflictException,
@@ -5,6 +6,7 @@ import {
   Logger,
   NotFoundException,
   type OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -34,7 +36,10 @@ import type {
   CreateBotDto,
   CreateBotMemoryDto,
   CreateBotSkillDto,
+  InstallSkillDto,
   ListBotsQueryDto,
+  PreviewSkillImportDto,
+  SkillImportPreviewDto,
   UpdateBotDto,
   UpdateBotSkillDto,
 } from '@/dto';
@@ -46,6 +51,14 @@ import type {
 } from '@/generated/prisma/client.js';
 import { BullmqService } from '@/lib/bullmq/bullmq.service.js';
 import { CencoriService } from '@/lib/cencori/cencori.service.js';
+import {
+  assertPublicUrl,
+  parseSkillFile,
+  readRunState,
+  safeFetch,
+  signRunState,
+  skillFileUrl,
+} from '@/middleware';
 import { PrismaService } from '@/lib/prisma/prisma.service.js';
 import { type BotRuntime, ChatService } from '../chat/chat.service.js';
 import { DocumentService } from '../document/document.service.js';
@@ -88,6 +101,7 @@ export class BotService implements OnModuleInit {
     private readonly documents: DocumentService,
     private readonly usage: UsageService,
     private readonly activity: ActivityService,
+    private readonly config?: ConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -657,6 +671,147 @@ export class BotService implements OnModuleInit {
       data: { id: randomUUID(), botId, ...body, cencoriSkillId },
     });
     return toSkillDto(skill);
+  }
+
+  // Brings a skill in from outside (a link or SKILL.md text) to look at
+  // before installing: Cencori scans it, and the user sees its steps. The
+  // token lets them install exactly this one, on this bot, for an hour.
+  async previewSkill(
+    botId: string,
+    auth: Owner,
+    body: PreviewSkillImportDto,
+  ): Promise<SkillImportPreviewDto> {
+    await this.own(botId, auth.user.id);
+    if (!body.url === !body.text) {
+      throw new BadRequestException('Send a url or the text, not both.');
+    }
+    if (!this.cencori.isConfigured) {
+      throw new ServiceUnavailableException(
+        'Skills from outside need the Cencori safety scan: set CENCORI_API_KEY.',
+      );
+    }
+    const source = body.url ? skillFileUrl(body.url) : 'pasted text';
+    const text = body.url ? await this.downloadSkill(source) : body.text!;
+    const staged = (await this.cencori.sdk.skillImports.stage({ text })) as {
+      id: string;
+      normalized_manifest?: {
+        files?: { content?: string }[];
+        blocked?: boolean;
+      };
+      scan_findings?: unknown[];
+    };
+    const findings = (staged.scan_findings ?? []).map((finding) =>
+      typeof finding === 'string' ? finding : JSON.stringify(finding),
+    );
+    if (staged.normalized_manifest?.blocked) {
+      throw new BadRequestException(
+        `This skill was blocked by the safety scan.${findings.length ? ` ${findings.join(' ')}` : ''}`,
+      );
+    }
+    const skill = parseSkillFile(
+      staged.normalized_manifest?.files?.[0]?.content ?? '',
+    );
+    if (!skill) {
+      throw new BadRequestException(
+        'That is not a skill: a SKILL.md needs a name and steps.',
+      );
+    }
+    const token = signRunState(
+      {
+        importId: staged.id,
+        userId: auth.user.id,
+        botId,
+        until: Date.now() + 60 * 60_000,
+      },
+      this.secret(),
+    );
+    return { token, ...skill, source, findings };
+  }
+
+  // Installs a previewed skill on the bot (limits and the scan apply again).
+  async installSkill(
+    botId: string,
+    auth: Owner,
+    body: InstallSkillDto,
+  ): Promise<BotSkillDto> {
+    await this.own(botId, auth.user.id);
+    const ticket = readRunState(body.token, this.secret()) as {
+      importId?: string;
+      userId?: string;
+      botId?: string;
+      until?: number;
+    } | null;
+    if (
+      !ticket?.importId ||
+      ticket.userId !== auth.user.id ||
+      ticket.botId !== botId ||
+      !ticket.until ||
+      ticket.until < Date.now()
+    ) {
+      throw new BadRequestException(
+        'Preview the skill again, then install it.',
+      );
+    }
+    const staged = (await this.cencori.sdk.skillImports.get(
+      ticket.importId,
+    )) as {
+      normalized_manifest?: {
+        files?: { content?: string }[];
+        blocked?: boolean;
+      };
+    };
+    const skill = staged.normalized_manifest?.blocked
+      ? null
+      : parseSkillFile(staged.normalized_manifest?.files?.[0]?.content ?? '');
+    if (!skill)
+      throw new BadRequestException('This skill cannot be installed.');
+    const created = await this.addSkill(botId, auth, {
+      ...skill,
+      name: body.name ?? skill.name,
+    });
+    this.activity.log({
+      userId: auth.user.id,
+      actor: 'user',
+      action: 'skills.installed',
+      target: created.name,
+    });
+    return created;
+  }
+
+  // Downloads a SKILL.md from the public internet (never our own network),
+  // up to 256 KB.
+  private async downloadSkill(address: string): Promise<string> {
+    const url = await assertPublicUrl(address).catch((error: Error) => {
+      throw new BadRequestException(error.message);
+    });
+    const fetcher = safeFetch();
+    try {
+      const response = await fetcher(url, {
+        signal: AbortSignal.timeout(10_000),
+        redirect: 'follow',
+      });
+      if (!response.ok) {
+        throw new BadRequestException(
+          `Could not read the skill there (${response.status}).`,
+        );
+      }
+      const text = await response.text();
+      if (text.length > 256 * 1024) {
+        throw new BadRequestException('That skill file is too big.');
+      }
+      return text;
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('Could not read the skill at that link.');
+    } finally {
+      await fetcher.close();
+    }
+  }
+
+  private secret(): string {
+    const secret = this.config?.get<string>('BETTER_AUTH_SECRET');
+    if (!secret) throw new ServiceUnavailableException('Not set up.');
+    return secret;
   }
 
   async updateSkill(
