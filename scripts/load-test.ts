@@ -10,9 +10,7 @@ const cookie = process.env.COOKIE;
 const routes = [
   '/v1/health/live',
   '/v1/marketplace?limit=20',
-  ...(cookie
-    ? ['/v1/bots', '/v1/usage', '/v1/approvals', '/v1/chat']
-    : []),
+  ...(cookie ? ['/v1/bots', '/v1/usage', '/v1/approvals', '/v1/chat'] : []),
 ];
 
 const timings: Record<string, number[]> = {};

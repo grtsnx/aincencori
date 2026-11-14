@@ -45,6 +45,8 @@ export interface ChatContext {
   toolDecision: (tool: string) => ToolDecision;
   // The user's own cloud computer (InstaBox). Missing when not set up.
   computer?: ComputerActions;
+  // The user's plan, this month's AI use and credits, in plain words.
+  myPlan?: () => Promise<string>;
 }
 
 // What agents can do on the user's computer. Each returns plain text.
@@ -372,6 +374,22 @@ export const platformGuide =
   'sessions, organizations and teams. Outside AI apps can connect through ' +
   'MCP or Agent Auth. ';
 
+// Reads the user's own plan and AI use, so answers about limits are facts.
+const myPlanAndUsage = tool({
+  name: 'my_plan_and_usage',
+  description:
+    'Read the user’s plan, how much AI allowance is used and left this ' +
+    'month, bought credits, and when it renews. Use it for questions about ' +
+    'limits, the allowance, billing or why AI work stopped.',
+  parameters: z.object({}),
+  execute: (_args, runContext) => {
+    const context = runContext?.context as ChatContext | undefined;
+    return context?.myPlan
+      ? context.myPlan()
+      : 'Plan details are not available here.';
+  },
+}) as FunctionTool<ChatContext>;
+
 // When follow-ups are worth offering.
 const followUpRule =
   'After you give a draft, a list, research or a plan, call ' +
@@ -526,6 +544,13 @@ export interface BotParts {
   computer?: boolean;
   // The bot rewrites its own instructions (the user approves first).
   updateInstructions: (instructions: string) => Promise<void>;
+  // The bot keeps a task the user taught it as a skill (the user approves
+  // first). A skill with the same name is replaced. Returns what happened.
+  saveSkill: (skill: {
+    name: string;
+    description: string;
+    instructions: string;
+  }) => Promise<string>;
 }
 
 // A bot a user made. Same guardrails as the default assistant.
@@ -623,7 +648,7 @@ export function createBotAgent(
   if (team) {
     if (team.others.length > 0) tools.push(askBotTool(team.others, team.ask));
   } else {
-    tools.push(replyToMessage, suggestFollowUps);
+    tools.push(replyToMessage, suggestFollowUps, myPlanAndUsage);
     if (bot.computer) tools.push(...computerTools);
     tools.push(
       guarded({
@@ -637,6 +662,35 @@ export function createBotAgent(
           await bot.updateInstructions(instructions);
           return 'Instructions updated. They apply from the next message.';
         },
+      }),
+      guarded({
+        name: 'save_skill',
+        description:
+          'Save a task the user taught you as a skill, so you can do it ' +
+          'again later (and on a schedule). Use it when the user says to ' +
+          'remember how to do something, or to learn a task. Write general, ' +
+          'numbered steps that work next time, not this one run. A skill with ' +
+          'the same name is replaced.',
+        parameters: z.object({
+          name: z
+            .string()
+            .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/)
+            .min(2)
+            .max(60)
+            .describe('Short, lowercase, with dashes: "weekly-sales-report"'),
+          description: z
+            .string()
+            .min(5)
+            .max(300)
+            .describe('When to use it, in one sentence'),
+          instructions: z
+            .string()
+            .min(10)
+            .max(20_000)
+            .describe('Numbered steps, with the tools and details to use'),
+        }),
+        // A new skill changes what the bot does later, so the user approves.
+        execute: (skill) => bot.saveSkill(skill),
       }),
     );
   }
@@ -683,6 +737,10 @@ export function createBotAgent(
         'When the user asks you to remember something, or tells you a lasting ' +
           'fact about themselves or their work, you must call save_memory ' +
           'before you reply. Saying you will remember is not enough.',
+        !team &&
+          'When the user teaches you a task ("remember how to do this", ' +
+            '"learn this", "next time do it like this"), call save_skill ' +
+            'with the steps. Saying you will remember is not enough.',
         bot.memories.length > 0 &&
           `What you already know:\n${bot.memories.map((fact) => untrusted('bot memory', fact)).join('\n')}`,
         team &&
@@ -805,6 +863,7 @@ export function createChatAgent(settings: AgentSettings): Agent<ChatContext> {
         : '') +
       truthRules,
     tools: [
+      myPlanAndUsage,
       searchMyDocuments as FunctionTool<ChatContext>,
       startPlan as FunctionTool<ChatContext>,
       replyToMessage,

@@ -827,6 +827,25 @@ export class BotService implements OnModuleInit {
           { instructions },
         );
       },
+      // A taught task: a new skill, or a new version of one with its name.
+      // Limits and the safety scan apply as when the user adds one.
+      saveSkill: async (skill) => {
+        const owner = { user: { id: bot.userId } };
+        const current = await this.prisma.db.botSkill.findFirst({
+          where: { botId: bot.id, name: skill.name },
+          select: { id: true },
+        });
+        try {
+          if (current) {
+            await this.updateSkill(bot.id, current.id, owner, skill);
+            return `Skill "${skill.name}" updated. I will follow the new steps from now on.`;
+          }
+          await this.addSkill(bot.id, owner, skill);
+          return `Skill "${skill.name}" saved. I will follow these steps whenever this task comes up.`;
+        } catch (error) {
+          return `Not saved: ${error instanceof Error ? error.message : 'something went wrong.'}`;
+        }
+      },
     };
   }
 

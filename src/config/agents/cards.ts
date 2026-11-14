@@ -69,6 +69,16 @@ const cards: Record<string, (args: Args) => ApprovalCard> = {
     summary: 'The bot follows these new instructions from the next message.',
     fields: [field('New instructions', a.instructions)],
   }),
+  save_skill: (a) => ({
+    title: 'Teach the bot a skill',
+    summary:
+      'The bot keeps these steps and follows them whenever this task comes up. A skill with the same name is replaced.',
+    fields: [
+      field('Skill', a.name),
+      field('Use it when', a.description),
+      field('Steps', a.instructions),
+    ],
+  }),
   computer_run_command: (a) => ({
     title: 'Run a command on your computer',
     summary:

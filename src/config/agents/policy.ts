@@ -19,6 +19,7 @@ export const riskyTools = [
   'delete_routine',
   'start_plan',
   'update_my_instructions',
+  'save_skill',
   'computer_run_command',
   'computer_write_file',
 ] as const;

@@ -111,6 +111,7 @@ describe('bot agents', () => {
     searchDocuments: vi.fn().mockResolvedValue('Nothing found.'),
     saveMemory: vi.fn().mockResolvedValue(undefined),
     updateInstructions: vi.fn().mockResolvedValue(undefined),
+    saveSkill: vi.fn().mockResolvedValue('Saved.'),
     ...over,
   });
   const call = (agent: ReturnType<typeof createBotAgent>, name: string) => {
@@ -283,6 +284,7 @@ describe('groups of bots', () => {
     searchDocuments: vi.fn(),
     saveMemory: vi.fn(),
     updateInstructions: vi.fn(),
+    saveSkill: vi.fn(),
   };
   const others = [{ name: 'Prospector', description: 'Finds leads.' }];
 

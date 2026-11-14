@@ -45,6 +45,7 @@ const toolDescriptions: Record<(typeof riskyTools)[number], string> = {
   delete_routine: 'Delete a scheduled task.',
   start_plan: 'Start a plan that runs in the background.',
   update_my_instructions: 'Let a bot rewrite its own instructions.',
+  save_skill: 'Let a bot save a task you taught it as a skill.',
   computer_run_command: 'Run a command on your cloud computer.',
   computer_write_file: 'Write a file on your cloud computer.',
 };

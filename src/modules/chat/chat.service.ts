@@ -1,3 +1,4 @@
+import { type BillingPlanName, billingPlans } from '@/config/billing/plans.js';
 import {
   BadRequestException,
   Injectable,
@@ -908,6 +909,37 @@ export class ChatService implements OnModuleInit {
 
   // What the agent's tools can see and do, as the user. Without headers (a
   // routine, no browser) changes that need the user's session are refused.
+  // The user's plan and this month's AI use, for the AI to read.
+  private async planText(userId: string): Promise<string> {
+    const [usage, row] = await Promise.all([
+      this.usage.mine({ user: { id: userId } }),
+      this.prisma.db.billingPlan.findUnique({ where: { userId } }),
+    ]);
+    const plan =
+      billingPlans[usage.plan as BillingPlanName]?.name ?? usage.plan;
+    const day = (date: Date) => date.toISOString().slice(0, 10);
+    const paid =
+      row && row.plan === usage.plan && row.paidUntil
+        ? row.source === 'trial'
+          ? ` (free trial until ${day(row.paidUntil)})`
+          : row.source === 'prepaid'
+            ? ` (paid in naira until ${day(row.paidUntil)})`
+            : row.cancelAtPeriodEnd
+              ? ` (card, canceled: ends ${day(row.paidUntil)})`
+              : ` (card, renews ${day(row.paidUntil)})`
+        : '';
+    return [
+      `Plan: ${plan}${paid}.`,
+      `AI allowance: $${usage.monthlyLimitUsd} a month; used $${usage.usedUsd.toFixed(2)}, left $${usage.remainingUsd.toFixed(2)}. It starts again on ${day(usage.renewsAt)}.`,
+      `Bought credits left: $${usage.creditUsd.toFixed(2)} (used after the allowance).`,
+      usage.remainingUsd <= 0 && usage.creditUsd <= 0
+        ? 'The allowance is used up: AI work is paused until it renews, an upgrade, or bought credits (Billing page).'
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
   private context(
     user: ChatUser,
     headers?: Headers,
@@ -953,6 +985,7 @@ export class ChatService implements OnModuleInit {
           ? this.documentSearch(user.id, query)
           : Promise.resolve('Documents are not available.'),
       computer: this.computerFor?.(user.id),
+      myPlan: () => this.planText(user.id),
       startPlan: (goal) => {
         if (!this.planStarter) throw new Error('Plans are not available.');
         return this.planStarter(user.id, goal);
