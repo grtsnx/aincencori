@@ -96,6 +96,16 @@ Then open the API docs:
 - The `/mcp` address is listed in the docs under "MCP".
 - Our own chat agent can manage routines too ("remind me every morning at 8"). Creating, pausing or deleting one asks the user to approve first.
 
+**Guardrails** (in `src/config/agents/agents.ts`; every agent, bot and group runs them)
+
+- Secrets in: a message that looks like a key or password (`sk-...`, private keys, AWS keys, `password: ...`) is stopped before the AI reads it.
+- Scams and abuse in: messages of 20+ characters go through Cencori's moderation rules (fraud, phishing, harassment, violence...). A blocked one never reaches the AI. The check gives up after 1.5 seconds and lets the message through, so chats stay fast.
+- Secrets out: an answer that contains one of our own keys (Cencori, Better Auth, LiveKit, InstaBox...) is stopped.
+- Outside text (documents, web pages, app results, memories, skills) is marked as untrusted, so the AI treats it as information, never as orders.
+- Each block is written to the activity log (`guardrail.blocked`). The user sees "That request was blocked."
+- These run in our server, so they don't show in Cencori's dashboard. Cencori's own check (PII: emails, phone numbers, card numbers) is off by default; turn it on in Cencori under Settings → General → PII protection (paid Cencori plans).
+- `bun run eval` checks them against the real model.
+
 **Approvals, usage and activity** (ideas from Meta's Muse: the AI proposes, rules decide)
 
 - Approval cards are written by our server, never by the AI: each waiting step has a `card` with a title, one plain sentence and the exact values ("When: Every day at 08:00"), the same in the chat stream and the inbox (`src/config/agents/cards.ts`). Apps show that fixed card with Approve and Decline.
@@ -177,7 +187,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | `MAIL_REPLY_TO`                                                              | Optional: where replies to our emails go                          |
 | `MAIL_FROM`                                                                  | The sender address. Required in production                        |
 | `BETTER_AUTH_API_KEY`                                                        | Optional: Better Auth dashboard and Sentinel abuse protection     |
-| `GOOGLE_*`, `GITHUB_*`, `DISCORD_*`                                         | Sign-in providers. Set both ID and secret, or leave both empty    |
+| `GOOGLE_*`, `GITHUB_*`, `DISCORD_*`                                          | Sign-in providers. Set both ID and secret, or leave both empty    |
 | `RECAPTCHA_SECRET_KEY`                                                       | Turns on reCAPTCHA                                                |
 | `CENCORI_API_KEY`                                                            | Turns on the AI chat. Without it chat routes answer 503           |
 
