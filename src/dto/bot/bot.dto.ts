@@ -411,7 +411,7 @@ export class SkillImportPreviewDto {
 
   @ApiProperty({
     description: 'What the safety scan noticed (empty: nothing)',
-    example: [],
+    example: ['Asks to run a command that deletes files.'],
     type: [String],
   })
   findings: string[];
