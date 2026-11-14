@@ -18,6 +18,7 @@ import {
   GravatarService,
 } from '@/lib/gravatar/gravatar.service.js';
 import {
+  cancelSubscriptionJob,
   deleteBotAgentJob,
   deleteComputerJob,
   deleteFilesJob,
@@ -149,7 +150,19 @@ export class BetterAuthService implements OnModuleInit {
         }
         await db.pendingApproval.deleteMany({ where: { userId } });
         await db.usageDay.deleteMany({ where: { userId } });
+        // A card plan stops at once (at Bachs, in the background). Payment
+        // records are kept for the accounts, without the user.
+        const billing = await db.billingPlan.findUnique({ where: { userId } });
+        if (billing?.bachsSubscriptionId) {
+          await bullmq.add(cancelSubscriptionJob, {
+            subscriptionId: billing.bachsSubscriptionId,
+          });
+        }
         await db.billingPlan.deleteMany({ where: { userId } });
+        await db.billingEvent.updateMany({
+          where: { userId },
+          data: { userId: null },
+        });
         // Their own activity goes; what staff did to the account is kept.
         await db.activityLog.deleteMany({
           where: { userId, NOT: { actor: { startsWith: 'staff:' } } },

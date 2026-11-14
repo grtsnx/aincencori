@@ -22,6 +22,7 @@ export const docSections: { name: string; description: string }[] = [
   { name: 'Approvals', description: 'What AI may do' },
   { name: 'Activity', description: 'What happened, and when' },
   { name: 'Usage', description: 'AI spend and plan' },
+  { name: 'Billing', description: 'Plans, credits, payments' },
   { name: 'MCP', description: 'For outside AI apps' },
   { name: 'Admin', description: 'Manage all users' },
 ];

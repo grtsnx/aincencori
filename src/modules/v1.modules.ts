@@ -6,6 +6,7 @@ import { AgentAuthModule } from './agent-auth/agent-auth.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BotModule } from './bot/bot.module.js';
 import { ChatModule } from './chat/chat.module.js';
+import { BillingModule } from './billing/billing.module.js';
 import { ComputerModule } from './computer/computer.module.js';
 import { DocumentModule } from './document/document.module.js';
 import { GroupModule } from './group/group.module.js';
@@ -38,6 +39,7 @@ import { VoiceModule } from './voice/voice.module.js';
     PlanModule,
     MarketplaceModule,
     ComputerModule,
+    BillingModule,
     McpModule,
     VoiceModule,
   ],

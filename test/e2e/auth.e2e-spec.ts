@@ -165,6 +165,7 @@ describe('Better Auth (e2e)', () => {
       'Approvals',
       'Activity',
       'Usage',
+      'Billing',
       'MCP',
       'Admin',
     ]);

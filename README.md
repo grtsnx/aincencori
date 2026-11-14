@@ -113,8 +113,15 @@ Then open the API docs:
 - Approvals inbox (`/v1/approvals`): steps the AI stopped at, from chats, routines and plans. Each has a signed state; sending it to `POST /v1/chat` with the decisions carries the run on in its chat. Unanswered ones go after 14 days.
 - Connected-app steps (Gmail, Slack...): Cencori runs these tools itself and stops at risky ones (sending email, deleting, paying). It tells us through a signed webhook (`POST /v1/approvals/cencori`). The user's rules answer it when they can; otherwise it waits in the inbox with `source: "app"` and the user answers it there (`POST /v1/approvals/:id/answer`). To turn it on, add a webhook in Cencori (dashboard, or `cencori.webhooks.create`) for `action.*` events pointing at `<BETTER_AUTH_URL>/v1/approvals/cencori`, and put its signing secret in `CENCORI_WEBHOOK_SECRET`. Locally the URL is your ngrok address.
 - Outside text (document search results, answers from users' own MCP servers) is marked as untrusted, so the AI treats it as data and not orders. Tools the user turned off are hidden from the AI.
-- Usage (`/v1/usage`): every AI call's tokens and cost are counted per user and day (Cencori reports them; our meter reads them as they stream past). Plans in `src/config/billing/plans.ts` set a monthly allowance (free $2, pro $20, business $100). When it is used, new chats, routines, plans and voice calls answer 402 until next month. Voice calls also count their speech (listening per minute, speaking per character, at LiveKit's prices in `src/config/agents/limits.ts`); a call that runs out of allowance says so and hangs up. Staff see everyone's spend (`/v1/admin/usage`) and set plans (`PUT /v1/admin/users/:id/plan`).
-- Billing with Cencori: when staff set a plan, the user is sent to Cencori as an "end user" with the rate plan of the same slug (create `free`, `pro`, `business` in Cencori's Revenue settings, with your markup). Cencori can then make invoices and charge through Stripe Connect. We keep our own counts too, because Cencori's API can't read one user's usage.
+- Usage (`/v1/usage`): every AI call's tokens and cost are counted per user and day (Cencori reports them; our meter reads them as they stream past). Plans in `src/config/billing/plans.ts` set a monthly AI allowance for each plan (see Billing below). When it is used and no bought credits are left, new chats, routines, plans and voice calls answer 402 until next month. Voice calls also count their speech (listening per minute, speaking per character, at LiveKit's prices in `src/config/agents/limits.ts`); a call that runs out of allowance says so and hangs up. Staff see everyone's spend (`/v1/admin/usage`) and set plans (`PUT /v1/admin/users/:id/plan`).
+- Plans and payments (`/v1/billing`, with Bachs at bachs.io): three plans for individuals (Free $0 with $2 of AI, Plus $9 with $6, Pro $29 with $20) and three for businesses (Team $99 with $70, Business $249 with $180, Scale $599 with $450), set in `src/config/billing/plans.ts`.
+  - Prices show in naira to people in Nigeria (from the `cf-ipcountry` or `x-vercel-ip-country` header) and in dollars to everyone else; `?currency=` picks one. Naira prices come from `ngnPerUsd` (check it before going live).
+  - Dollars renew by card every month. Naira pays one month at a time (card or bank transfer), because Bachs only renews dollar cards for now; paying again early adds a month.
+  - A 7-day free trial of any paid plan, without a card, once per account (Sentinel stops new accounts made for more trials).
+  - AI credits: packs of $10 ($8 of AI), $25 ($20) and $50 ($40), in either currency. They are used only after the month's allowance and never expire.
+  - The customer portal (`POST /v1/billing/portal`) is Bachs's own page for the card, invoices and plan changes. `POST /v1/billing/cancel` stops a card plan at the end of the paid month. Deleting an account cancels its card plan at once.
+  - Only Bachs's signed webhooks (`POST /v1/billing/bachs`) change what someone has paid for, never the return from checkout; each event is used once. To turn it on: set `BACHS_API_KEY` (an `sk_sandbox_` key for tests), add a webhook in Bachs pointing at `<BETTER_AUTH_URL>/v1/billing/bachs` for `checkout.completed` and `customer.subscription.*`, and put its secret in `BACHS_WEBHOOK_SECRET`. Plan products are made at Bachs by themselves the first time someone pays.
+  - Plans are also sent to Cencori: the user becomes a Cencori "end user" with the rate plan of the same slug, if you made one in Cencori's Revenue settings.
 - Activity log (`/v1/activity`; staff: `/v1/admin/activity`): sign-ins, every change made through the API, each tool the AI ran, approvals asked and answered, and Agent Auth events. Kept a year.
 - Alerts: set `ALERT_WEBHOOK_URL` (Slack or Discord) to get a message when the server errors or a background job fails for good. The same alert is sent at most once every 10 minutes per server.
 
@@ -177,6 +184,7 @@ Everything is in `.env.example` with a comment. The main ones:
 | ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `DATABASE_URL`                                                               | Postgres connection                                               |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`                       | Optional: live voice calls (LiveKit Cloud). Set all three or none |
+| `BACHS_API_KEY`, `BACHS_WEBHOOK_SECRET`                                      | Optional: payments with Bachs. Without them billing answers 503   |
 | `CENCORI_WEBHOOK_SECRET`                                                     | Optional: lets app steps (Gmail...) follow your tool rules        |
 | `STORAGE_URL`                                                                | Cloudflare R2 (or S3-compatible) for chat files. Required in prod |
 | `REDIS_URL`                                                                  | Redis or Valkey: sessions, rate limits, jobs. Required in prod    |
@@ -220,11 +228,18 @@ The load test hits one IP, so the rate limit (100 a minute) answers 429 quickly;
 
 CI runs all of these on every push, then builds and scans the Docker image. Tagging a version (`git tag v1.0.0 && git push origin v1.0.0`) publishes the image.
 
+## Tools for coding agents
+
+`.mcp.json` connects coding agents (Claude Code and others) working on this repo to two MCP servers:
+
+- `instabox`: InstaBox's machines (list, create, run commands, files, delete). It reads `INSTABOX_API_KEY` from your shell, so export it before starting the agent.
+- `livekit-docs`: LiveKit's docs, code search and prices. No key needed.
+
 ## Known issues
 
 - **The agent computer is untested with a real InstaBox account.** It is tested against a stand-in of InstaBox's API; add `INSTABOX_API_KEY` to try it. Its live screen view needs a personal InstaBox key, so it is left out for now.
 - **Computer cost is an estimate.** We count each command's run time (at least a minute); InstaBox also bills the idle minutes before the machine pauses.
-- **Payments are not wired yet.** Plans are set by staff. Cencori can invoice through Stripe Connect once it is set up in their dashboard; a checkout page is still needed.
+- **Payments are untested with a real Bachs account.** The flows are tested with a stand-in for Bachs. Bachs is in private beta, only renews dollar cards, and its SDK notes that renewals (a second month) are not yet verified in their sandbox. Changing a card plan's tier happens in Bachs's portal.
 - **Voice speech prices are estimates.** They are LiveKit's list prices for our two speech models; check them in `limits.ts` when the models change.
 - **App-step approvals were tested with Cencori's real webhook, using test steps, not a real Gmail send.** Cencori's webhook names the step and the user's tenant (ids without their `act_`/`ten_` prefix); we read the step's details from Cencori. Whether a chat waits for the answer, or carries on and the step runs later, is up to Cencori.
 - **Document search matches words, not meaning.** "money back" won't find "refund" unless the words overlap. The bots usually search with good key words, so it works well in practice; search by meaning (embeddings) can be added later.

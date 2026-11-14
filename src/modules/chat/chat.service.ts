@@ -163,6 +163,9 @@ const secretSettings = [
   'DATABASE_URL',
   'LIVEKIT_API_SECRET',
   'INSTABOX_API_KEY',
+  'BACHS_API_KEY',
+  'BACHS_WEBHOOK_SECRET',
+  'CENCORI_WEBHOOK_SECRET',
 ];
 
 // Chat with the agents (see config/agents/agents.ts). The chat streams

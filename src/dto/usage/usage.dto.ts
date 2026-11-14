@@ -46,6 +46,12 @@ export class UsageDto {
   @ApiProperty({ description: 'Left this month, USD', example: 1.5787 })
   remainingUsd: number;
 
+  @ApiProperty({
+    description: 'Bought AI credits left, USD (used after the allowance)',
+    example: 8,
+  })
+  creditUsd: number;
+
   @ApiProperty({ example: 1240 })
   calls: number;
 

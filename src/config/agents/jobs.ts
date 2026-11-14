@@ -39,3 +39,6 @@ export const learnFromChatJob = 'bot-learn';
 
 // Removes a deleted user's cloud computer at InstaBox.
 export const deleteComputerJob = 'computer-delete';
+
+// Stops a deleted user's card subscription at Bachs, so they are not charged.
+export const cancelSubscriptionJob = 'billing-cancel';

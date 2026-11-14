@@ -61,7 +61,19 @@ describe('Approvals, usage and activity (e2e)', () => {
     });
 
     afterAll(async () => {
-      await db().bot.deleteMany({ where: { userId } });
+      // Deleted here directly, so the app's own clean-up does not run.
+      for (const table of [
+        'usageDay',
+        'billingPlan',
+        'toolRule',
+        'pendingApproval',
+        'activityLog',
+        'bot',
+      ] as const) {
+        await (
+          db()[table] as { deleteMany: (args: object) => Promise<unknown> }
+        ).deleteMany({ where: { userId } });
+      }
       await db().user.deleteMany({ where: { email } });
     });
 

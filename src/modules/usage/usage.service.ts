@@ -25,6 +25,32 @@ export function usageKind(metadata?: Record<string, string>): string {
   return 'chat';
 }
 
+// The plan that applies now. A trial, a naira month or a card period that
+// has ended falls back to Free (a card gets 3 days' grace, as Bachs may
+// renew a little late); so does a canceled one.
+const cardGraceMs = 3 * 24 * 60 * 60_000;
+export function effectivePlan(
+  row:
+    | {
+        plan: string;
+        source: string;
+        status: string;
+        paidUntil: Date | null;
+      }
+    | null
+    | undefined,
+  now = new Date(),
+): BillingPlanName {
+  if (!row || !(row.plan in billingPlans)) return 'free';
+  if (row.status === 'canceled') return 'free';
+  const ends = row.paidUntil?.getTime();
+  if (ends !== undefined) {
+    const grace = row.source === 'subscription' ? cardGraceMs : 0;
+    if (ends + grace < now.getTime()) return 'free';
+  }
+  return row.plan as BillingPlanName;
+}
+
 // Our own safety reviews are paid by us, not taken from the user's allowance.
 const freeKinds = ['review'];
 
@@ -68,6 +94,23 @@ export class UsageService implements OnModuleInit {
           "costUsd" = "usageDay"."costUsd" + EXCLUDED."costUsd"`;
     } catch {
       this.logger.error('Usage was not saved.');
+      return;
+    }
+    if (freeKinds.includes(kind) || usage.costUsd <= 0) return;
+    // Past the month's allowance: the overflow comes out of bought credits.
+    try {
+      const [limit, used] = await Promise.all([
+        this.limitFor(userId),
+        this.usedThisMonth(userId),
+      ]);
+      const over = Math.min(usage.costUsd, used - limit.monthlyLimitUsd);
+      if (over > 0 && limit.creditUsd > 0) {
+        await this.prisma.db.$executeRaw`
+          UPDATE "billingPlan" SET "creditUsd" = GREATEST(0, "creditUsd" - ${over})
+          WHERE "userId" = ${userId}`;
+      }
+    } catch {
+      this.logger.error('Credits were not updated.');
     }
   }
 
@@ -77,10 +120,10 @@ export class UsageService implements OnModuleInit {
       this.limitFor(userId),
       this.usedThisMonth(userId),
     ]);
-    if (used < limit.monthlyLimitUsd) return;
+    if (used < limit.monthlyLimitUsd || limit.creditUsd > 0) return;
     const renews = nextMonthStart().toISOString().slice(0, 10);
     throw new HttpException(
-      `You have used this month's AI allowance. It starts again on ${renews}, or upgrade your plan.`,
+      `You have used this month's AI allowance. It starts again on ${renews}; upgrade your plan or buy credits to carry on.`,
       HttpStatus.PAYMENT_REQUIRED,
     );
   }
@@ -156,6 +199,10 @@ export class UsageService implements OnModuleInit {
     await this.userExists(userId);
     const data = {
       plan: body.plan,
+      // A plan from staff has no end date and replaces any trial.
+      source: body.plan === 'free' ? 'free' : 'staff',
+      status: 'active',
+      paidUntil: null,
       ...(body.monthlyLimitUsd !== undefined && {
         monthlyLimitUsd: body.monthlyLimitUsd,
       }),
@@ -173,7 +220,7 @@ export class UsageService implements OnModuleInit {
   // Cencori's Revenue settings) sets their markup there and goes on the
   // invoices Cencori makes. No such rate plan: their default applies. If
   // Cencori is away, our own allowance still holds.
-  private async syncPlan(userId: string, plan: string): Promise<void> {
+  async syncPlan(userId: string, plan: string): Promise<void> {
     if (!this.cencori.isConfigured) return;
     try {
       const { data } = await this.cencori.sdk.ratePlans.list();
@@ -238,15 +285,25 @@ export class UsageService implements OnModuleInit {
   }
 
   private limitOf(
-    plan: { plan: string; monthlyLimitUsd: number | null } | null | undefined,
-  ): { plan: string; monthlyLimitUsd: number } {
-    const name = (
-      plan?.plan && plan.plan in billingPlans ? plan.plan : 'free'
-    ) as BillingPlanName;
+    plan:
+      | {
+          plan: string;
+          monthlyLimitUsd: number | null;
+          source: string;
+          status: string;
+          paidUntil: Date | null;
+          creditUsd: number;
+        }
+      | null
+      | undefined,
+  ): { plan: string; monthlyLimitUsd: number; creditUsd: number } {
+    const name = effectivePlan(plan);
+    // Staff's own allowance holds only while their plan does.
+    const own = name === plan?.plan ? plan.monthlyLimitUsd : null;
     return {
       plan: name,
-      monthlyLimitUsd:
-        plan?.monthlyLimitUsd ?? billingPlans[name].monthlyLimitUsd,
+      monthlyLimitUsd: own ?? billingPlans[name].monthlyLimitUsd,
+      creditUsd: round(plan?.creditUsd ?? 0),
     };
   }
 

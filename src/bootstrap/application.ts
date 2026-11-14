@@ -115,6 +115,10 @@ export function configureApplication(
     '/v1/approvals/cencori',
     express.text({ type: '*/*', limit: 1_048_576 }),
   );
+  server.post(
+    '/v1/billing/bachs',
+    express.text({ type: '*/*', limit: 1_048_576 }),
+  );
   server.all('/.well-known/{*any}', handler);
 
   app.useGlobalPipes(

@@ -925,14 +925,47 @@ model UsageDay {
 
 // A user's plan, which sets their monthly AI allowance. No row: free.
 model BillingPlan {
-  userId          String   @id
-  // "free", "pro" or "business" (see config/billing/plans.ts).
-  plan            String   @default("free")
+  userId              String    @id
+  // A plan in config/billing/plans.ts ("free", "plus", "pro", "team"...).
+  plan                String    @default("free")
   // Set by staff to give one user a different allowance (USD a month).
-  monthlyLimitUsd Float?
-  updatedAt       DateTime @updatedAt
+  monthlyLimitUsd     Float?
+  // How the plan was got: "free", "staff", "trial", "subscription" (dollar
+  // card, renews) or "prepaid" (one naira payment, one month).
+  source              String    @default("free")
+  // "active", "trialing", "past_due" (a renewal failed; Bachs retries) or
+  // "canceled".
+  status              String    @default("active")
+  // "USD" or "NGN": what the user pays in.
+  currency            String?
+  // The end of the trial, the paid month or the current card period.
+  paidUntil           DateTime?
+  // The user canceled: the plan ends at paidUntil.
+  cancelAtPeriodEnd   Boolean   @default(false)
+  // Each account gets one free trial.
+  trialUsedAt         DateTime?
+  // Bought AI credits left (USD). Used after the month's allowance.
+  creditUsd           Float     @default(0)
+  // The user at Bachs (for the customer portal) and their card subscription.
+  bachsCustomerId     String?
+  bachsSubscriptionId String?   @unique
+  updatedAt           DateTime  @updatedAt
 
   @@map("billingPlan")
+}
+
+// Payment events from Bachs, kept once each (Bachs may send one twice).
+model BillingEvent {
+  // Bachs's event id ("evt_...").
+  id        String   @id
+  type      String
+  userId    String?
+  // What it changed, in a few words ("pro, until 2026-12-14").
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("billingEvent")
 }
 
 // The user's standing answer for a risky tool, so they are not asked every
