@@ -143,6 +143,16 @@ export function safeFetch(
     }
   };
   return Object.assign(request as typeof fetch, {
-    close: () => dispatcher?.close() ?? Promise.resolve(),
+    // Cleanup must never fail a request that worked (some runtimes, like
+    // Bun, give an Agent without close).
+    close: async () => {
+      try {
+        await (
+          dispatcher as { close?: () => Promise<void> } | undefined
+        )?.close?.();
+      } catch {
+        // Nothing to clean up.
+      }
+    },
   });
 }
